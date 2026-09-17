@@ -8,6 +8,8 @@ import {
 } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
+import { ensureCommercialDefinitions } from "../lib/commercial-metafields.server";
+import { completeB2BOnboarding } from "../lib/b2b-onboarding.server";
 import {
   getDistributorApplicationById,
   updateDistributorApplication,
@@ -18,7 +20,6 @@ import {
   getCompanyDetails,
   getPaymentTermsTemplates,
   parseAddressDetails,
-  addCustomerStoreCredit,
 } from "../lib/distributor-b2b.server";
 
 /* ==========================================================================
@@ -141,51 +142,6 @@ export const action = async ({ request, params }) => {
       };
     }
 
-    /* ----------------------------------------------------------------------
-       Add Store Credit to Customer
-       ---------------------------------------------------------------------- */
-    if (intent === "addStoreCredit") {
-      const creditAmount = String(formData.get("storeCreditAmount") || "").trim();
-      const creditCurrency = String(formData.get("storeCreditCurrency") || "USD").trim();
-      const customerGid = application.customer_id;
-
-      if (!customerGid) {
-        return {
-          success: false,
-          error: "No Shopify customer account is linked to this application.",
-        };
-      }
-
-      if (!creditAmount || Number(creditAmount) <= 0) {
-        return {
-          success: false,
-          error: "Please specify a valid store credit amount greater than 0.",
-        };
-      }
-
-      const creditResult = await addCustomerStoreCredit(
-        admin,
-        customerGid,
-        creditAmount,
-        creditCurrency,
-      );
-
-      if (!creditResult?.success) {
-        return {
-          success: false,
-          error: creditResult?.error || "Failed to add store credit in Shopify.",
-        };
-      }
-
-      return {
-        success: true,
-        storeCreditAdded: true,
-        storeCreditAmount: creditAmount,
-        storeCreditCurrency: creditCurrency,
-        storeCredit: creditResult,
-      };
-    }
-
     const status = String(
       formData.get("status") || APPLICATION_STATUSES.PENDING,
     ).trim();
@@ -205,8 +161,10 @@ export const action = async ({ request, params }) => {
     const shippingZip = String(formData.get("shippingZip") || "").trim();
     const shippingCountryCode = String(formData.get("shippingCountryCode") || "").trim();
 
-    const storeCreditAmount = String(formData.get("storeCreditAmount") || "").trim();
-    const storeCreditCurrency = String(formData.get("storeCreditCurrency") || "USD").trim();
+    const salesRep = String(formData.get("salesRep") || "").trim();
+    const salesRepEmail = String(formData.get("salesRepEmail") || "").trim();
+    const salesRepPhone = String(formData.get("salesRepPhone") || "").trim();
+    const catalogTitle = String(formData.get("catalogTitle") || "").trim();
 
     if (!Object.values(APPLICATION_STATUSES).includes(status)) {
       return {
@@ -255,12 +213,28 @@ export const action = async ({ request, params }) => {
     };
 
     let b2bResult = null;
+    let onboardingSteps = [];
 
     /* ----------------------------------------------------------------------
        Approval
        ---------------------------------------------------------------------- */
 
     if (status === APPLICATION_STATUSES.APPROVED) {
+      // Every distributor gets a named contact they can reach. The form blocks
+      // this too, but the action is what creates the company, so it decides.
+      if (!salesRep || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(salesRepEmail)) {
+        return {
+          success: false,
+          error: "Add the sales representative's name and a valid email before approving.",
+          status: APPLICATION_STATUSES.PENDING,
+        };
+      }
+
+      // The metafields must exist with the right types before anything is
+      // written to them — a value whose type doesn't match is silently rejected.
+      const definitions = await ensureCommercialDefinitions(admin);
+      onboardingSteps = definitions.steps;
+
       const structuredAddress = {
         address1: shippingAddress1,
         address2: shippingAddress2,
@@ -273,12 +247,7 @@ export const action = async ({ request, params }) => {
       b2bResult = await approveAndCreateB2BCustomer(
         admin,
         application,
-        {
-          paymentTermsTemplateId,
-          shippingAddress: structuredAddress,
-          storeCreditAmount,
-          storeCreditCurrency,
-        },
+        { shippingAddress: structuredAddress },
       );
 
       if (b2bResult?.error) {
@@ -295,9 +264,30 @@ export const action = async ({ request, params }) => {
         updates.customer_id = b2bResult.customerId;
       }
 
-      if (b2bResult?.companyId) {
-        updates.company_id = b2bResult.companyId;
+      // A customer with tags but no company is not a distributor: the portal
+      // and the pricing both key off company membership.
+      if (!b2bResult?.companyId) {
+        return {
+          success: false,
+          error:
+            b2bResult?.companyError ||
+            "The Shopify B2B company could not be created, so this application was not approved.",
+          status: APPLICATION_STATUSES.PENDING,
+        };
       }
+
+      updates.company_id = b2bResult.companyId;
+
+      // Finish the setup: ordering role, payment terms, tier catalog, sales rep.
+      // Each step reports its own outcome so a partial setup is visible.
+      const onboarding = await completeB2BOnboarding(admin, b2bResult.companyId, {
+        paymentTerms: paymentTermsTemplateId || null,
+        catalogTitle: catalogTitle || null,
+        salesRep,
+        salesRepEmail,
+        salesRepPhone: salesRepPhone || null,
+      });
+      onboardingSteps = onboardingSteps.concat(onboarding.steps);
 
       const formattedAddr = [
         shippingAddress1,
@@ -362,7 +352,7 @@ export const action = async ({ request, params }) => {
         application.company_id ||
         "",
       company: b2bResult?.company || null,
-      storeCredit: b2bResult?.storeCredit || null,
+      onboardingSteps,
       b2bCreated: Boolean(b2bResult?.customerId),
       companyCreated: Boolean(b2bResult?.companyId),
     };
@@ -573,30 +563,14 @@ export default function DistributorDetailPage() {
       const resultStatus = normalizeStatus(fetcher.data.status);
       setStatus(resultStatus);
 
-      if (fetcher.data.storeCreditAdded) {
-        shopify?.toast?.show?.(
-          `Successfully granted ${fetcher.data.storeCreditCurrency} ${fetcher.data.storeCreditAmount} store credit to customer.`,
-        );
-        return;
-      }
-
       if (resultStatus === APPLICATION_STATUSES.APPROVED) {
         setRejectionMessage("");
 
-        const creditTx = fetcher.data.storeCredit?.transaction?.amount;
-        const creditExtra = creditTx?.amount
-          ? ` and ${creditTx.currencyCode} ${creditTx.amount} store credit added`
-          : "";
-
-        if (fetcher.data.storeCredit?.error) {
-          shopify?.toast?.show?.(
-            `Application approved, but store credit error: ${fetcher.data.storeCredit.error}`,
-          );
-          return;
-        }
-
+        const failed = (fetcher.data.onboardingSteps || []).filter((step) => !step.ok);
         shopify?.toast?.show?.(
-          `Application approved. B2B Company, Main Contact, and Payment Terms created${creditExtra}.`,
+          failed.length
+            ? `Approved, but ${failed.length} setup step${failed.length === 1 ? "" : "s"} need attention.`
+            : "Application approved. B2B company, main contact, terms and tier are set up.",
         );
         return;
       }
@@ -652,8 +626,19 @@ export default function DistributorDetailPage() {
   const [shippingZip, setShippingZip] = useState(addressDetails?.zip || "");
   const [shippingCountryCode, setShippingCountryCode] = useState(addressDetails?.countryCode || "SG");
 
-  const [storeCreditAmount, setStoreCreditAmount] = useState("");
-  const [storeCreditCurrency, setStoreCreditCurrency] = useState("USD");
+  // Reported by the action: one row per B2B setup step, so a partial setup is
+  // visible rather than looking like plain success.
+  const setupSteps = fetcher.data?.onboardingSteps || [];
+
+  const [salesRep, setSalesRep] = useState("");
+
+  const [salesRepEmail, setSalesRepEmail] = useState("");
+  const [salesRepPhone, setSalesRepPhone] = useState("");
+  const [catalogTitle, setCatalogTitle] = useState("");
+
+  // Every distributor gets a named contact, so approval waits for one.
+  const repEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(salesRepEmail.trim());
+  const repComplete = Boolean(salesRep.trim()) && repEmailValid;
 
   useEffect(() => {
     if (defaultTermsId && !selectedPaymentTerms) {
@@ -670,7 +655,7 @@ export default function DistributorDetailPage() {
   }, [application?.contact_person, application?.company_name]);
 
   const handleApprove = () => {
-    if (isSubmitting || !isPending) {
+    if (isSubmitting || !isPending || !repComplete) {
       return;
     }
 
@@ -686,26 +671,11 @@ export default function DistributorDetailPage() {
         shippingProvince,
         shippingZip,
         shippingCountryCode,
-        storeCreditAmount,
-        storeCreditCurrency,
+        salesRep,
+        salesRepEmail,
+        salesRepPhone,
+        catalogTitle,
         rejectionMessage: "",
-      },
-      {
-        method: "post",
-      },
-    );
-  };
-
-  const handleAddStoreCreditOnly = () => {
-    if (isSubmitting || !storeCreditAmount || Number(storeCreditAmount) <= 0) {
-      return;
-    }
-    fetcher.submit(
-      {
-        intent: "addStoreCredit",
-        metaobjectId: application?.id || params?.id || "",
-        storeCreditAmount,
-        storeCreditCurrency,
       },
       {
         method: "post",
@@ -1267,34 +1237,40 @@ export default function DistributorDetailPage() {
                           </s-grid>
                         </s-stack>
 
-                        {/* Customer Store Credit Input */}
+                        {/* Sales representative — the portal shows this
+                            person and its contact buttons use these details. */}
                         <s-stack direction="block" gap="extra-small">
-                          <s-text type="strong">Customer Store Credit (Optional)</s-text>
-                          <s-grid gridTemplateColumns="2fr 1fr" gap="small">
+                          <s-text type="strong">Sales representative (required)</s-text>
+                          <s-grid gridTemplateColumns="repeat(2, minmax(0, 1fr))" gap="small">
                             <s-text-field
-                              type="number"
-                              label="Credit Amount"
-                              placeholder="0.00"
-                              min="0"
-                              step="0.01"
-                              value={storeCreditAmount}
-                              onInput={(e) => setStoreCreditAmount(e?.currentTarget?.value ?? e?.target?.value ?? "")}
+                              label="Name"
+                              placeholder="James Tan"
+                              value={salesRep}
+                              onInput={(e) => setSalesRep(e?.currentTarget?.value ?? e?.target?.value ?? "")}
                             />
-                            <s-select
-                              label="Currency"
-                              value={storeCreditCurrency}
-                              onInput={(e) => setStoreCreditCurrency(e?.currentTarget?.value ?? e?.target?.value ?? "USD")}
-                            >
-                              <s-option value="USD">USD ($)</s-option>
-                              <s-option value="SGD">SGD (S$)</s-option>
-                              <s-option value="EUR">EUR (€)</s-option>
-                              <s-option value="GBP">GBP (£)</s-option>
-                              <s-option value="AUD">AUD (A$)</s-option>
-                              <s-option value="CAD">CAD (C$)</s-option>
-                            </s-select>
+                            <s-text-field
+                              label="Email"
+                              placeholder="james@hyve.promo"
+                              value={salesRepEmail}
+                              onInput={(e) => setSalesRepEmail(e?.currentTarget?.value ?? e?.target?.value ?? "")}
+                            />
+                          </s-grid>
+                          <s-grid gridTemplateColumns="repeat(2, minmax(0, 1fr))" gap="small">
+                            <s-text-field
+                              label="WhatsApp number (optional)"
+                              placeholder="+65 9123 4567"
+                              value={salesRepPhone}
+                              onInput={(e) => setSalesRepPhone(e?.currentTarget?.value ?? e?.target?.value ?? "")}
+                            />
+                            <s-text-field
+                              label="Pricing tier (optional)"
+                              placeholder="Gold Member"
+                              value={catalogTitle}
+                              onInput={(e) => setCatalogTitle(e?.currentTarget?.value ?? e?.target?.value ?? "")}
+                            />
                           </s-grid>
                           <s-text color="subdued" type="small">
-                            Will credit customer balance in Shopify via storeCreditAccountCredit mutation upon approval.
+                            The tier is the B2B catalog to attach. Blank means retail pricing.
                           </s-text>
                         </s-stack>
 
@@ -1318,11 +1294,19 @@ export default function DistributorDetailPage() {
                           Approving creates the B2B Company, designates the contact as Main Contact, adds the shipping address, and assigns payment terms.
                         </s-paragraph>
 
+                        {!repComplete && (
+                          <s-banner tone="warning">
+                            {salesRep.trim() && salesRepEmail.trim() && !repEmailValid
+                              ? "That doesn't look like an email address."
+                              : "Add the sales representative's name and email to approve."}
+                          </s-banner>
+                        )}
+
                         <s-stack direction="inline" gap="base">
                           <s-button
                             variant="primary"
                             onClick={handleApprove}
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || !repComplete}
                           >
                             {isSubmitting ? "Approving & creating..." : "Approve application"}
                           </s-button>
@@ -1390,42 +1374,22 @@ export default function DistributorDetailPage() {
                       This application has been approved. The B2B Company, Main Contact, and Payment Terms are active in Shopify.
                     </s-banner>
 
-                    {/* Add Store Credit to Approved Customer */}
-                    <s-box padding="base" background="subdued" borderRadius="base">
-                      <s-stack direction="block" gap="small">
-                        <s-text type="strong">Add Customer Store Credit</s-text>
-                        <s-grid gridTemplateColumns="2fr 1fr" gap="small">
-                          <s-text-field
-                            type="number"
-                            label="Amount"
-                            placeholder="0.00"
-                            min="0"
-                            step="0.01"
-                            value={storeCreditAmount}
-                            onInput={(e) => setStoreCreditAmount(e?.currentTarget?.value ?? e?.target?.value ?? "")}
-                          />
-                          <s-select
-                            label="Currency"
-                            value={storeCreditCurrency}
-                            onInput={(e) => setStoreCreditCurrency(e?.currentTarget?.value ?? e?.target?.value ?? "USD")}
-                          >
-                            <s-option value="USD">USD ($)</s-option>
-                            <s-option value="SGD">SGD (S$)</s-option>
-                            <s-option value="EUR">EUR (€)</s-option>
-                            <s-option value="GBP">GBP (£)</s-option>
-                            <s-option value="AUD">AUD (A$)</s-option>
-                            <s-option value="CAD">CAD (C$)</s-option>
-                          </s-select>
-                        </s-grid>
-                        <s-button
-                          variant="primary"
-                          onClick={handleAddStoreCreditOnly}
-                          disabled={isSubmitting || !storeCreditAmount || Number(storeCreditAmount) <= 0}
-                        >
-                          {isSubmitting ? "Crediting..." : "Credit Customer"}
-                        </s-button>
-                      </s-stack>
-                    </s-box>
+                    {setupSteps.length > 0 && (
+                      <s-box padding="base" background="subdued" borderRadius="base">
+                        <s-stack direction="block" gap="small">
+                          <s-text type="strong">B2B setup</s-text>
+                          {setupSteps.map((step) => (
+                            <s-stack key={step.name} direction="inline" gap="small" alignItems="center">
+                              <s-badge tone={step.ok ? "success" : "critical"}>
+                                {step.ok ? "Done" : "Check"}
+                              </s-badge>
+                              <s-text type="strong">{step.name}</s-text>
+                              <s-text color="subdued">{step.detail}</s-text>
+                            </s-stack>
+                          ))}
+                        </s-stack>
+                      </s-box>
+                    )}
 
                     <s-paragraph color="subdued" type="small">
                       This application is finalized and active in Shopify B2B.

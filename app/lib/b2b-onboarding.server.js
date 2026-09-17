@@ -161,9 +161,17 @@ function pickOrderingRole(roles) {
 }
 
 async function findPaymentTerms(admin, wanted) {
+  // The approval screen sends a real template ID from its dropdown; older
+  // callers send a name like "Net 30". Both resolve to the same template.
+  const asId = String(wanted || "");
   const data = await gql(admin, `#graphql
     query PaymentTermsTemplates { paymentTermsTemplates { id name dueInDays paymentTermsType } }`, {});
   const templates = data?.paymentTermsTemplates || [];
+
+  if (asId.startsWith("gid://shopify/PaymentTermsTemplate/")) {
+    return templates.find((t) => t.id === asId) || { id: asId, name: "Selected terms" };
+  }
+
   const target = String(wanted).toLowerCase();
   return (
     templates.find((t) => String(t.name).toLowerCase() === target) ||

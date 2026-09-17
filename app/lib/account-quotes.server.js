@@ -27,6 +27,26 @@ export const QUOTE_STATUSES = {
 };
 
 /**
+ * The staff decision on a quote.
+ *
+ * Read from `value`, the stored string, rather than `jsonValue`. The admin
+ * screens read `value` and get both states right; the portal read `jsonValue`
+ * and only ever saw approvals — a rejection came back as undecided, so a
+ * declined quote still showed as awaiting action to the buyer.
+ *
+ * @returns {?boolean} true approved, false rejected, null still with the buyer
+ */
+export function quoteDecision(node) {
+  const raw = node?.hyveStatus?.value;
+  if (raw === null || raw === undefined || raw === "") return null;
+
+  const value = String(raw).trim().toLowerCase();
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return null;
+}
+
+/**
  * Map Shopify Admin API DraftOrder nodes to Quote objects.
  * Uses ONLY real data from Shopify — no dummy/sample data fallback.
  */
@@ -67,7 +87,7 @@ export function mapDraftOrdersToQuotes(draftOrderNodes = []) {
     const repName = repAttr?.value || "Sales Team";
     const validUntil = validAttr?.value ? `Valid until ${validAttr.value}` : calculateValidityDate(node.createdAt);
 
-    const decision = node.hyveStatus?.jsonValue;
+    const decision = quoteDecision(node);
 
     if (decision === true) {
       status = QUOTE_STATUSES.APPROVED;

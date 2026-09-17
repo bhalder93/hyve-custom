@@ -18,7 +18,7 @@ const QUICK_ACTIONS = [
   { label: "Track Order", href: "/apps/account/orders?filter=shipped", icon: icoTruck },
   { label: "Upload Artwork", href: "/apps/account/artwork", icon: icoUpload },
   { label: "Get a Quote", href: "/apps/account/quotes", icon: icoQuote },
-  { label: "Contact Support", href: "/apps/account/support", icon: icoSupport },
+  { label: "Contact Support", href: "https://hyve.promo/pages/contact", icon: icoSupport },
 ];
 
 /**

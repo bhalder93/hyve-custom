@@ -39,14 +39,6 @@ function getShopifyAdminDraftOrderUrl(id, shop) {
   return `https://${shop}/admin/draft_orders/${numericId}`;
 }
 
-function getShopifyAllDraftOrdersUrl(shop) {
-  const shopHandle = String(shop || "").replace(".myshopify.com", "");
-  if (shopHandle) {
-    return `https://admin.shopify.com/store/${shopHandle}/draft_orders`;
-  }
-  return `https://${shop}/admin/draft_orders`;
-}
-
 function parseQuoteStatus(metafield) {
   if (!metafield || metafield.value === null || metafield.value === undefined || metafield.value === "") {
     return {
@@ -152,7 +144,7 @@ export const loader = async ({ request }) => {
                 quantity
               }
             }
-            metafield(namespace: "app", key: "hyve_status") {
+            metafield(namespace: "$app", key: "hyve_status") {
               id
               value
               type
@@ -199,306 +191,255 @@ export const loader = async ({ request }) => {
    ========================================================================== */
 
 export default function AdminQuotesListPage() {
-  const { quotes, shop, error: loaderError } = useLoaderData();
+  const { quotes, shop, error } = useLoaderData();
   const navigate = useNavigate();
 
-  const [selectedTab, setSelectedTab] = useState(0);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [tab, setTab] = useState(STATUS_KEYS.ALL);
+  const [query, setQuery] = useState("");
+  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
+  const [page, setPage] = useState(1);
 
-  // Status breakdown metrics
-  const counts = useMemo(() => {
-    let awaiting = 0;
-    let accepted = 0;
-    let rejected = 0;
+  const counts = useMemo(
+    () => ({
+      all: quotes.length,
+      [STATUS_KEYS.AWAITING_ACTION]: quotes.filter((q) => q.quoteStatus.key === STATUS_KEYS.AWAITING_ACTION).length,
+      [STATUS_KEYS.ACCEPTED]: quotes.filter((q) => q.quoteStatus.key === STATUS_KEYS.ACCEPTED).length,
+      [STATUS_KEYS.REJECTED]: quotes.filter((q) => q.quoteStatus.key === STATUS_KEYS.REJECTED).length,
+    }),
+    [quotes],
+  );
 
-    (quotes || []).forEach((q) => {
-      if (q.quoteStatus.key === STATUS_KEYS.ACCEPTED) accepted++;
-      else if (q.quoteStatus.key === STATUS_KEYS.REJECTED) rejected++;
-      else awaiting++;
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return quotes.filter((quote) => {
+      if (tab !== STATUS_KEYS.ALL && quote.quoteStatus.key !== tab) return false;
+      if (!needle) return true;
+      const haystack = [
+        quote.name,
+        quote.customer?.displayName,
+        quote.customer?.email,
+        ...(quote.lineItems?.nodes || []).map((li) => li.title || li.name),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(needle);
     });
+  }, [quotes, tab, query]);
 
-    return {
-      total: (quotes || []).length,
-      awaiting,
-      accepted,
-      rejected,
-    };
-  }, [quotes]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  // Client-side filtering by tab and search query
-  const filteredQuotes = useMemo(() => {
-    const activeTab = TABS[selectedTab]?.id || STATUS_KEYS.ALL;
-    const query = searchQuery.trim().toLowerCase();
-
-    return (quotes || []).filter((q) => {
-      if (activeTab !== STATUS_KEYS.ALL && q.quoteStatus.key !== activeTab) {
-        return false;
-      }
-
-      if (query) {
-        const nameMatch = (q.name || "").toLowerCase().includes(query);
-        const custNameMatch = (q.customer?.displayName || "").toLowerCase().includes(query);
-        const custEmailMatch = (q.customer?.email || "").toLowerCase().includes(query);
-        const lineItemMatch = (q.lineItems?.nodes || []).some((item) =>
-          (item.title || item.name || "").toLowerCase().includes(query),
-        );
-        return nameMatch || custNameMatch || custEmailMatch || lineItemMatch;
-      }
-
-      return true;
-    });
-  }, [quotes, selectedTab, searchQuery]);
-
-  // Pagination calculations
-  const totalPages = Math.max(1, Math.ceil(filteredQuotes.length / pageSize));
-
-  const paginatedQuotes = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredQuotes.slice(start, start + pageSize);
-  }, [currentPage, pageSize, filteredQuotes]);
-
-  const startIndex = filteredQuotes.length > 0 ? (currentPage - 1) * pageSize + 1 : 0;
-  const endIndex = Math.min(currentPage * pageSize, filteredQuotes.length);
-
-  const handleTabChange = useCallback((idx) => {
-    setSelectedTab(idx);
-    setCurrentPage(1);
+  const changeTab = useCallback((next) => {
+    setTab(next);
+    setPage(1);
   }, []);
 
-  const handleSearchChange = useCallback((val) => {
-    setSearchQuery(val);
-    setCurrentPage(1);
-  }, []);
+  const itemsFor = (quote) => {
+    const lines = quote.lineItems?.nodes || [];
+    if (!lines.length) return "—";
+    const first = `${lines[0].title || lines[0].name}${lines[0].quantity > 1 ? ` ×${lines[0].quantity}` : ""}`;
+    return lines.length > 1 ? `${first} +${lines.length - 1} more` : first;
+  };
 
   return (
     <s-page heading="Quotes" inlineSize="large">
-      {/* Secondary / Primary Action Slot */}
       <s-button
         slot="primary-action"
-        variant="secondary"
-        icon="refresh"
-        onClick={() => window.location.reload()}
+        href={getShopifyAdminDraftOrderUrl("", shop)}
+        target="_blank"
+        variant="primary"
       >
-        Refresh
+        Open draft orders
       </s-button>
 
-      <s-stack direction="block" gap="large">
-        {/* Error notification banner if any */}
-        {loaderError && (
-          <s-banner tone="critical" heading="Could not load quotes">
-            <s-paragraph>{loaderError}</s-paragraph>
-          </s-banner>
-        )}
+      {error ? (
+        <s-banner tone="critical" heading="We couldn't load quotes">
+          <s-paragraph>{error}</s-paragraph>
+        </s-banner>
+      ) : null}
 
+      <s-section padding="base">
+        <s-grid
+          gridTemplateColumns="@container (inline-size <= 600px) 1fr, 1fr auto 1fr auto 1fr auto 1fr"
+          gap="small"
+        >
+          <s-clickable
+            onClick={() => changeTab(STATUS_KEYS.ALL)}
+            paddingBlock="small-400"
+            paddingInline="small-100"
+            borderRadius="base"
+          >
+            <s-grid gap="small-300">
+              <s-heading>All quotes</s-heading>
+              <s-text type="strong">{counts.all}</s-text>
+            </s-grid>
+          </s-clickable>
 
-        {/* Filter Controls & Search Bar */}
-        <s-box padding="base" background="base" border="small base solid" borderRadius="base">
-          <s-stack direction="block" gap="base">
-            {/* Tabs Row */}
-            <s-stack direction="inline" gap="small-200" justifyContent="space-between" alignItems="center">
-              <s-stack direction="inline" gap="small-200">
-                {TABS.map((tab, idx) => (
-                  <s-button
-                    key={tab.id}
-                    variant={selectedTab === idx ? "secondary" : "tertiary"}
-                    onClick={() => handleTabChange(idx)}
-                  >
-                    {tab.label}
-                    {tab.id === STATUS_KEYS.ALL && ` (${counts.total})`}
-                    {tab.id === STATUS_KEYS.AWAITING_ACTION && ` (${counts.awaiting})`}
-                    {tab.id === STATUS_KEYS.ACCEPTED && ` (${counts.accepted})`}
-                    {tab.id === STATUS_KEYS.REJECTED && ` (${counts.rejected})`}
-                  </s-button>
-                ))}
-              </s-stack>
+          <s-divider direction="block" />
 
-              {/* Rows per page selector */}
+          <s-clickable
+            onClick={() => changeTab(STATUS_KEYS.AWAITING_ACTION)}
+            paddingBlock="small-400"
+            paddingInline="small-100"
+            borderRadius="base"
+          >
+            <s-grid gap="small-300">
+              <s-heading>Awaiting action</s-heading>
               <s-stack direction="inline" gap="small-200" alignItems="center">
-                <s-text tone="subdued" type="small">Show:</s-text>
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <s-button
-                    key={size}
-                    variant={pageSize === size ? "secondary" : "tertiary"}
-                    onClick={() => {
-                      setPageSize(size);
-                      setCurrentPage(1);
-                    }}
-                  >
-                    {size}
-                  </s-button>
-                ))}
+                <s-text type="strong">{counts[STATUS_KEYS.AWAITING_ACTION]}</s-text>
+                {counts[STATUS_KEYS.AWAITING_ACTION] > 0 ? <s-badge tone="warning">Open</s-badge> : null}
               </s-stack>
-            </s-stack>
+            </s-grid>
+          </s-clickable>
 
-            <s-divider />
+          <s-divider direction="block" />
 
-            {/* Live Search Input */}
+          <s-clickable
+            onClick={() => changeTab(STATUS_KEYS.ACCEPTED)}
+            paddingBlock="small-400"
+            paddingInline="small-100"
+            borderRadius="base"
+          >
+            <s-grid gap="small-300">
+              <s-heading>Accepted</s-heading>
+              <s-text type="strong">{counts[STATUS_KEYS.ACCEPTED]}</s-text>
+            </s-grid>
+          </s-clickable>
+
+          <s-divider direction="block" />
+
+          <s-clickable
+            onClick={() => changeTab(STATUS_KEYS.REJECTED)}
+            paddingBlock="small-400"
+            paddingInline="small-100"
+            borderRadius="base"
+          >
+            <s-grid gap="small-300">
+              <s-heading>Declined</s-heading>
+              <s-text type="strong">{counts[STATUS_KEYS.REJECTED]}</s-text>
+            </s-grid>
+          </s-clickable>
+        </s-grid>
+      </s-section>
+
+      <s-section>
+        <s-stack direction="block" gap="base">
+          <s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="end">
             <s-search-field
               label="Search quotes"
               labelAccessibilityVisibility="exclusive"
-              placeholder="Filter by quote #, customer name, email, or item title..."
-              value={searchQuery}
-              onInput={(e) => handleSearchChange(e?.currentTarget?.value ?? e?.target?.value ?? "")}
+              placeholder="Quote number, customer or product"
+              value={query}
+              onInput={(e) => {
+                setQuery(e?.currentTarget?.value ?? e?.target?.value ?? "");
+                setPage(1);
+              }}
             />
+            <s-select
+              label="Per page"
+              labelAccessibilityVisibility="exclusive"
+              value={String(pageSize)}
+              onChange={(e) => {
+                setPageSize(Number(e?.currentTarget?.value ?? e?.target?.value ?? PAGE_SIZE_OPTIONS[0]));
+                setPage(1);
+              }}
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <s-option key={size} value={String(size)}>
+                  {size} per page
+                </s-option>
+              ))}
+            </s-select>
+          </s-grid>
+
+          <s-stack direction="inline" gap="small-200">
+            {TABS.map((item) => (
+              <s-button
+                key={item.id}
+                variant={tab === item.id ? "primary" : "tertiary"}
+                onClick={() => changeTab(item.id)}
+              >
+                {item.label}
+              </s-button>
+            ))}
           </s-stack>
-        </s-box>
 
-        {/* Quotes Data Table */}
-        <s-box padding="none" background="base" border="small base solid" borderRadius="base">
-          {filteredQuotes.length === 0 ? (
-            <s-section>
-              <s-stack alignItems="center" padding="large-500">
-
-                <s-heading>No results found</s-heading>
-                <s-paragraph>
-                  Try changing the filters or search term
+          {visible.length === 0 ? (
+            <s-box padding="large-100" borderRadius="base" background="subdued">
+              <s-stack direction="block" gap="small-200" alignItems="center">
+                <s-heading>No quotes here</s-heading>
+                <s-paragraph color="subdued">
+                  {quotes.length === 0
+                    ? "Quotes raised from the storefront or the distributor portal will appear here."
+                    : "Nothing matches this filter. Try another tab or clear the search."}
                 </s-paragraph>
-
               </s-stack>
-            </s-section>
-
+            </s-box>
           ) : (
-            <>
-              <s-table>
-                <s-table-header-row>
-                  <s-table-header>Quote #</s-table-header>
-                  <s-table-header>Customer</s-table-header>
-                  <s-table-header>Items</s-table-header>
-                  <s-table-header>Total Amount</s-table-header>
-                  <s-table-header>Status</s-table-header>
-                  <s-table-header>Submitted Date</s-table-header>
-                  <s-table-header>Actions</s-table-header>
-                </s-table-header-row>
-                <s-table-body>
-                  {paginatedQuotes.map((quote) => {
-                    const detailHref = `/app/quote/${encodeURIComponent(quote.numericId)}`;
-                    const adminDraftOrderUrl = getShopifyAdminDraftOrderUrl(quote.id, shop);
-                    const totalMoney = quote.totalPriceSet?.shopMoney;
-                    const items = quote.lineItems?.nodes || [];
-                    const itemsSummary = items.length > 0
-                      ? items.map((i) => `${i.title || i.name}${i.quantity > 1 ? ` (x${i.quantity})` : ""}`).slice(0, 2).join(", ") + (items.length > 2 ? ` + ${items.length - 2} more` : "")
-                      : "—";
-
-                    return (
-                      <s-table-row key={quote.id}>
-                        {/* Quote Number / Name */}
-                        <s-table-cell>
-                          <s-link href={detailHref}>
-                            <s-text type="strong">{quote.name || `Quote #${quote.numericId}`}</s-text>
-                          </s-link>
-                        </s-table-cell>
-
-                        {/* Customer */}
-                        <s-table-cell>
-                          <s-stack direction="block" gap="extra-small">
-                            <s-text>{quote.customer?.displayName || "Guest Customer"}</s-text>
-                            <s-text tone="subdued" type="small">
-                              {quote.customer?.email || "—"}
-                            </s-text>
-                          </s-stack>
-                        </s-table-cell>
-
-                        {/* Items Summary */}
-                        <s-table-cell>
-                          <s-paragraph type="small" tone="subdued">
-                            {itemsSummary}
-                          </s-paragraph>
-                        </s-table-cell>
-
-                        {/* Total Amount */}
-                        <s-table-cell>
-                          <s-text type="strong">
-                            {formatMoney(totalMoney?.amount, totalMoney?.currencyCode)}
-                          </s-text>
-                        </s-table-cell>
-
-                        {/* Status Badge */}
-                        <s-table-cell>
-                          <s-badge tone={quote.quoteStatus.tone}>
-                            {quote.quoteStatus.label}
-                          </s-badge>
-                        </s-table-cell>
-
-                        {/* Submitted Date */}
-                        <s-table-cell>
-                          <s-text tone="subdued" type="small">
-                            {formatDate(quote.createdAt)}
-                          </s-text>
-                        </s-table-cell>
-
-                        {/* Actions */}
-                        <s-table-cell>
-                          <s-stack direction="inline" gap="small-200" alignItems="center">
-                            <s-button
-                              variant="secondary"
-                              href={detailHref}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                navigate(detailHref);
-                              }}
-                            >
-                              View Details
-                            </s-button>
-                            <s-button
-                              variant="tertiary"
-                              href={adminDraftOrderUrl}
-                              target="_blank"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (adminDraftOrderUrl) window.open(adminDraftOrderUrl, "_blank");
-                              }}
-                            >
-                              Shopify ↗
-                            </s-button>
-                          </s-stack>
-                        </s-table-cell>
-                      </s-table-row>
-                    );
-                  })}
-                </s-table-body>
-              </s-table>
-
-              {/* Full Pagination Controls */}
-              <s-divider />
-              <s-box padding="base" background="base">
-                <s-stack
-                  direction="inline"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
-                  <s-text tone="subdued" type="small">
-                    Showing <strong>{startIndex}–{endIndex}</strong> of <strong>{filteredQuotes.length}</strong> quotes
-                  </s-text>
-
-                  <s-stack direction="inline" gap="small-200" alignItems="center">
-                    <s-button
-                      variant="secondary"
-                      disabled={currentPage <= 1}
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    >
-                      Previous
-                    </s-button>
-
-                    <s-text tone="subdued" type="small">
-                      Page {currentPage} of {totalPages}
-                    </s-text>
-
-                    <s-button
-                      variant="secondary"
-                      disabled={currentPage >= totalPages}
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    >
-                      Next
-                    </s-button>
-                  </s-stack>
-                </s-stack>
-              </s-box>
-            </>
+            <s-table variant="auto">
+              <s-table-header-row>
+                <s-table-header listSlot="primary">Quote</s-table-header>
+                <s-table-header>Customer</s-table-header>
+                <s-table-header>Items</s-table-header>
+                <s-table-header>Created</s-table-header>
+                <s-table-header format="currency">Total</s-table-header>
+                <s-table-header listSlot="labeled">Status</s-table-header>
+              </s-table-header-row>
+              <s-table-body>
+                {visible.map((quote) => (
+                  <s-table-row key={quote.id} onClick={() => navigate(`/app/quote/${quote.numericId}`)}>
+                    <s-table-cell>
+                      <s-link href={`/app/quote/${quote.numericId}`}>{quote.name}</s-link>
+                    </s-table-cell>
+                    <s-table-cell>
+                      <s-stack direction="block" gap="none">
+                        <s-text>{quote.customer?.displayName || "Guest"}</s-text>
+                        <s-text color="subdued">{quote.customer?.email || ""}</s-text>
+                      </s-stack>
+                    </s-table-cell>
+                    <s-table-cell>{itemsFor(quote)}</s-table-cell>
+                    <s-table-cell>{formatDate(quote.createdAt)}</s-table-cell>
+                    <s-table-cell>
+                      {formatMoney(
+                        quote.totalPriceSet?.shopMoney?.amount,
+                        quote.totalPriceSet?.shopMoney?.currencyCode,
+                      )}
+                    </s-table-cell>
+                    <s-table-cell>
+                      <s-badge tone={quote.quoteStatus.tone}>{quote.quoteStatus.label}</s-badge>
+                    </s-table-cell>
+                  </s-table-row>
+                ))}
+              </s-table-body>
+            </s-table>
           )}
-        </s-box>
-      </s-stack>
+
+          {totalPages > 1 ? (
+            <s-stack direction="inline" gap="base" alignItems="center">
+              <s-button
+                variant="tertiary"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Previous
+              </s-button>
+              <s-text color="subdued">
+                Page {currentPage} of {totalPages} · {filtered.length} quote
+                {filtered.length === 1 ? "" : "s"}
+              </s-text>
+              <s-button
+                variant="tertiary"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
+              </s-button>
+            </s-stack>
+          ) : null}
+        </s-stack>
+      </s-section>
     </s-page>
   );
 }

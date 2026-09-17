@@ -49,3 +49,23 @@ export default async function handleRequest(
     setTimeout(abort, streamTimeout + 1000);
   });
 }
+
+/**
+ * Server-side error logging.
+ *
+ * React Router calls this for every error raised while handling a request —
+ * including ones it generates before your route runs, such as the 7.18 CSRF
+ * origin check that rejects action submissions with a bare "Bad Request".
+ * Logging the `origin` header is what makes that failure diagnosable: whatever
+ * it prints is the value that belongs in `allowedActionOrigins`
+ * (react-router.config.js).
+ */
+export function handleError(error, { request }) {
+  if (request.signal.aborted) return;
+
+  console.error(
+    `[server] ${request.method} ${request.url} failed: ${error?.message || error}`,
+    { origin: request.headers.get("origin") || "(none)" },
+  );
+  if (error?.stack) console.error(error.stack);
+}

@@ -7,6 +7,7 @@
  * scopes, GraphQL errors or a timeout — so the caller shows the error panel
  * instead of an empty portal.
  */
+import { quoteDecision } from "./account-quotes.server";
 import {
   isDistributor,
   orderStatusKey,
@@ -106,7 +107,7 @@ const ACCOUNT_QUERY = `#graphql
     draftOrders(first: 50, query: $draftQuery) {
       nodes {
         id
-        hyveStatus: metafield(namespace: "$app", key: "hyve_status") { jsonValue }
+        hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
       }
     }
   }`;
@@ -163,7 +164,7 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
       orderNodes,
       // Quotes awaiting the buyer's decision, for the nav badge.
       awaitingQuotes: distributor
-        ? (body?.data?.draftOrders?.nodes || []).filter((n) => n.hyveStatus?.jsonValue == null).length
+        ? (body?.data?.draftOrders?.nodes || []).filter((n) => quoteDecision(n) == null).length
         : 0,
       failed: false,
     };
@@ -302,7 +303,7 @@ const CHROME_QUERY = `#graphql
     draftOrders(first: 50, query: $draftQuery) {
       nodes {
         id
-        hyveStatus: metafield(namespace: "$app", key: "hyve_status") { jsonValue }
+        hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
       }
     }
   }`;
@@ -351,7 +352,7 @@ export async function portalChrome(admin, customerId) {
     // A quote needs the buyer's attention until staff mark it approved or
     // rejected, which they do with the hyve_status metafield on the draft order.
     const awaitingQuotes = (body?.data?.draftOrders?.nodes || []).filter(
-      (node) => node.hyveStatus?.jsonValue == null,
+      (node) => quoteDecision(node) == null,
     ).length;
 
     return {

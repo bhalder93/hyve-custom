@@ -4,6 +4,7 @@ import { useLoaderData, useFetcher, useRouteError } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import { AdminTheme, Pill } from "../lib/admin-theme";
 
 /* ==========================================================================
    Constants & Helpers
@@ -65,22 +66,6 @@ function parseQuoteStatus(metafield) {
     tone: "warning",
     rawBool: null,
   };
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return "—";
-  try {
-    const d = new Date(dateStr);
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(d);
-  } catch {
-    return dateStr;
-  }
 }
 
 function formatMoney(amount, currency = "USD") {
@@ -207,7 +192,7 @@ export const loader = async ({ request, params }) => {
             key
             value
           }
-          metafield(namespace: "app", key: "hyve_status") {
+          metafield(namespace: "$app", key: "hyve_status") {
             id
             value
             type
@@ -259,7 +244,6 @@ export const action = async ({ request }) => {
 
   if (intent === "update_status") {
     const targetStatus = String(formData.get("targetStatus") || "").trim();
-    const metafieldId = String(formData.get("metafieldId") || "").trim();
 
     try {
       if (targetStatus === "accepted" || targetStatus === "rejected") {
@@ -287,7 +271,7 @@ export const action = async ({ request }) => {
               metafields: [
                 {
                   ownerId: draftOrderId,
-                  namespace: "app",
+                  namespace: "$app",
                   key: "hyve_status",
                   type: "boolean",
                   value: boolValue,
@@ -314,47 +298,59 @@ export const action = async ({ request }) => {
       }
 
       if (targetStatus === "awaiting_action") {
-        let targetMetafieldId = metafieldId;
-        if (!targetMetafieldId) {
-          const fetchRes = await admin.graphql(
-            `#graphql
-            query GetDraftOrderMetafield($id: ID!) {
-              draftOrder(id: $id) {
+        // Awaiting means the metafield is absent, and a boolean has no third
+        // value, so resetting is a delete. `metafieldsDelete` identifies the
+        // metafield by owner, namespace and key rather than by its ID.
+        //
+        // The namespace is read back off the record instead of being passed as
+        // "$app": that alias resolves to the app's reserved namespace, and the
+        // resolved form is what the delete has to match.
+        const lookup = await admin.graphql(
+          `#graphql
+          query GetDraftOrderHyveStatus($id: ID!) {
+            draftOrder(id: $id) {
+              id
+              metafield(namespace: "$app", key: "hyve_status") {
                 id
-                metafield(namespace: "app", key: "hyve_status") {
-                  id
-                }
+                namespace
+                key
               }
-            }`,
-            { variables: { id: draftOrderId } },
-          );
-          const fetchJson = await fetchRes.json();
-          targetMetafieldId = fetchJson?.data?.draftOrder?.metafield?.id;
-        }
+            }
+          }`,
+          { variables: { id: draftOrderId } },
+        );
+        const lookupJson = await lookup.json();
+        const existing = lookupJson?.data?.draftOrder?.metafield;
 
-        if (targetMetafieldId) {
+        // Nothing stored means it is already awaiting action.
+        if (existing?.namespace) {
           const delRes = await admin.graphql(
             `#graphql
-            mutation DeleteDraftOrderHyveStatus($input: MetafieldDeleteInput!) {
-              metafieldDelete(input: $input) {
-                deletedId
-                userErrors {
-                  field
-                  message
-                }
+            mutation ClearDraftOrderHyveStatus($metafields: [MetafieldIdentifierInput!]!) {
+              metafieldsDelete(metafields: $metafields) {
+                deletedMetafields { key namespace ownerId }
+                userErrors { field message }
               }
             }`,
             {
               variables: {
-                input: {
-                  id: targetMetafieldId,
-                },
+                metafields: [
+                  {
+                    ownerId: draftOrderId,
+                    namespace: existing.namespace,
+                    key: existing.key || "hyve_status",
+                  },
+                ],
               },
             },
           );
 
           const delJson = await delRes.json();
-          const errors = delJson?.data?.metafieldDelete?.userErrors;
+          if (delJson?.errors?.length) {
+            return { success: false, error: delJson.errors[0]?.message || "Reset failed." };
+          }
+
+          const errors = delJson?.data?.metafieldsDelete?.userErrors;
           if (errors && errors.length > 0) {
             return { success: false, error: errors.map((e) => e.message).join(", ") };
           }
@@ -382,6 +378,21 @@ export const action = async ({ request }) => {
 /* ==========================================================================
    Main Component: Redesigned Dedicated Quote Details Page
    ========================================================================== */
+
+function formatDateTime(value) {
+  if (!value) return "—";
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(value));
+  } catch {
+    return "—";
+  }
+}
 
 export default function QuoteDetailPage() {
   const { quote: initialQuote, shop } = useLoaderData();
@@ -423,12 +434,11 @@ export default function QuoteDetailPage() {
           intent: "update_status",
           draftOrderId: quote.id,
           targetStatus,
-          metafieldId: quote.metafield?.id || "",
         },
         { method: "post" },
       );
     },
-    [fetcher, quote.id, quote.metafield?.id],
+    [fetcher, quote.id],
   );
 
   const isSubmitting = fetcher.state !== "idle";
@@ -439,307 +449,258 @@ export default function QuoteDetailPage() {
 
   const isAccepted = quote.quoteStatus.key === STATUS_KEYS.ACCEPTED;
   const isRejected = quote.quoteStatus.key === STATUS_KEYS.REJECTED;
-  const isAwaiting = quote.quoteStatus.key === STATUS_KEYS.AWAITING_ACTION;
+  const decided = isAccepted || isRejected;
 
-  const pageTitle = quote.name || `Quote #${quote.numericId}`;
-  const customerInitials = useMemo(
-    () => getInitials(quote.customer?.displayName),
-    [quote.customer?.displayName],
-  );
+  const currency = quote.totalPriceSet?.shopMoney?.currencyCode || "USD";
+  const lines = quote.lineItems?.nodes || [];
+  const customerName = quote.customer?.displayName || quote.customer?.email || "Guest";
+
+  const address = quote.shippingAddress || quote.billingAddress;
+  const addressLines = address
+    ? [
+        address.name,
+        address.address1,
+        address.address2,
+        [address.city, address.province, address.zip].filter(Boolean).join(" "),
+        address.country,
+      ].filter(Boolean)
+    : [];
 
   return (
-    <s-page heading={pageTitle} inlineSize="large">
-      {/* Breadcrumb back to Quotes */}
-      <s-link slot="breadcrumb-actions" href="/app/quotes">Quotes</s-link>
-
-      {/* Primary Action Slot: View Draft Order in Shopify Admin */}
-      <s-button
-        slot="primary-action"
-        variant="primary"
-        href={shopifyAdminUrl}
-        target="_blank"
-        onClick={() => {
-          if (shopifyAdminUrl) window.open(shopifyAdminUrl, "_blank");
-        }}
-      >
-        View Draft Order in Shopify ↗
+    <s-page heading={`Quote ${quote.name}`} inlineSize="large">
+      <s-button slot="primary-action" href={shopifyAdminUrl} target="_blank" variant="primary">
+        Open in Shopify
+      </s-button>
+      {quote.invoiceUrl ? (
+        <s-button slot="secondary-actions" href={quote.invoiceUrl} target="_blank">
+          Checkout link
+        </s-button>
+      ) : null}
+      <s-button slot="secondary-actions" href="/app/quotes" variant="tertiary">
+        All quotes
       </s-button>
 
-      {/* Secondary Action Slot: Checkout Invoice Link */}
-      {quote.invoiceUrl && (
-        <s-button
-          slot="secondary-actions"
-          variant="secondary"
-          href={quote.invoiceUrl}
-          target="_blank"
-        >
-          Checkout Invoice ↗
-        </s-button>
-      )}
+      <s-section padding="base">
+        <div className="hyv">
+          <AdminTheme />
 
-      <s-stack direction="block" gap="large">
-        {/* Top Status Banner */}
-        {isAwaiting && (
-          <s-banner tone="warning" heading="Awaiting Action">
-            <s-paragraph>
-              This quote was submitted via the storefront B2B portal and is waiting for merchant review. You can accept or reject it below.
-            </s-paragraph>
-          </s-banner>
-        )}
+          <div className="hyv-stack">
+            {/* Header: who, when, how much, and where it stands */}
+            <div className="hyv-panel" style={{ padding: "18px 20px" }}>
+              <div className="hyv-hero">
+                <div style={{ display: "flex", gap: "12px", alignItems: "center", minWidth: 0 }}>
+                  <span className="hyv-avatar">{getInitials(customerName)}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "17px", fontWeight: 700, letterSpacing: "-0.01em" }}>
+                        {customerName}
+                      </span>
+                      <Pill tone={quote.quoteStatus.tone}>{quote.quoteStatus.label}</Pill>
+                    </div>
+                    <p className="hyv-muted" style={{ margin: "3px 0 0" }}>
+                      {quote.customer?.email || "No email on file"} · raised{" "}
+                      {formatDateTime(quote.createdAt)}
+                    </p>
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div className="hyv-muted" style={{ fontSize: "12px" }}>
+                    Total
+                  </div>
+                  <div className="hyv-hero__value">
+                    {formatMoney(quote.totalPriceSet?.shopMoney?.amount, currency)}
+                  </div>
+                </div>
+              </div>
+            </div>
 
-        {isAccepted && (
-          <s-banner tone="success" heading="Quote Accepted">
-            <s-paragraph>
-              This quote has been approved. The customer sees this quote marked as Accepted in their portal.
-            </s-paragraph>
-          </s-banner>
-        )}
+            {!decided ? (
+              <s-banner tone="warning" heading="Waiting on your decision">
+                <s-paragraph>
+                  The buyer sees this quote as awaiting action until you accept or decline it.
+                </s-paragraph>
+              </s-banner>
+            ) : null}
 
-        {isRejected && (
-          <s-banner tone="critical" heading="Quote Rejected">
-            <s-paragraph>
-              This quote has been declined. The customer sees this quote marked as Declined in their portal.
-            </s-paragraph>
-          </s-banner>
-        )}
+            <div className="hyv-split">
+              {/* Items */}
+              <div className="hyv-panel">
+                <div className="hyv-panel__head">
+                  <span className="hyv-panel__title">
+                    Items ({lines.length})
+                  </span>
+                </div>
+                {lines.length === 0 ? (
+                  <div className="hyv-empty">
+                    <div className="hyv-empty__title">No line items</div>
+                    <p className="hyv-empty__text">This draft order has nothing on it.</p>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="hyv-table">
+                      <thead>
+                        <tr>
+                          <th>Item</th>
+                          <th className="hyv-num">Qty</th>
+                          <th className="hyv-num">Unit</th>
+                          <th className="hyv-num">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lines.map((line) => {
+                          const unit = Number(
+                            line.discountedUnitPriceSet?.shopMoney?.amount ??
+                              line.originalUnitPriceSet?.shopMoney?.amount ??
+                              0,
+                          );
+                          return (
+                            <tr key={line.id}>
+                              <td>
+                                <div className="hyv-table__title">{line.title || line.name}</div>
+                                {line.sku ? (
+                                  <div className="hyv-table__meta">SKU {line.sku}</div>
+                                ) : null}
+                              </td>
+                              <td className="hyv-num">{line.quantity}</td>
+                              <td className="hyv-num">{formatMoney(unit, currency)}</td>
+                              <td className="hyv-num" style={{ fontWeight: 650 }}>
+                                {formatMoney(unit * line.quantity, currency)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
 
-        {/* Main Grid: Details + Summary */}
-        <s-grid gridTemplateColumns="2fr 1fr" gap="large">
-          {/* Left Column: Items and Customer Info */}
-          <s-stack direction="block" gap="large">
-            {/* Quote Items Table */}
-            <s-box padding="none" background="base" border="small base solid" borderRadius="base">
-              <s-section heading="Quote Items" padding="base">
-                <s-table>
-                  <s-table-header-row>
-                    <s-table-header>Item &amp; Description</s-table-header>
-                    <s-table-header>SKU</s-table-header>
-                    <s-table-header format="numeric">Quantity</s-table-header>
-                    <s-table-header format="currency">Unit Price</s-table-header>
-                    <s-table-header format="currency">Total</s-table-header>
-                  </s-table-header-row>
-                  <s-table-body>
-                    {(quote.lineItems?.nodes || []).map((item) => {
-                      const unitPrice =
-                        item.discountedUnitPriceSet?.shopMoney ||
-                        item.originalUnitPriceSet?.shopMoney;
-                      const lineTotal =
-                        Number(unitPrice?.amount || 0) * (item.quantity || 1);
+              {/* Summary */}
+              <div className="hyv-panel" style={{ padding: "16px 18px" }}>
+                <div className="hyv-panel__title" style={{ marginBottom: "8px" }}>
+                  Summary
+                </div>
+                <div className="hyv-total">
+                  <span className="hyv-total__key">Subtotal</span>
+                  <span className="hyv-total__val">
+                    {formatMoney(quote.subtotalPriceSet?.shopMoney?.amount, currency)}
+                  </span>
+                </div>
+                <div className="hyv-total">
+                  <span className="hyv-total__key">Shipping</span>
+                  <span className="hyv-total__val">
+                    {formatMoney(quote.totalShippingPriceSet?.shopMoney?.amount, currency)}
+                  </span>
+                </div>
+                <div className="hyv-total">
+                  <span className="hyv-total__key">Tax</span>
+                  <span className="hyv-total__val">
+                    {formatMoney(quote.totalTaxSet?.shopMoney?.amount, currency)}
+                  </span>
+                </div>
+                <div className="hyv-total hyv-total--grand">
+                  <span className="hyv-total__key">Total</span>
+                  <span className="hyv-total__val">
+                    {formatMoney(quote.totalPriceSet?.shopMoney?.amount, currency)}
+                  </span>
+                </div>
+              </div>
+            </div>
 
-                      return (
-                        <s-table-row key={item.id}>
-                          <s-table-cell>
-                            <s-stack direction="block" gap="extra-small">
-                              <s-text type="strong">{item.title || item.name}</s-text>
-                            </s-stack>
-                          </s-table-cell>
-                          <s-table-cell>
-                            <s-text tone="subdued">{item.sku || "—"}</s-text>
-                          </s-table-cell>
-                          <s-table-cell>
-                            <s-text>{item.quantity}</s-text>
-                          </s-table-cell>
-                          <s-table-cell>
-                            <s-text>
-                              {formatMoney(unitPrice?.amount, unitPrice?.currencyCode)}
-                            </s-text>
-                          </s-table-cell>
-                          <s-table-cell>
-                            <s-text type="strong">
-                              {formatMoney(lineTotal, unitPrice?.currencyCode)}
-                            </s-text>
-                          </s-table-cell>
-                        </s-table-row>
-                      );
-                    })}
-                  </s-table-body>
-                </s-table>
-              </s-section>
-            </s-box>
+            {/* Contact and delivery */}
+            <div className="hyv-panel" style={{ padding: "4px 18px 14px" }}>
+              <div className="hyv-kv">
+                <div className="hyv-kv__item">
+                  <div className="hyv-kv__key">Contact email</div>
+                  <div className="hyv-kv__val">{quote.customer?.email || "—"}</div>
+                </div>
+                <div className="hyv-kv__item">
+                  <div className="hyv-kv__key">Contact phone</div>
+                  <div className="hyv-kv__val">{quote.customer?.phone || "—"}</div>
+                </div>
+                <div className="hyv-kv__item">
+                  <div className="hyv-kv__key">Last updated</div>
+                  <div className="hyv-kv__val">{formatDateTime(quote.updatedAt)}</div>
+                </div>
+                <div className="hyv-kv__item">
+                  <div className="hyv-kv__key">Shipping address</div>
+                  <div className="hyv-kv__val">
+                    {addressLines.length ? addressLines.join(", ") : "None on file"}
+                  </div>
+                </div>
+              </div>
+            </div>
 
-            {/* Customer Information Card */}
-            <s-box padding="large" background="base" borderRadius="base">
-              <s-section heading="Customer &amp; Contact Information" padding="none">
-                <s-stack direction="block" gap="base">
-                  <s-stack direction="inline" gap="base" alignItems="center">
-                    <s-avatar initials={customerInitials} size="large" />
-                    <s-stack direction="block" gap="extra-small">
-                      <s-text type="strong">
-                        {quote.customer?.displayName || "Guest Customer"}
-                      </s-text>
-                      <s-text tone="subdued" type="small">
-                        {quote.customer?.email || "No email address provided"}
-                      </s-text>
-                    </s-stack>
-                  </s-stack>
-
-                  <s-divider />
-
-                  <s-grid gridTemplateColumns="1fr 1fr" gap="base">
-                    <s-box>
-                      <s-text type="strong">Contact Phone</s-text>
-                      <s-paragraph tone="subdued">
-                        {quote.customer?.phone || quote.shippingAddress?.phone || "—"}
-                      </s-paragraph>
-                    </s-box>
-                    <s-box>
-                      <s-text type="strong">Shopify Customer ID</s-text>
-                      <s-paragraph tone="subdued">
-                        {quote.customer?.id ? quote.customer.id.replace("gid://shopify/Customer/", "") : "—"}
-                      </s-paragraph>
-                    </s-box>
-                  </s-grid>
-
-                  <s-divider />
-
-                  <s-grid gridTemplateColumns="1fr 1fr" gap="base">
-                    <s-box>
-                      <s-text type="strong">Shipping Address</s-text>
-                      <s-paragraph tone="subdued">
-                        {quote.shippingAddress
-                          ? [
-                            quote.shippingAddress.name,
-                            quote.shippingAddress.address1,
-                            quote.shippingAddress.address2,
-                            quote.shippingAddress.city,
-                            quote.shippingAddress.province,
-                            quote.shippingAddress.zip,
-                            quote.shippingAddress.country,
-                          ]
-                            .filter(Boolean)
-                            .join(", ")
-                          : "No shipping address on file"}
-                      </s-paragraph>
-                    </s-box>
-                    <s-box>
-                      <s-text type="strong">Billing Address</s-text>
-                      <s-paragraph tone="subdued">
-                        {quote.billingAddress
-                          ? [
-                            quote.billingAddress.name,
-                            quote.billingAddress.address1,
-                            quote.billingAddress.address2,
-                            quote.billingAddress.city,
-                            quote.billingAddress.province,
-                            quote.billingAddress.zip,
-                            quote.billingAddress.country,
-                          ]
-                            .filter(Boolean)
-                            .join(", ")
-                          : "Same as shipping address"}
-                      </s-paragraph>
-                    </s-box>
-                  </s-grid>
-                </s-stack>
-              </s-section>
-            </s-box>
-          </s-stack>
-
-          {/* Right Column: Financials & Admin Jump */}
-          <s-stack direction="block" gap="large">
-            {/* Financial Breakdown Card */}
-            <s-box padding="large" background="base" border="small base solid" borderRadius="base">
-              <s-section heading="Financial Summary" padding="none">
-                <s-stack direction="block" gap="small-200">
-                  <s-stack direction="inline" justifyContent="space-between">
-                    <s-text tone="subdued">Subtotal</s-text>
-                    <s-text>
-                      {formatMoney(
-                        quote.subtotalPriceSet?.shopMoney?.amount,
-                        quote.subtotalPriceSet?.shopMoney?.currencyCode,
-                      )}
-                    </s-text>
-                  </s-stack>
-
-                  <s-stack direction="inline" justifyContent="space-between">
-                    <s-text tone="subdued">Estimated Taxes</s-text>
-                    <s-text>
-                      {formatMoney(
-                        quote.totalTaxSet?.shopMoney?.amount,
-                        quote.totalTaxSet?.shopMoney?.currencyCode,
-                      )}
-                    </s-text>
-                  </s-stack>
-
-                  <s-stack direction="inline" justifyContent="space-between">
-                    <s-text tone="subdued">Shipping</s-text>
-                    <s-text>
-                      {formatMoney(
-                        quote.totalShippingPriceSet?.shopMoney?.amount,
-                        quote.totalShippingPriceSet?.shopMoney?.currencyCode,
-                      )}
-                    </s-text>
-                  </s-stack>
-
-                  <s-divider />
-
-                  <s-stack direction="inline" justifyContent="space-between" alignItems="center">
-                    <s-text type="strong">Total Amount</s-text>
-                    <s-heading>
-                      {formatMoney(
-                        quote.totalPriceSet?.shopMoney?.amount,
-                        quote.totalPriceSet?.shopMoney?.currencyCode,
-                      )}
-                    </s-heading>
-                  </s-stack>
-                </s-stack>
-              </s-section>
-            </s-box>
-          </s-stack>
-        </s-grid>
-
-
-        {/* Status Decision Controls Card */}
-        <s-box padding="large" background="base" border="small base solid" borderRadius="base">
-          <s-stack direction="block" gap="base">
-            <s-stack direction="inline" justifyContent="space-between" alignItems="center">
-              <s-stack direction="block" gap="extra-small">
-                <s-heading>Quote Decision &amp; Workflow Status</s-heading>
-
-              </s-stack>
-
-              <s-badge tone={quote.quoteStatus.tone} size="base">
-                {quote.quoteStatus.label}
-              </s-badge>
-            </s-stack>
-
-            <s-divider />
-
-            <s-stack direction="inline" gap="small-300" alignItems="center">
-              {/* Accept Button */}
-              <s-button
-                variant={isAccepted ? "primary" : "secondary"}
-                tone="success"
-                disabled={isSubmitting || isAccepted}
-                loading={isSubmitting && fetcher.formData?.get("targetStatus") === "accepted"}
-                onClick={() => handleUpdateStatus("accepted")}
+            {/* Decision */}
+            <div className="hyv-panel" style={{ padding: "16px 18px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "14px",
+                  flexWrap: "wrap",
+                }}
               >
-                ✓ Mark as Accepted
-              </s-button>
-
-              {/* Reject Button */}
-              <s-button
-                variant={isRejected ? "primary" : "secondary"}
-                tone="critical"
-                disabled={isSubmitting || isRejected}
-                loading={isSubmitting && fetcher.formData?.get("targetStatus") === "rejected"}
-                onClick={() => handleUpdateStatus("rejected")}
-              >
-                ✕ Mark as Rejected
-              </s-button>
-            </s-stack>
-          </s-stack>
-        </s-box>
-
-      </s-stack>
-
-
+                <div>
+                  <div className="hyv-panel__title">Decision</div>
+                  <p className="hyv-muted" style={{ margin: "3px 0 0" }}>
+                    {isAccepted
+                      ? "The buyer sees this quote as accepted and can order from it."
+                      : isRejected
+                        ? "The buyer sees this quote as declined and is offered a requote."
+                        : "Accepting or declining updates the buyer's portal straight away."}
+                  </p>
+                </div>
+                <s-stack direction="inline" gap="small-200">
+                  <s-button
+                    variant="primary"
+                    disabled={isSubmitting || isAccepted}
+                    loading={isSubmitting && fetcher.formData?.get("targetStatus") === "accepted"}
+                    onClick={() => handleUpdateStatus("accepted")}
+                  >
+                    Accept quote
+                  </s-button>
+                  <s-button
+                    tone="critical"
+                    disabled={isSubmitting || isRejected}
+                    loading={isSubmitting && fetcher.formData?.get("targetStatus") === "rejected"}
+                    onClick={() => handleUpdateStatus("rejected")}
+                  >
+                    Decline
+                  </s-button>
+                  {decided ? (
+                    <s-button
+                      variant="tertiary"
+                      disabled={isSubmitting}
+                      onClick={() => handleUpdateStatus("awaiting_action")}
+                    >
+                      Reset
+                    </s-button>
+                  ) : null}
+                </s-stack>
+              </div>
+            </div>
+          </div>
+        </div>
+      </s-section>
     </s-page>
   );
 }
 
 export function ErrorBoundary() {
-  return boundary.error(useRouteError());
+  const error = useRouteError();
+  console.error("[quote detail] render failed:", error);
+
+  return (
+    <s-page heading="Quote">
+      <s-section>
+        <s-banner tone="critical" heading="We couldn't load this quote">
+          <s-paragraph>{error?.message || "Please reload the page."}</s-paragraph>
+        </s-banner>
+      </s-section>
+    </s-page>
+  );
 }
 
 export const headers = (headersArgs) => {

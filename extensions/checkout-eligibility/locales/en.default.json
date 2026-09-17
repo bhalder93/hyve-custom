@@ -1,0 +1,4 @@
+{
+  "name": "Checkout eligibility",
+  "description": "Blocks checkout for customers the eligibility API has not approved."
+}

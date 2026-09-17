@@ -1,0 +1,13 @@
+{
+  "payload": {
+    "export": "cart-validations-generate-run",
+    "target": "cart.validations.generate.run",
+    "input": {
+      "cart": {
+        "cost": { "totalAmount": { "amount": "500.0", "currencyCode": "SGD" } },
+        "buyerIdentity": { "purchasingCompany": null }
+      }
+    },
+    "output": { "operations": [{ "validationAdd": { "errors": [] } }] }
+  }
+}

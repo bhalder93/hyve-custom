@@ -1,0 +1,18 @@
+{
+  "payload": {
+    "export": "cart-validations-generate-run",
+    "target": "cart.validations.generate.run",
+    "input": {
+      "cart": {
+        "cost": { "totalAmount": { "amount": "6000.0", "currencyCode": "SGD" } },
+        "buyerIdentity": {
+          "purchasingCompany": {
+            "company": { "name": "Acme Corp Pte Ltd" },
+            "location": { "name": "Headquarters" }
+          }
+        }
+      }
+    },
+    "output": { "operations": [{ "validationAdd": { "errors": [] } }] }
+  }
+}

@@ -33,107 +33,130 @@ export const METAOBJECT_FIELDS_SCHEMA = [
  * Safe to call idempotently.
  */
 export async function ensureDistributorMetaobjectDefinition(admin) {
-  if (!admin) return null;
+  if (!admin) return { ok: false, error: "No admin client." };
 
+  // Already there? Nothing to do. Checks both the app-owned type and the plain
+  // one, since either is usable once it exists.
   for (const type of METAOBJECT_TYPES) {
-    try {
-      const queryRes = await admin.graphql(
-        `#graphql
-        query GetMetaobjectDef($type: String!) {
-          metaobjectDefinitionByType(type: $type) {
-            id
-            fieldDefinitions {
-              key
-            }
-          }
-        }`,
-        { variables: { type } },
-      );
-      const queryData = await queryRes.json();
-      const def = queryData?.data?.metaobjectDefinitionByType;
-
-      if (def?.id) {
-        const existingKeys = new Set(def.fieldDefinitions.map((f) => f.key));
-        const missingFields = METAOBJECT_FIELDS_SCHEMA.filter(
-          (f) => !existingKeys.has(f.key),
-        );
-
-        if (missingFields.length > 0) {
-          console.log(
-            `[metaobject] Adding missing fields to definition (${type}):`,
-            missingFields.map((f) => f.key),
-          );
-          await admin.graphql(
-            `#graphql
-            mutation AddMissingMetaobjectFields($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) {
-              metaobjectDefinitionUpdate(id: $id, definition: $definition) {
-                metaobjectDefinition {
-                  id
-                }
-                userErrors {
-                  field
-                  message
-                }
-              }
-            }`,
-            {
-              variables: {
-                id: def.id,
-                definition: {
-                  fieldDefinitions: missingFields.map((f) => ({
-                    create: {
-                      name: f.name,
-                      key: f.key,
-                      type: f.type,
-                    },
-                  })),
-                },
-              },
-            },
-          );
-        }
-        return def.id;
-      }
-    } catch (e) {
-      console.warn(`[metaobject] check definition (${type}) note:`, e?.message || e);
+    const found = await definitionByType(admin, type);
+    if (found) {
+      await addMissingFields(admin, found);
+      return { ok: true, type };
     }
   }
 
+  // Create the app-owned type: it belongs to this app, so it can't collide with
+  // anything the merchant has defined.
+  const type = METAOBJECT_TYPE;
   try {
-    const createRes = await admin.graphql(
+    const response = await admin.graphql(
       `#graphql
       mutation EnsureDistributorMetaobjectDefinition($definition: MetaobjectDefinitionCreateInput!) {
         metaobjectDefinitionCreate(definition: $definition) {
-          metaobjectDefinition {
-            id
-            type
-          }
-          userErrors {
-            field
-            message
-          }
+          metaobjectDefinition { id type }
+          userErrors { field message code }
         }
       }`,
       {
         variables: {
           definition: {
             name: "Distributor Application",
-            type: FALLBACK_METAOBJECT_TYPE,
-            access: {
-              admin: "MERCHANT_READ_WRITE",
-              storefront: "PUBLIC_READ",
-            },
+            type,
+            access: { admin: "MERCHANT_READ_WRITE" },
             fieldDefinitions: METAOBJECT_FIELDS_SCHEMA,
           },
         },
       },
     );
-    const createData = await createRes.json();
-    return createData?.data?.metaobjectDefinitionCreate?.metaobjectDefinition?.id || null;
+
+    const body = await response.json();
+    const result = body?.data?.metaobjectDefinitionCreate;
+    const error = result?.userErrors?.[0];
+
+    if (error) {
+      // TAKEN means another process created it between our check and now.
+      if (error.code === "TAKEN") return { ok: true, type };
+      console.warn("[metaobject] definition create failed:", JSON.stringify(result.userErrors));
+      return { ok: false, error: `${error.message}${error.field ? ` (${error.field})` : ""}` };
+    }
+
+    if (body?.errors) {
+      console.warn("[metaobject] definition create errors:", JSON.stringify(body.errors));
+      return { ok: false, error: body.errors[0]?.message || "Could not create the definition." };
+    }
+
+    return { ok: true, type: result?.metaobjectDefinition?.type || type };
   } catch (err) {
-    console.warn("[metaobject] ensureDistributorMetaobjectDefinition warning:", err?.message || err);
+    console.warn("[metaobject] definition create threw:", err?.message || err);
+    return { ok: false, error: err?.message || "Could not create the definition." };
   }
-  return null;
+}
+
+/** Returns the definition for a type, or null when it doesn't exist. */
+async function definitionByType(admin, type) {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      query DistributorDefinition($type: String!) {
+        metaobjectDefinitionByType(type: $type) {
+          id
+          type
+          fieldDefinitions { key }
+        }
+      }`,
+      { variables: { type } },
+    );
+    const body = await response.json();
+    return body?.data?.metaobjectDefinitionByType || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Adds any field this app expects that the existing definition doesn't have.
+ *
+ * A definition created by an earlier version is missing the fields added since,
+ * and a metaobject can't carry a field its definition doesn't declare — so the
+ * value would be dropped without complaint. Shopify won't change a field's type
+ * once it exists, so this only ever adds.
+ */
+async function addMissingFields(admin, definition) {
+  const existing = new Set((definition.fieldDefinitions || []).map((f) => f.key));
+  const missing = METAOBJECT_FIELDS_SCHEMA.filter((f) => !existing.has(f.key));
+  if (!missing.length) return;
+
+  console.log(
+    `[metaobject] adding missing fields to ${definition.type}:`,
+    missing.map((f) => f.key).join(", "),
+  );
+
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation AddMissingMetaobjectFields($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) {
+        metaobjectDefinitionUpdate(id: $id, definition: $definition) {
+          metaobjectDefinition { id }
+          userErrors { field message code }
+        }
+      }`,
+      {
+        variables: {
+          id: definition.id,
+          definition: {
+            fieldDefinitions: missing.map((f) => ({
+              create: { name: f.name, key: f.key, type: f.type },
+            })),
+          },
+        },
+      },
+    );
+    const body = await response.json();
+    const error = body?.data?.metaobjectDefinitionUpdate?.userErrors?.[0];
+    if (error) console.warn("[metaobject] could not add fields:", error.message);
+  } catch (err) {
+    console.warn("[metaobject] add fields threw:", err?.message || err);
+  }
 }
 
 /**
@@ -304,6 +327,14 @@ export async function getDistributorApplicationById(admin, idOrHandle) {
  * Create a new distributor application metaobject.
  */
 export async function createDistributorApplication(admin, fields = {}) {
+  // The definition has to exist before a metaobject of that type can be
+  // created, so make sure it does. Idempotent — a definition that already
+  // exists comes back as a userError we ignore.
+  const definition = await ensureDistributorMetaobjectDefinition(admin);
+  if (!definition.ok) {
+    return { error: `Could not set up the application store: ${definition.error}` };
+  }
+
   const cleanHandle = `app-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
   const metaobjectFields = [
@@ -835,9 +866,11 @@ export async function updateDistributorApplication(
     };
   }
 }
-
 /**
- * Delete a distributor application metaobject from Shopify.
+ * Permanently delete an application record.
+ *
+ * Accepts a full metaobject ID, a bare numeric ID, or a handle, because the
+ * admin screens pass whichever they happen to hold.
  */
 export async function deleteDistributorApplication(admin, idOrHandle) {
   if (!admin || !idOrHandle) {
@@ -845,22 +878,19 @@ export async function deleteDistributorApplication(admin, idOrHandle) {
   }
 
   const target = String(idOrHandle).trim();
-  const isGid = target.startsWith("gid://");
-  const isNumeric = /^\d+$/.test(target);
-  let targetGid = isGid ? target : isNumeric ? `gid://shopify/Metaobject/${target}` : null;
+  let targetGid = target.startsWith("gid://")
+    ? target
+    : /^\d+$/.test(target)
+      ? `gid://shopify/Metaobject/${target}`
+      : null;
 
   if (!targetGid) {
     const existing = await getDistributorApplicationById(admin, target);
-    if (existing?.id) {
-      targetGid = String(existing.id).trim();
-    }
+    targetGid = existing?.id ? String(existing.id).trim() : null;
   }
 
   if (!targetGid) {
-    return {
-      success: false,
-      error: `Could not locate metaobject record for ID: ${target}`,
-    };
+    return { success: false, error: `Could not find an application for "${target}".` };
   }
 
   try {
@@ -869,35 +899,27 @@ export async function deleteDistributorApplication(admin, idOrHandle) {
       mutation DeleteMetaobject($id: ID!) {
         metaobjectDelete(id: $id) {
           deletedId
-          userErrors {
-            field
-            message
-            code
-          }
+          userErrors { field message code }
         }
       }`,
       { variables: { id: targetGid } },
     );
 
     const body = await response.json();
-    const userErrors = body?.data?.metaobjectDelete?.userErrors || [];
-
-    if (userErrors.length > 0) {
-      const errMsg = userErrors.map((e) => e.message).join(", ");
-      console.warn("[metaobject] delete error:", errMsg);
-      return { success: false, error: errMsg };
+    if (body?.errors) {
+      return { success: false, error: body.errors[0]?.message || "Delete failed." };
     }
 
-    const deletedId = body?.data?.metaobjectDelete?.deletedId;
-    return {
-      success: true,
-      deletedId: deletedId || targetGid,
-    };
+    const userErrors = body?.data?.metaobjectDelete?.userErrors || [];
+    if (userErrors.length) {
+      const message = userErrors.map((e) => e.message).join(", ");
+      console.warn("[metaobject] delete error:", message);
+      return { success: false, error: message };
+    }
+
+    return { success: true, deletedId: body?.data?.metaobjectDelete?.deletedId || targetGid };
   } catch (err) {
-    console.error("[metaobject] delete exception:", err?.message || err);
-    return {
-      success: false,
-      error: err?.message || "Failed to delete distributor application metaobject.",
-    };
+    console.error("[metaobject] delete threw:", err?.message || err);
+    return { success: false, error: err?.message || "Failed to delete the application." };
   }
 }

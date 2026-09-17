@@ -49,7 +49,7 @@ export const loader = async ({ request }) => {
                   createdAt
                   status
                   invoiceUrl
-                  hyveStatus: metafield(namespace: "$app", key: "hyve_status") { jsonValue }
+                  hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
                   totalPriceSet {
                     shopMoney {
                       amount
@@ -147,7 +147,9 @@ export const action = async ({ request }) => {
           const draftInput = {
             customerId: customerId.startsWith("gid://") ? customerId : `gid://shopify/Customer/${customerId}`,
             note: `Wholesale Quote Request from Distributor Portal:\nItems: ${items}\nTarget Date: ${targetDate || "Flexible"}\nNotes: ${notes || "None"}`,
-            tags: ["quote", "b2b_quote", "awaiting_review"],
+            // `storefront-quote` is what the admin Quotes screen filters on;
+            // without it a portal request never reaches the staff queue.
+            tags: ["storefront-quote", "quote", "b2b_quote", "awaiting_review"],
             lineItems: [
               {
                 title: items,
