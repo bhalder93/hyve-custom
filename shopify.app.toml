@@ -1,0 +1,154 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+application_url = "https://hyve-custom.onrender.com"
+client_id = "767ec15914737650a3eccf2ba70921d7"
+embedded = true
+name = "Hyve Custom"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_orders,write_customers,write_draft_orders,write_metaobject_definitions,write_metaobjects,write_products,write_files,write_companies,read_companies,write_store_credit_account_transactions,read_store_credit_account_transactions,read_store_credit_accounts"
+
+[product.metafields.app.demo_info]
+description = "Tracks products created by the Shopify app template for development"
+name = "Demo Source Info"
+type = "single_line_text_field"
+
+[product.metafields.app.demo_info.access]
+admin = "merchant_read_write"
+
+[metaobjects.app.example]
+description = "An example metaobject definition created by this template"
+name = "Example"
+
+[metaobjects.app.example.access]
+admin = "merchant_read_write"
+
+[metaobjects.app.example.fields.title]
+name = "Title"
+required = true
+type = "single_line_text_field"
+
+[metaobjects.app.example.fields.description]
+name = "Description"
+type = "multi_line_text_field"
+
+[metaobjects.app.distributor_application]
+description = "Distributor portal application and commercial credit requests"
+name = "Distributor Application"
+
+[metaobjects.app.distributor_application.access]
+admin = "merchant_read_write"
+storefront = "public_read"
+
+[metaobjects.app.distributor_application.fields.company_name]
+name = "Company Name"
+required = true
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.company_website]
+name = "Company Website"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.contact_person]
+name = "Contact Person"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.contact_phone]
+name = "Contact Phone"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.customer_id]
+name = "Customer ID"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.company_id]
+name = "Company ID"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.customer_email]
+name = "Customer Email"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.country_based]
+name = "Country Based In"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.markets_sold]
+name = "Markets Sold Into"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.request_credit]
+name = "Request Credit"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.registration_number]
+name = "Registration Number"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.expected_annual_volume]
+name = "Expected Annual Volume"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.registered_address]
+name = "Registered Address"
+type = "multi_line_text_field"
+
+[metaobjects.app.distributor_application.fields.status]
+name = "Status"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.submitted_at]
+name = "Submitted At"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.registration_document_name]
+name = "Registration Document Name"
+type = "single_line_text_field"
+
+[metaobjects.app.distributor_application.fields.registration_document_url]
+name = "Registration Document URL"
+type = "multi_line_text_field"
+
+[metaobjects.app.distributor_application.fields.rejection_message]
+name = "Rejection Message"
+type = "multi_line_text_field"
+
+[customer.metafields.app.role]
+description = "Role assigned to the customer in their B2B team"
+name = "Customer Role"
+type = "single_line_text_field"
+
+[customer.metafields.app.role.access]
+admin = "merchant_read_write"
+
+[draft_order.metafields.app.hyve_status]
+description = "Quote status: true for accepted, false for rejected, unset for awaiting action"
+name = "Draft Order Status"
+type = "boolean"
+
+[webhooks]
+api_version = "2026-10"
+
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+uri = "/webhooks/app/uninstalled"
+
+[[webhooks.subscriptions]]
+topics = ["app/scopes_update"]
+uri = "/webhooks/app/scopes_update"
+
+[app_proxy]
+# Storefront /apps/account/quote  ->  https://hyve-custom.onrender.com/proxy/quote
+# NOTE: `shopify app dev` rewrites this to the dev tunnel; re-deploy to restore production.
+prefix = "apps"
+subpath = "account"
+url = "https://hyve-custom.onrender.com/proxy"
+
+
+
+[auth]
+redirect_urls = ["https://hyve-custom.onrender.com/api/auth"]
+
+[build]
+automatically_update_urls_on_dev = true
