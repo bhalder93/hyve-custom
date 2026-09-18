@@ -31,7 +31,7 @@ export const loader = async ({ request }) => {
     const chrome = await portalChrome(admin, customerId);
     const doc = await loadInvoiceDocument(admin, orderGid, {
       customerGid: `gid://shopify/Customer/${customerId}`,
-      locationGid: chrome.terms?.locationId || null,
+      locationGids: chrome.terms?.locationIds || [],
     });
     if (!doc) return new Response("Invoice not found.", { status: 404 });
 

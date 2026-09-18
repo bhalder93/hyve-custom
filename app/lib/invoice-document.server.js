@@ -68,11 +68,12 @@ const DOCUMENT_QUERY = `#graphql
 
 /**
  * @param {string} orderGid the order the invoice belongs to
- * @param {{customerGid?:string, locationGid?:string}} owner who is asking
+ * @param {{customerGid?:string, locationGids?:string[]}} owner who is asking
  * @returns {Promise<?object>} null when the order is missing or isn't theirs
  */
-export async function loadInvoiceDocument(admin, orderGid, { customerGid, locationGid } = {}) {
-  if (!admin || !orderGid || (!customerGid && !locationGid)) return null;
+export async function loadInvoiceDocument(admin, orderGid, { customerGid, locationGids } = {}) {
+  const locations = (Array.isArray(locationGids) ? locationGids : [locationGids]).filter(Boolean);
+  if (!admin || !orderGid || (!customerGid && !locations.length)) return null;
 
   const response = await admin.graphql(DOCUMENT_QUERY, { variables: { id: orderGid } });
   const body = await response.json();
@@ -86,7 +87,7 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
 
   // Theirs either personally or through the company they buy for.
   const ownedByCustomer = customerGid && order.customer?.id === customerGid;
-  const ownedByCompany = locationGid && order.purchasingEntity?.location?.id === locationGid;
+  const ownedByCompany = locations.includes(order.purchasingEntity?.location?.id);
   if (!ownedByCustomer && !ownedByCompany) return null;
 
   // Only an order on terms has a schedule; a prepaid one was settled at checkout.

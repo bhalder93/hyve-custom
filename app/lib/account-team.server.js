@@ -164,6 +164,7 @@ export function teamPage({
   const defaultLocationId = locations && locations.length > 0 ? locations[0].id : "";
 
   return `
+  ${TEAM_STYLES}
   <div class="hyve-team">
     ${notice ? `<div class="hyve-team__alert hyve-team__alert--success">${esc(notice)}</div>` : ""}
     ${error ? `<div class="hyve-team__alert hyve-team__alert--error">${esc(error)}</div>` : ""}
@@ -357,7 +358,6 @@ export function teamPage({
   </div>
 
   ${renderClientScript()}
-  ${TEAM_STYLES}
   `;
 }
 

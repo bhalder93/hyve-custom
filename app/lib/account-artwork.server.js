@@ -21,6 +21,7 @@ export function artworkPage({ files = [], flash = null } = {}) {
   const tiles = files.map(fileTile).join("");
 
   return `
+    ${ARTWORK_STYLES}
     <div class="hyve-art" data-artwork>
       <div class="hyve-art__head">
         <div>
@@ -52,7 +53,6 @@ export function artworkPage({ files = [], flash = null } = {}) {
         Vector files are required for laser decoration; high-resolution raster files are accepted for digital and transfer.
       </p>
     </div>
-    ${ARTWORK_STYLES}
     ${ARTWORK_SCRIPT}`;
 }
 

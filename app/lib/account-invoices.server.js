@@ -24,6 +24,7 @@ export function invoicesPage({
   tier = "",
 } = {}) {
   return `
+    ${INVOICE_STYLES}
     <div class="hyve-inv" data-invoices>
       <h1 class="hyve-inv__title">Invoices</h1>
       <p class="hyve-inv__sub">View and download your invoices</p>
@@ -52,7 +53,6 @@ export function invoicesPage({
         }
       </div>
     </div>
-    ${INVOICE_STYLES}
     ${INVOICE_SCRIPT}`;
 }
 
@@ -148,7 +148,9 @@ function row(inv) {
           <span class="hyve-inv__ref">${esc(inv.reference)}</span>
           <span class="hyve-inv__badge hyve-inv__badge--${tone}">${esc(label)}</span>
         </div>
-        <p class="hyve-inv__row-items">Order ${esc(inv.orderName)}${inv.items ? ` — ${esc(inv.items)}` : ""}</p>
+        <p class="hyve-inv__row-items">
+          <a class="hyve-inv__order" href="/apps/account/orders?order=${encodeURIComponent(inv.orderName)}">Order ${esc(inv.orderName)}</a>${inv.items ? ` — ${esc(inv.items)}` : ""}
+        </p>
         <p class="hyve-inv__row-dates">
           Issued: ${esc(inv.issuedLabel)}
           ${inv.status === "paid" ? ` &middot; Paid: ${esc(inv.paidLabel)}` : ` &middot; <span class="${inv.status === "overdue" ? "is-overdue" : "is-due"}">Due: ${esc(inv.dueLabel)}</span>`}
@@ -235,6 +237,8 @@ const INVOICE_STYLES = `
   .hyve-inv__badge--warn { background: #FEF3C7; color: #B45309; }
   .hyve-inv__badge--error { background: #FEE2E2; color: #B91C1C; }
   .hyve-inv__row-items { font-size: 12.5px; color: var(--hyve-700); margin: 3px 0 0; }
+  .hyve-inv__order { color: var(--hyve-900); font-weight: 600; text-decoration: none; border-bottom: 1px solid var(--hyve-border-strong); }
+  .hyve-inv__order:hover { border-bottom-color: var(--hyve-900); }
   .hyve-inv__row-dates { font-size: 11.5px; color: var(--hyve-muted); margin: 2px 0 0; }
   .hyve-inv__row-dates .is-overdue { color: #B91C1C; font-weight: 600; }
   .hyve-inv__row-dates .is-due { color: #B45309; font-weight: 600; }

@@ -28,7 +28,7 @@ const INVOICES_QUERY = `#graphql
           paymentTerms {
             paymentTermsName
             overdue
-            paymentSchedules(first: 5) {
+            paymentSchedules(first: 1) {
               nodes {
                 issuedAt
                 dueAt
@@ -44,30 +44,53 @@ const INVOICES_QUERY = `#graphql
   }`;
 
 /**
- * @param {string} locationGid company location the buyer is ordering for
+ * An order belongs to one company location, so a buyer who is a contact on
+ * more than one location has invoices spread across them. Reading a single
+ * location hid the rest, which looked to the buyer like the invoice was never
+ * raised.
+ *
+ * @param {string|string[]} locationGids company location(s) the buyer orders for
  */
-export async function loadInvoices(admin, locationGid) {
-  if (!admin || !locationGid) return { invoices: [], failed: true };
+export async function loadInvoices(admin, locationGids) {
+  const ids = (Array.isArray(locationGids) ? locationGids : [locationGids]).filter(Boolean);
+  if (!admin || !ids.length) return { invoices: [], failed: true };
 
   try {
-    const response = await admin.graphql(INVOICES_QUERY, {
-      variables: { id: locationGid, first: 50 },
-    });
-    const body = await response.json();
-    if (body?.errors) {
-      console.warn("[invoices] query failed", JSON.stringify(body.errors));
-      return { invoices: [], failed: true };
-    }
+    // Measured at 66 requested / 10 actual cost per location against a 20,000
+    // point bucket, so these run together rather than one after another.
+    const results = await Promise.all(ids.map((id) => ordersForLocation(admin, id)));
+    if (results.some((r) => r.failed)) return { invoices: [], failed: true };
 
-    const orders = body?.data?.companyLocation?.orders?.nodes || [];
-    // Only orders on terms produce an invoice; a prepaid order is already settled.
-    const invoices = orders.filter((o) => o.paymentTerms).map(toInvoice).filter(Boolean);
+    const seen = new Set();
+    const invoices = results
+      .flatMap((r) => r.orders)
+      // Only orders on terms produce an invoice; a prepaid order is already settled.
+      .filter((o) => o.paymentTerms)
+      .map(toInvoice)
+      .filter((invoice) => {
+        if (!invoice || seen.has(invoice.orderId)) return false;
+        seen.add(invoice.orderId);
+        return true;
+      })
+      .sort((a, b) => String(b.orderId).localeCompare(String(a.orderId), undefined, { numeric: true }));
 
     return { invoices, failed: false };
   } catch (error) {
     console.warn("[invoices] query threw", error?.message || error);
     return { invoices: [], failed: true };
   }
+}
+
+async function ordersForLocation(admin, locationGid) {
+  const response = await admin.graphql(INVOICES_QUERY, {
+    variables: { id: locationGid, first: 50 },
+  });
+  const body = await response.json();
+  if (body?.errors) {
+    console.warn("[invoices] query failed", JSON.stringify(body.errors));
+    return { orders: [], failed: true };
+  }
+  return { orders: body?.data?.companyLocation?.orders?.nodes || [], failed: false };
 }
 
 function toInvoice(order) {

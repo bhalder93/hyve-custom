@@ -83,6 +83,7 @@ export function settingsPage({
   const toastHtml = renderNotificationToast(notice, error);
 
   return `
+    ${SETTINGS_STYLES}
     <div class="hyve-settings">
       ${toastHtml}
 
@@ -227,7 +228,6 @@ export function settingsPage({
         </section>
       </form>
     </div>
-    ${SETTINGS_STYLES}
     ${SETTINGS_SCRIPT}`;
 }
 

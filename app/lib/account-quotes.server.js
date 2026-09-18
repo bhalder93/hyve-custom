@@ -141,6 +141,7 @@ export function quotesPage({ quotes = [], notice = null, error = null }) {
   const quoteRowsHtml = hasQuotes ? quotes.map((q) => renderQuoteRow(q)).join("") : "";
 
   return `
+  ${QUOTES_STYLES}
   <div class="hyve-quotes">
     ${notice ? `<div class="hyve-quotes__alert hyve-quotes__alert--success">${esc(notice)}</div>` : ""}
     ${error ? `<div class="hyve-quotes__alert hyve-quotes__alert--error">${esc(error)}</div>` : ""}
@@ -288,7 +289,6 @@ export function quotesPage({ quotes = [], notice = null, error = null }) {
   </div>
 
   ${renderClientScript(hasQuotes)}
-  ${QUOTES_STYLES}
   `;
 }
 

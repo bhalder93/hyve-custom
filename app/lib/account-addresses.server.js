@@ -5,7 +5,7 @@
  * matching the portal design:
  *   - Highlighted default card with green border and "✓ DEFAULT" badge
  *   - Category badge with truck icon for "SHIPPING" or credit card icon for "BILLING"
- *   - Formatted recipient name, company/department, street lines, city, postal, country, and phone/VAT
+ *   - Formatted recipient name, company/department, street lines, city, postal, country, phone and tax reg. no.
  *   - Action buttons: "Edit", "Set Default" (for non-defaults), and delete icon button
  *   - Dashed card for "+ Add New Address"
  *   - Interactive modals for Add, Edit, and Delete confirmation
@@ -32,7 +32,7 @@ export function mapAddresses(rawAddresses = [], defaultAddressId = null, custome
     const isBilling =
       addr.company?.toLowerCase().includes("finance") ||
       addr.company?.toLowerCase().includes("billing") ||
-      addr.address2?.toLowerCase().includes("vat:") ||
+      addr.address2?.toLowerCase().includes("tax reg") ||
       addr.address2?.toLowerCase().includes("tax") ||
       addr.type === "billing";
 
@@ -151,7 +151,7 @@ function getSampleAddresses(customer = null) {
         "1 Raffles Place, #20-01",
         "One Raffles Place Tower 2",
         "Singapore 048616",
-        "VAT: 201912345G",
+        "Tax reg. no.: 201912345G",
       ],
       isSample: true,
     },
@@ -198,6 +198,7 @@ export function addressesPage({
   const toastHtml = renderNotificationToast(notice, error);
 
   return `
+    ${ADDRESSES_STYLES}
     <div class="hyve-addr">
       ${toastHtml}
 
@@ -214,7 +215,6 @@ export function addressesPage({
       ${renderAddressModal()}
       ${renderDeleteModal()}
     </div>
-    ${ADDRESSES_STYLES}
     ${ADDRESSES_SCRIPT}`;
 }
 

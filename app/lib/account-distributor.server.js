@@ -30,15 +30,16 @@ export function distributorPage({
 
   if (application) {
     return `
+      ${DISTRIBUTOR_STYLES}
       <div class="hyve-dist">
         ${toastHtml}
         ${renderExistingApplicationView(application, customer)}
       </div>
-      ${DISTRIBUTOR_STYLES}
       ${DISTRIBUTOR_SCRIPT}`;
   }
 
   return `
+    ${DISTRIBUTOR_STYLES}
     <div class="hyve-dist">
       ${toastHtml}
 
@@ -232,7 +233,6 @@ export function distributorPage({
         </div>
       </form>
     </div>
-    ${DISTRIBUTOR_STYLES}
     ${DISTRIBUTOR_SCRIPT}`;
 }
 

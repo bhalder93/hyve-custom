@@ -35,7 +35,7 @@ export const loader = async ({ request }) => {
       return liquid(accountShell({ active: "invoices", main: distributorOnly("Invoices"), ...chrome }));
     }
 
-    const { invoices, failed } = await loadInvoices(admin, chrome.terms?.locationId);
+    const { invoices, failed } = await loadInvoices(admin, chrome.terms?.locationIds || []);
 
     return liquid(
       accountShell({

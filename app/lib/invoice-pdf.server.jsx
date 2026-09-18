@@ -7,9 +7,12 @@
  * `.server.jsx` so @react-pdf/renderer (a heavy server-only dep) is never
  * bundled into the storefront, the same arrangement as the quote PDF.
  *
- * Unlike the quote, this is a real tax invoice: the amounts are the order's
- * settled amounts, so nothing is "calculated at checkout" and nothing here is
- * an estimate.
+ * The amounts are the order's settled amounts, so nothing is "calculated at
+ * checkout" and nothing here is an estimate.
+ *
+ * It carries no tax line and does not call itself a tax invoice: Hyve is not
+ * registered for GST or VAT in any market it sells into, and showing either is
+ * an offence in Singapore and Malaysia.
  */
 import {
   Document,
@@ -142,7 +145,7 @@ function InvoiceDoc({ doc }) {
         <View style={styles.head}>
           <View>
             <Text style={styles.brand}>{doc.shopName}</Text>
-            <Text style={styles.brandSub}>Tax invoice</Text>
+            <Text style={styles.brandSub}>Invoice</Text>
             {shopAddress.map((line, i) => (
               <Text key={i} style={styles.brandLine}>
                 {line}
@@ -225,10 +228,6 @@ function InvoiceDoc({ doc }) {
           <View style={styles.sumRow}>
             <Text style={styles.sumLabel}>Shipping</Text>
             <Text style={styles.sumVal}>{doc.shippingLabel}</Text>
-          </View>
-          <View style={styles.sumRow}>
-            <Text style={styles.sumLabel}>Tax</Text>
-            <Text style={styles.sumVal}>{doc.taxLabel}</Text>
           </View>
           <View style={styles.total}>
             <Text style={styles.totalLabel}>Invoice total</Text>

@@ -357,6 +357,11 @@ export const action = async ({ request, params }) => {
       companyCreated: Boolean(b2bResult?.companyId),
     };
   } catch (error) {
+    // Shopify throws a Response to re-authenticate or redirect. Swallowing it
+    // turns a fixable auth prompt into "Unexpected Server Error", so it has to
+    // travel on untouched.
+    if (error instanceof Response) throw error;
+
     console.error(
       "[distributor.action] Error during application decision:",
       error,

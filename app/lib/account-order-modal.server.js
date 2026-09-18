@@ -321,16 +321,20 @@ export const MODAL_SCRIPT = `
     open = null;
   }
 
+  function openById(id) {
+    var modal = id && document.getElementById(id);
+    if (!modal) return false;
+    close();
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    open = modal;
+    return true;
+  }
+
   document.addEventListener('click', function (event) {
     var trigger = event.target.closest && event.target.closest('[data-modal-open]');
     if (trigger) {
-      var modal = document.getElementById(trigger.getAttribute('data-modal-open'));
-      if (modal) {
-        close();
-        modal.hidden = false;
-        document.body.style.overflow = 'hidden';
-        open = modal;
-      }
+      openById(trigger.getAttribute('data-modal-open'));
       return;
     }
     if (event.target.closest && event.target.closest('[data-modal-close]')) close();
@@ -339,5 +343,12 @@ export const MODAL_SCRIPT = `
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape') close();
   });
+
+  // Arriving from another page with ?order=#1234 opens that order straight
+  // away — the invoices list links here, and an order has no page of its own.
+  var wanted = new URLSearchParams(window.location.search).get('order');
+  if (wanted && openById('order-' + wanted)) {
+    open.scrollIntoView({ block: 'nearest' });
+  }
 })();
 </script>`;

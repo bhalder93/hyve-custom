@@ -32,7 +32,7 @@ const ACCOUNT_QUERY = `#graphql
         company {
           id
           name
-          locations(first: 1) {
+          locations(first: 20) {
             nodes {
               id
               name
@@ -186,7 +186,17 @@ function buildTerms(customer, orderNodes) {
   // to that location, and the credit figure is the location's own store credit
   // balance — Shopify's native prepaid balance, redeemed at checkout by Shopify
   // itself.
-  const location = customer.companyContactProfiles?.[0]?.company?.locations?.nodes?.[0] || null;
+  const profiles = customer.companyContactProfiles || [];
+  const location = profiles[0]?.company?.locations?.nodes?.[0] || null;
+
+  // A buyer can be a contact on several companies, and a company can trade from
+  // several locations. Orders are placed against one specific location, so
+  // anything that lists a buyer's orders has to look at all of them — reading
+  // only the first silently hid every order placed against any other location.
+  const locationIds = profiles
+    .flatMap((profile) => profile?.company?.locations?.nodes || [])
+    .map((node) => node?.id)
+    .filter(Boolean);
 
   const account = location?.storeCreditAccounts?.nodes?.[0] || null;
   const balance = account?.balance ? Number(account.balance.amount) : null;
@@ -196,8 +206,8 @@ function buildTerms(customer, orderNodes) {
   const issued = balance != null && used != null ? used + balance : null;
 
   return {
-    locationId: location?.id || null,
-    company: location ? customer.companyContactProfiles[0].company.name : "",
+    locationIds,
+    company: location ? profiles[0].company.name : "",
     paymentTerms: location?.buyerExperienceConfiguration?.paymentTermsTemplate?.name || "",
     salesRep: location?.salesRep?.value || "",
     // The rep's own contact details, so "Email Representative" and the WhatsApp
@@ -262,7 +272,7 @@ const CHROME_QUERY = `#graphql
         company {
           id
           name
-          locations(first: 1) {
+          locations(first: 20) {
             nodes {
               id
               name

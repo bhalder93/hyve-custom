@@ -26,6 +26,7 @@ export function errorState({
   retryHref = "/apps/account",
 } = {}) {
   return `
+    ${FAIL_STYLES}
     <div class="hyve-fail">
       <span class="hyve-fail__icon">${icoCloudOff()}</span>
       <h2 class="hyve-fail__title">${esc(heading)}</h2>
@@ -40,7 +41,7 @@ export function errorState({
         Still stuck? Email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a> and we'll look into it.
       </p>
     </div>
-    ${FAIL_STYLES}`;
+    `;
 }
 
 /* ---------- icons ---------- */
@@ -95,6 +96,7 @@ const FAIL_STYLES = `
  */
 export function distributorOnly(pageName = "This page") {
   return `
+    ${FAIL_STYLES}
     <div class="hyve-fail">
       <span class="hyve-fail__icon">${icoLock()}</span>
       <h2 class="hyve-fail__title">Distributor accounts only</h2>
@@ -107,7 +109,7 @@ export function distributorOnly(pageName = "This page") {
         <a class="hyve-fail__btn hyve-fail__btn--ghost" href="/apps/account/orders">${icoBox()}<span>Back to Orders</span></a>
       </div>
     </div>
-    ${FAIL_STYLES}`;
+    `;
 }
 
 function icoLock() { return svg('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'); }

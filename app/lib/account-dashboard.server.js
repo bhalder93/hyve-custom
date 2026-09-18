@@ -33,6 +33,7 @@ export function dashboardPage({ customer = null, stats = {}, payment = null, rec
   const firstName = customer?.firstName || customer?.name || "";
 
   return `
+    ${DASHBOARD_STYLES}
     <div class="hyve-dash">
       <h1 class="hyve-dash__title">Welcome back${firstName ? `, ${esc(firstName)}` : ""}</h1>
       <p class="hyve-dash__sub">Here's what's happening with your orders</p>
@@ -69,7 +70,6 @@ export function dashboardPage({ customer = null, stats = {}, payment = null, rec
       </section>
     </div>
     ${recentOrders.map(orderModal).join("")}
-    ${DASHBOARD_STYLES}
     ${MODAL_SCRIPT}`;
 }
 
@@ -189,8 +189,6 @@ const DASHBOARD_STYLES = `
   .hyve-dash__view-all:hover { text-decoration: underline; }
   .hyve-dash__empty { border: 1px dashed #CBD5E1; border-radius: var(--hyve-radius); padding: 32px 20px; text-align: center; color: var(--hyve-muted); font-size: 13px; }
 
-  ${ORDER_ROW_STYLES}
-  ${MODAL_STYLES}
 
   @media (max-width: 1080px) {
     .hyve-dash__actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -200,4 +198,7 @@ const DASHBOARD_STYLES = `
     .hyve-dash__actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .hyve-dash__payment-amount { margin-left: 0; text-align: left; }
   }
+
+  ${ORDER_ROW_STYLES}
+  ${MODAL_STYLES}
 </style>`;

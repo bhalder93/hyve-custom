@@ -226,6 +226,12 @@ export async function getCustomerApplication(admin, customerId) {
 export async function getAllDistributorApplications(admin) {
   if (!admin) return [];
 
+  // Applications can sit under either type: the app-owned one this app creates,
+  // and the plain one an earlier config declared. Returning as soon as one type
+  // had rows hid everything in the other, so both are gathered and merged.
+  const found = [];
+  const seen = new Set();
+
   for (const type of METAOBJECT_TYPES) {
     try {
       const response = await admin.graphql(
@@ -249,15 +255,16 @@ export async function getAllDistributorApplications(admin) {
       const body = await response.json();
       const nodes = body?.data?.metaobjects?.nodes || [];
 
-      if (nodes.length > 0) {
-        return nodes.map((node) => {
-          const fieldMap = Object.fromEntries(node.fields.map((f) => [f.key, f.value]));
-          return {
-            id: node.id,
-            handle: node.handle,
-            updatedAt: node.updatedAt,
-            ...fieldMap,
-          };
+      for (const node of nodes) {
+        if (seen.has(node.id)) continue;
+        seen.add(node.id);
+        const fieldMap = Object.fromEntries(node.fields.map((f) => [f.key, f.value]));
+        found.push({
+          id: node.id,
+          handle: node.handle,
+          updatedAt: node.updatedAt,
+          type,
+          ...fieldMap,
         });
       }
     } catch (err) {
@@ -265,7 +272,11 @@ export async function getAllDistributorApplications(admin) {
     }
   }
 
-  return [];
+  console.log(
+    `[metaobject] applications found: ${found.length}`,
+    found.map((a) => `${a.type} ${a.id}`).join(", ") || "(none)",
+  );
+  return found;
 }
 
 /**

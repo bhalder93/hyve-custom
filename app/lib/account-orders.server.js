@@ -113,6 +113,7 @@ export function ordersPage({ orders = [], showDistributorPromo = false, notice =
   const modals = orders.map(orderModal).join("");
 
   return `
+    ${ORDERS_STYLES}
     <div class="hyve-ord" data-orders>
       <h1 class="hyve-ord__title">Orders</h1>
       <p class="hyve-ord__sub">Track, manage and reorder your purchases</p>
@@ -134,7 +135,6 @@ export function ordersPage({ orders = [], showDistributorPromo = false, notice =
       </div>
     </div>
     ${modals}
-    ${ORDERS_STYLES}
     ${ORDERS_SCRIPT}
     ${MODAL_SCRIPT}`;
 }
@@ -371,11 +371,12 @@ const ORDERS_STYLES = `
   .hyve-promo__close:hover { background: #DCFCE7; color: var(--hyve-900); }
   .hyve-promo__close svg { width: 16px; height: 16px; }
 
-  ${ORDER_ROW_STYLES}
-  ${MODAL_STYLES}
 
   .hyve-ord__none, .hyve-ord__empty { border: 1px dashed #CBD5E1; border-radius: var(--hyve-radius); padding: 40px 20px; text-align: center; color: var(--hyve-muted); font-size: 13px; margin: 16px; }
   .hyve-ord__none[hidden] { display: none; }
+
+  ${ORDER_ROW_STYLES}
+  ${MODAL_STYLES}
 </style>`;
 
 const ORDERS_SCRIPT = `
