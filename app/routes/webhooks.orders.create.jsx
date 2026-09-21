@@ -1,7 +1,7 @@
 // app/routes/webhooks.orders.create.jsx
-import { shopifyApp } from "~/shopify.server";
+// ✅ correct
+import shopify from "../shopify.server";
 
-const shopify = shopifyApp();
 
 export async function action({ request }) {
   const { topic, shop, payload } = await shopify.webhooks.process(request);

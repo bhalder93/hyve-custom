@@ -1,6 +1,6 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-application_url = "https://hyve-custom.onrender.com"
+application_url = "https://hyve-custom-vuui.onrender.com"
 client_id = "767ec15914737650a3eccf2ba70921d7"
 embedded = true
 name = "Hyve Custom"
@@ -151,16 +151,16 @@ uri = "/webhooks/orders/update"
 
 
 [app_proxy]
-# Storefront /apps/account/quote  ->  https://hyve-custom.onrender.com/proxy/quote
+# Storefront /apps/account/quote  ->  https://hyve-custom-vuui.onrender.com/proxy/quote
 # NOTE: `shopify app dev` rewrites this to the dev tunnel; re-deploy to restore production.
 prefix = "apps"
 subpath = "account"
-url = "https://hyve-custom.onrender.com/proxy"
+url = "https://hyve-custom-vuui.onrender.com/proxy"
 
 
 
 [auth]
-redirect_urls = ["https://hyve-custom.onrender.com/api/auth"]
+redirect_urls = ["https://hyve-custom-vuui.onrender.com/api/auth"]
 
 [build]
 automatically_update_urls_on_dev = true
