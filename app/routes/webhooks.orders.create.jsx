@@ -1,16 +1,28 @@
+
 // app/routes/webhooks.orders.create.jsx
 
 import { authenticate } from "../shopify.server";
 
 export async function action({ request }) {
   try {
-    console.log("Order created-  ----------------  Order created       ---");
+    console.log(
+      "Order created ---------------- Order created ----------------"
+    );
 
-    // Verify HMAC + parse webhook
-    const { topic, shop, payload } = await authenticate.webhook(request);
+    const {
+      topic,
+      shop,
+      payload,
+      admin,
+      session,
+    } = await authenticate.webhook(request);
 
     if (topic !== "ORDERS_CREATE") {
-      console.warn("Unexpected topic on /webhooks/orders/create:", topic);
+      console.warn(
+        "Unexpected topic on /webhooks/orders/create:",
+        topic
+      );
+
       return new Response("Ignored", { status: 200 });
     }
 
@@ -22,12 +34,39 @@ export async function action({ request }) {
       shop
     );
 
+    if (!session) {
+      console.error(
+        "No Shopify session available for shop:",
+        shop
+      );
 
-    console.log("Graphql Start    ---");
-    // Add tag to the order using Admin GraphQL
-    const { admin } = await authenticate.admin(request);
+      return new Response("Shop session unavailable", {
+        status: 200,
+      });
+    }
 
-    const mutation = `
+    if (!admin) {
+      console.error(
+        "Shopify Admin API context is unavailable for shop:",
+        shop
+      );
+
+      return new Response("Admin context unavailable", {
+        status: 200,
+      });
+    }
+
+    if (!payload?.id) {
+      console.error("Webhook payload does not contain an order ID");
+
+      return new Response("Missing order ID", {
+        status: 200,
+      });
+    }
+
+    console.log("GraphQL Start ----------------");
+
+    const mutation = `#graphql
       mutation AddTagToOrder($id: ID!, $tags: [String!]!) {
         tagsAdd(id: $id, tags: $tags) {
           node {
@@ -45,8 +84,18 @@ export async function action({ request }) {
       id: payload.id,
       tags: ["my-custom-tag"],
     };
-  console.log("Graphql Calllll    ---");
-    const response = await admin.graphql(mutation, { variables });
+
+    console.log(
+      "GraphQL variables:",
+      JSON.stringify(variables)
+    );
+
+    console.log("GraphQL Call ----------------");
+
+    const response = await admin.graphql(mutation, {
+      variables,
+    });
+
     const result = await response.json();
 
     console.log(
@@ -54,18 +103,35 @@ export async function action({ request }) {
       JSON.stringify(result, null, 2)
     );
 
-    if (result.data?.tagsAdd?.userErrors?.length) {
+    const userErrors = result?.data?.tagsAdd?.userErrors || [];
+
+    if (userErrors.length > 0) {
       console.error(
         "Error adding tag:",
-        result.data.tagsAdd.userErrors
+        JSON.stringify(userErrors, null, 2)
       );
+
+      return new Response("Tag update failed", {
+        status: 200,
+      });
     }
 
-    // Your additional custom logic here
+    console.log(
+      "Successfully added tag to order:",
+      payload.id
+    );
 
-    return new Response("OK", { status: 200 });
+    // Add your additional custom logic here.
+
+    return new Response("OK", {
+      status: 200,
+    });
   } catch (error) {
-    console.error("Error processing ORDERS_CREATE webhook:", error);
+    console.error(
+      "Error processing ORDERS_CREATE webhook:"
+    );
+
+    console.error(error);
 
     return new Response("Webhook processing failed", {
       status: 500,
@@ -74,5 +140,8 @@ export async function action({ request }) {
 }
 
 export function loader() {
-  return new Response("Method Not Allowed", { status: 405 });
+  return new Response("Method Not Allowed", {
+    status: 405,
+  });
 }
+
