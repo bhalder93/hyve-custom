@@ -5,7 +5,7 @@ import shopify from "../shopify.server";
 
 export async function action({ request }) {
   const { topic, shop, payload } = await shopify.webhooks.process(request);
-
+console.log("Order Updated--------------------")  
   if (topic !== "ORDERS_UPDATED") {
     console.warn("Unexpected topic on /webhooks/orders/updated:", topic);
     return new Response("Ignored", { status: 200 });

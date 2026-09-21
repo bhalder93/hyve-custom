@@ -4,6 +4,7 @@ import shopify from "../shopify.server";
 
 
 export async function action({ request }) {
+  console.log("Order created--------------------");
   const { topic, shop, payload } = await shopify.webhooks.process(request);
 
   if (topic !== "ORDERS_CREATE") {
