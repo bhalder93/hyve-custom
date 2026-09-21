@@ -138,6 +138,18 @@ uri = "/webhooks/app/uninstalled"
 topics = ["app/scopes_update"]
 uri = "/webhooks/app/scopes_update"
 
+
+[[webhooks.subscriptions]]
+topics = ["orders/create"]
+uri = "/webhooks/orders/create"
+
+
+[[webhooks.subscriptions]]
+topics = ["orders/updated"]
+uri = "/webhooks/orders/update"
+
+
+
 [app_proxy]
 # Storefront /apps/account/quote  ->  https://hyve-custom.onrender.com/proxy/quote
 # NOTE: `shopify app dev` rewrites this to the dev tunnel; re-deploy to restore production.
