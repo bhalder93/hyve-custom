@@ -286,6 +286,7 @@ export const action = async ({ request, params }) => {
         salesRep,
         salesRepEmail,
         salesRepPhone: salesRepPhone || null,
+        taxRegistrationNumber: application?.tax_registration_number || null,
       });
       onboardingSteps = onboardingSteps.concat(onboarding.steps);
 
@@ -927,6 +928,13 @@ export default function DistributorDetailPage() {
                       Business Registration (UEN)
                     </s-text>
                     <s-text>{application?.registration_number || "—"}</s-text>
+                  </s-stack>
+
+                  <s-stack direction="block" gap="none">
+                    <s-text color="subdued" type="small">
+                      Tax Registration Number
+                    </s-text>
+                    <s-text>{application?.tax_registration_number || "—"}</s-text>
                   </s-stack>
 
                   <s-stack direction="block" gap="none">

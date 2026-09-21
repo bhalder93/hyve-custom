@@ -5,7 +5,7 @@ import { signedOutPage } from "../lib/account-signed-out.server";
 import { loadAccount } from "../lib/account-data.server";
 import { mapOrders, awaitingActionCount } from "../lib/account-orders.server";
 import { artworkPage } from "../lib/account-artwork.server";
-import { listArtwork, uploadArtwork, deleteArtwork } from "../lib/artwork.server";
+import { listArtwork, uploadArtwork, deleteArtwork, artworkOwnerGid } from "../lib/artwork.server";
 
 /**
  * Saved Artwork.
@@ -29,16 +29,17 @@ export const action = async ({ request }) => {
 
   let flash = null;
   try {
+    const owner = await ownerFor(admin, customerId);
     const formData = await request.formData();
     const intent = String(formData.get("intent") || "");
 
     if (intent === "upload") {
-      const result = await uploadArtwork(admin, customerId, formData.get("artwork"));
+      const result = await uploadArtwork(admin, owner, formData.get("artwork"));
       flash = result.ok
         ? { ok: true, message: `${result.filename} uploaded to your library.` }
         : { ok: false, message: result.error };
     } else if (intent === "delete") {
-      const result = await deleteArtwork(admin, customerId, String(formData.get("artworkId") || ""));
+      const result = await deleteArtwork(admin, owner, String(formData.get("artworkId") || ""));
       flash = result.ok
         ? { ok: true, message: `${result.deleted} deleted.` }
         : { ok: false, message: result.error };
@@ -58,14 +59,16 @@ async function renderPage({ liquid, admin, request, flash = null }) {
     const customerId = url.searchParams.get("logged_in_customer_id");
     if (!customerId) return liquid(signedOutPage("/apps/account/artwork"));
 
-    const [account, library] = await Promise.all([
-      loadAccount(admin, customerId),
-      listArtwork(admin, customerId),
-    ]);
+    const account = await loadAccount(admin, customerId);
 
     if (account.failed) {
       return liquid(accountShell({ active: "artwork", main: errorState(), customer: account.customer }));
     }
+
+    // The library belongs to the company where there is one, so who owns it can
+    // only be known after the account is read.
+    const owner = artworkOwnerGid({ companyId: account.terms?.companyId, customerId });
+    const library = await listArtwork(admin, owner, `gid://shopify/Customer/${customerId}`);
 
     const orders = mapOrders(account.orderNodes);
 
@@ -84,4 +87,10 @@ async function renderPage({ liquid, admin, request, flash = null }) {
     console.error("[portal] artwork page failed", error);
     return liquid(accountShell({ active: "artwork", main: errorState() }));
   }
+}
+
+/** The company's library when the buyer has one, otherwise their own. */
+async function ownerFor(admin, customerId) {
+  const account = await loadAccount(admin, customerId);
+  return artworkOwnerGid({ companyId: account.terms?.companyId, customerId });
 }

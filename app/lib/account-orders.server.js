@@ -16,6 +16,7 @@
  * so switching a filter costs no round trip.
  */
 import { esc } from "./account-shell.server";
+import { zonesFromAttributes } from "./artwork-zones.server";
 import { orderModal, MODAL_STYLES, MODAL_SCRIPT } from "./account-order-modal.server";
 import {
   VISIBLE_STATUSES,
@@ -45,6 +46,9 @@ export function mapOrders(nodes = []) {
       name: node?.name || "",
       // Native B2B field first, metafield for orders captured in the cart.
       poNumber: node?.poNumber || node?.poNumberMeta?.value || "",
+      // Only an order on terms has an invoice — a prepaid one was settled at
+      // checkout and there is no paperwork to hand over.
+      hasInvoice: Boolean(node?.paymentTerms),
       statusKey,
       items: itemsSummary(lineItems),
       date: formatDate(node?.createdAt),
@@ -62,6 +66,9 @@ export function mapOrders(nodes = []) {
       // Order detail modal (J2)
       incoterm: node?.incoterm?.value || "",
       forwarder: node?.forwarder?.value || "",
+      // The modal lists payment terms as a header fact. It read a field nobody
+      // set, so the line was silently dropped on every order.
+      paymentTerms: node?.paymentTerms?.paymentTermsName || "",
       productionPhotoUrl: node?.productionPhotoUrl?.value || "",
       note: node?.note || "",
       shippingAddress: node?.shippingAddress || null,
@@ -71,6 +78,19 @@ export function mapOrders(nodes = []) {
         quantity: li.quantity,
         variantTitle: li.variantTitle && li.variantTitle !== "Default Title" ? li.variantTitle : "",
         sku: li.sku || "",
+        // J2 wants the decoration method and placement on the line. They were
+        // chosen at add-to-cart and live on the line's properties; underscore
+        // keys are Shopify's hidden-property convention and carry our plumbing,
+        // and the per-zone artwork is shown by the artwork panel instead.
+        options: (li.customAttributes || [])
+          .filter(
+            (attr) =>
+              attr?.key && !attr.key.startsWith("_") && !attr.key.startsWith("Artwork:") && attr.value,
+          )
+          .map((attr) => `${attr.key}: ${attr.value}`),
+        // F11: where this line is decorated, so a send-later order can be
+        // completed against the same positions the buyer chose.
+        zones: zonesFromAttributes(li.customAttributes),
         unitPrice: formatMoney(
           li.originalUnitPriceSet?.shopMoney?.amount,
           li.originalUnitPriceSet?.shopMoney?.currencyCode,
@@ -94,7 +114,7 @@ export function awaitingActionCount(orders = []) {
  * @param {Array<object>} opts.orders
  * @param {boolean} [opts.showDistributorPromo]  only for non-distributor accounts
  */
-export function ordersPage({ orders = [], showDistributorPromo = false, notice = "", error = "" } = {}) {
+export function ordersPage({ orders = [], library = [], showDistributorPromo = false, notice = "", error = "" } = {}) {
   const tabs = [{ key: "all", label: "All" }, ...VISIBLE_STATUSES]
     .map(
       (tab, i) => `
@@ -110,7 +130,7 @@ export function ordersPage({ orders = [], showDistributorPromo = false, notice =
     : `<div class="hyve-ord__empty">You have not placed any orders yet.</div>`;
 
   // One modal per order, rendered alongside the list and toggled client-side.
-  const modals = orders.map(orderModal).join("");
+  const modals = orders.map((order) => orderModal(order, library)).join("");
 
   return `
     ${ORDERS_STYLES}
@@ -158,7 +178,10 @@ export function orderRow(order) {
           <span class="hyve-ord__badge hyve-ord__badge--${status.tone}">${esc(status.label)}</span>
         </div>
         <p class="hyve-ord__items">${esc(order.items)}</p>
-        <p class="hyve-ord__date">${esc(order.date)}</p>
+        <p class="hyve-ord__date">
+          ${esc(order.date)}
+          ${order.poNumber ? `<span class="hyve-ord__po">PO ${esc(order.poNumber)}</span>` : ""}
+        </p>
         ${meta}
       </div>
 
@@ -176,13 +199,29 @@ function rowActions(order, statusKey) {
   ];
 
   if (statusKey === "proof-sent") {
-    actions.push(action(order.proofUrl || `/apps/account/orders#${order.name}`, icoProof(), "Review Proof", "primary"));
+    // The proof, and the Approve / Request changes buttons, live in the order
+    // detail. This used to fall back to a page anchor that went nowhere.
+    actions.push(
+      `<button type="button" class="hyve-ord__btn hyve-ord__btn--primary" data-modal-open="order-${esc(order.name)}">${icoProof()}<span>Review Proof</span></button>`,
+    );
   }
   if (statusKey === "awaiting-artwork") {
     actions.push(action(`/apps/account/artwork?order=${encodeURIComponent(order.name)}`, icoUpload(), "Upload Artwork", "primary"));
   }
   if (statusKey === "shipped" && order.trackHref) {
     actions.push(action(order.trackHref, icoTruck(), "Track"));
+  }
+  // J9: the invoice is downloadable from the order it belongs to, not only
+  // from the Invoices page. Nothing is offered while the order sits in Credit
+  // Under Review, because no invoice has been released yet (K8).
+  if (order.hasInvoice && order.id && statusKey !== "credit-under-review") {
+    actions.push(
+      action(
+        `/apps/account/invoices/download?order=${encodeURIComponent(order.id)}`,
+        icoInvoice(),
+        "Invoice",
+      ),
+    );
   }
   if (["shipped", "production-completed"].includes(statusKey) && order.id) {
     // Reorder places a real order, so it posts rather than following a link.
@@ -278,6 +317,7 @@ function icoTruck() { return svg('<path d="M10 17V6a1 1 0 0 0-1-1H2v11h2"/><path
 function icoUpload() { return svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'); }
 function icoProof() { return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="9 15 11 17 15 13"/>'); }
 function icoRepeat() { return svg('<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>'); }
+function icoInvoice() { return svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'); }
 function icoClock() { return svg('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'); }
 function icoCalendar() { return svg('<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'); }
 function icoAward() { return svg('<circle cx="12" cy="8" r="6"/><path d="M15.5 13.5 17 22l-5-3-5 3 1.5-8.5"/>'); }
@@ -313,6 +353,8 @@ export const ORDER_ROW_STYLES = `
   .hyve-ord__badge--error { background: #FEE2E2; color: #B91C1C; }
   .hyve-ord__items { font-size: 13px; color: var(--hyve-700); margin: 0 0 2px; }
   .hyve-ord__date { font-size: 12px; color: var(--hyve-muted); margin: 0; }
+  .hyve-ord__po { color: var(--hyve-700); font-weight: 600; }
+  .hyve-ord__po::before { content: "·"; margin: 0 6px; color: var(--hyve-muted); font-weight: 400; }
   .hyve-ord__meta { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--hyve-500); margin: 10px 0 0; }
   .hyve-ord__meta svg { width: 13px; height: auto; flex-shrink: 0; }
   .hyve-ord__meta.is-action { color: #B45309; }
@@ -427,6 +469,21 @@ const ORDERS_SCRIPT = `
       apply();
     });
   });
+
+  // A link can arrive asking for one status: the dashboard's Track Order
+  // shortcut points here with ?filter=shipped. Without this the parameter was
+  // ignored and the buyer landed on every order, which is not what the link
+  // said it would do.
+  var wanted = new URLSearchParams(window.location.search).get('filter');
+  var preset = wanted && tabs.filter(function (tab) {
+    return tab.getAttribute('data-filter') === wanted;
+  })[0];
+  if (preset) {
+    tabs.forEach(function (other) { other.classList.remove('is-active'); });
+    preset.classList.add('is-active');
+    filter = wanted;
+    apply();
+  }
 
   if (search) search.addEventListener('input', apply);
 })();

@@ -13,11 +13,18 @@
  * so opening one costs no round trip.
  */
 import { esc } from "./account-shell.server";
+import { ACCEPTED_EXTENSIONS, MAX_FILE_LABEL } from "./artwork.server";
 import { VISIBLE_STATUSES, statusByKey } from "./portal.server";
 
 const WHATSAPP_NUMBER = "6569322855";
 
-export function orderModal(order) {
+// F5 asks for the format and size limits to be stated before upload, so the
+// panel reads them from the same list the upload itself enforces.
+const ARTWORK_ACCEPT = ACCEPTED_EXTENSIONS.join(",");
+const ARTWORK_ACCEPT_LABEL = ACCEPTED_EXTENSIONS.map((e) => e.replace(".", "").toUpperCase()).join(", ");
+const ARTWORK_MAX_LABEL = MAX_FILE_LABEL;
+
+export function orderModal(order, library = []) {
   const status = statusByKey(order.statusKey) || VISIBLE_STATUSES[0];
   const reachedIndex = VISIBLE_STATUSES.findIndex((s) => s.key === order.statusKey);
 
@@ -37,6 +44,7 @@ export function orderModal(order) {
           <div class="hyve-modal__cols">
             <div class="hyve-modal__col">
               ${timeline(order, reachedIndex)}
+              ${artworkPanel(order, library)}
               ${proofsPanel(order)}
             </div>
 
@@ -49,8 +57,16 @@ export function orderModal(order) {
         </div>
 
         <footer class="hyve-modal__foot">
-          <a class="hyve-ord__btn hyve-ord__btn--ghost" href="https://wa.me/${WHATSAPP_NUMBER}" target="_blank" rel="noopener">${icoHelp()}<span>Need Help?</span></a>
-          ${order.id ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="/apps/account/invoices/download?order=${encodeURIComponent(order.id)}">${icoDownload()}<span>Download Invoice</span></a>` : ""}
+          <a class="hyve-ord__btn hyve-ord__btn--ghost" href="https://wa.me/${WHATSAPP_NUMBER}" target="_blank" rel="noopener">${icoHelp()}<span>WhatsApp Us</span></a>
+          <a class="hyve-ord__btn hyve-ord__btn--ghost" href="https://hyve.promo/pages/contact" target="_blank" rel="noopener">${icoMail()}<span>Email Us</span></a>
+          ${
+            // Only an order on terms has an invoice, and none is released while
+            // it sits in Credit Under Review — offering the button anyway sent
+            // the buyer to a 404.
+            order.hasInvoice && order.id && order.statusKey !== "credit-under-review"
+              ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="/apps/account/invoices/download?order=${encodeURIComponent(order.id)}">${icoDownload()}<span>Download Invoice</span></a>`
+              : ""
+          }
           ${order.trackHref ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="${esc(order.trackHref)}">${icoTruck()}<span>Track Shipment</span></a>` : ""}
           ${
             order.id
@@ -73,6 +89,9 @@ function headerFacts(order, status) {
     ["Incoterm", order.incoterm],
     ["Forwarder", order.forwarder],
     ["Payment Terms", order.paymentTerms],
+    // J13: staff enter this against the published lead time; it is never
+    // calculated. The list row shows it too.
+    ["Est. Ship Date", order.estimatedShipDate],
   ].filter(([, v]) => v);
 
   return `
@@ -122,6 +141,7 @@ function productPanel(order) {
             ${li.variantTitle ? `<span class="hyve-modal__chip">${esc(li.variantTitle)}</span>` : ""}
             <span class="hyve-modal__chip">Qty: ${esc(li.quantity)}</span>
             ${li.sku ? `<span class="hyve-modal__chip">${esc(li.sku)}</span>` : ""}
+            ${(li.options || []).map((option) => `<span class="hyve-modal__chip">${esc(option)}</span>`).join("")}
           </span>
         </div>
         <div class="hyve-modal__line-money">
@@ -178,6 +198,106 @@ function shippingPanel(order) {
  * yet — at launch the proof loop runs by email (assumption 7), so this links
  * the customer to the proof and to support rather than faking an action.
  */
+/**
+ * J2/F11: the artwork on the order, one slot per decoration position, mirroring
+ * the picker on the product page and in the cart. A send-later order is
+ * completed here: each empty position takes a file from the buyer's saved
+ * artwork or a fresh upload, and filling them releases the hold.
+ */
+function artworkPanel(order, library = []) {
+  const lines = (order.lines || []).filter((li) => (li.zones || []).length);
+  if (!lines.length) return "";
+
+  const editable = order.statusKey === "awaiting-artwork" && order.id;
+
+  const blocks = lines
+    .map((li) => {
+      const slots = li.zones.map((zone) => zoneSlot(zone, editable, library, order.name)).join("");
+      return `
+        <div class="hyve-art__line">
+          <span class="hyve-art__line-title">${esc(li.title)}</span>
+          ${slots}
+        </div>`;
+    })
+    .join("");
+
+  const body = editable
+    ? `<form method="post" action="/apps/account/orders/artwork" enctype="multipart/form-data">
+         <input type="hidden" name="order" value="${esc(order.id)}">
+         ${blocks}
+         <div class="hyve-modal__proof-buttons">
+           <button type="submit" class="hyve-ord__btn hyve-ord__btn--primary">
+             ${icoUpload()}<span>Send Artwork</span>
+           </button>
+         </div>
+         <p class="hyve-art__limits">${esc(ARTWORK_ACCEPT_LABEL)}, up to ${esc(ARTWORK_MAX_LABEL)} per file.</p>
+       </form>`
+    : blocks;
+
+  return `
+    <section class="hyve-modal__panel-box">
+      <h3 class="hyve-modal__panel-title">${icoImage()} Artwork</h3>
+      ${body}
+    </section>`;
+}
+
+/** One decoration position: what is on it, or a way to supply it. */
+function zoneSlot(zone, editable, library, orderName) {
+  const field = `zone:${zone.key}`;
+  const id = `${orderName}-${zone.key}`.replace(/[^A-Za-z0-9-]/g, "-");
+
+  if (zone.url) {
+    return `
+      <div class="hyve-art__zone is-filled">
+        <span class="hyve-art__zone-label">${esc(zone.label)}</span>
+        <a class="hyve-art__file" href="${esc(zone.url)}" target="_blank" rel="noopener">
+          ${icoFile()}<span>${esc(filenameOf(zone.url))}</span>
+        </a>
+      </div>`;
+  }
+
+  if (!editable) {
+    return `
+      <div class="hyve-art__zone">
+        <span class="hyve-art__zone-label">${esc(zone.label)}</span>
+        <p class="hyve-modal__muted">Not supplied yet.</p>
+      </div>`;
+  }
+
+  // Saved artwork first — most buyers are reusing a logo they have already sent.
+  const saved = library.length
+    ? `<label class="hyve-art__pick" for="${esc(id)}-saved">Use saved artwork</label>
+       <select class="hyve-art__select" id="${esc(id)}-saved" name="${esc(field)}:saved">
+         <option value="">Choose a file…</option>
+         ${library
+           .map((file) => `<option value="${esc(file.url)}">${esc(file.filename)}</option>`)
+           .join("")}
+       </select>
+       <span class="hyve-art__or">or upload a new file</span>`
+    : "";
+
+  return `
+    <div class="hyve-art__zone">
+      <span class="hyve-art__zone-label">${esc(zone.label)}</span>
+      ${saved}
+      <input
+        type="file"
+        class="hyve-art__input"
+        id="${esc(id)}-file"
+        name="${esc(field)}:file"
+        accept="${esc(ARTWORK_ACCEPT)}">
+    </div>`;
+}
+
+function filenameOf(url) {
+  const path = String(url || "").split("?")[0];
+  try {
+    return decodeURIComponent(path.split("/").pop() || "Artwork");
+  } catch {
+    return path.split("/").pop() || "Artwork";
+  }
+}
+
 function proofsPanel(order) {
   const items = [
     order.proofUrl ? ["Digital Proof", order.proofUrl, "Proof"] : null,
@@ -204,8 +324,29 @@ function proofsPanel(order) {
           : `<p class="hyve-modal__muted">No proof or production photo on this order yet.</p>`
       }
       ${
-        order.statusKey === "proof-sent"
-          ? `<p class="hyve-modal__note">${icoAlert()}<span>Reply to the proof email to approve or request changes. The proofing loop runs by email at launch.</span></p>`
+        // ART-03: the decision must be possible here as well as from the proof
+        // email. Most buyers use the email; internal sales staff use this.
+        order.statusKey === "proof-sent" && order.id
+          ? `<form method="post" action="/apps/account/orders/proof" class="hyve-modal__proof-actions">
+               <input type="hidden" name="order" value="${esc(order.id)}">
+               <label class="hyve-modal__proof-label" for="proof-msg-${esc(order.name)}">
+                 What needs changing? (only needed if you're requesting changes)
+               </label>
+               <textarea
+                 id="proof-msg-${esc(order.name)}"
+                 name="message"
+                 class="hyve-modal__proof-input"
+                 rows="2"
+                 placeholder="Move the logo lower, use the darker green…"></textarea>
+               <div class="hyve-modal__proof-buttons">
+                 <button type="submit" name="decision" value="approve" class="hyve-ord__btn hyve-ord__btn--primary">
+                   ${icoTick()}<span>Approve Proof</span>
+                 </button>
+                 <button type="submit" name="decision" value="changes" class="hyve-ord__btn hyve-ord__btn--ghost">
+                   ${icoNote()}<span>Request Changes</span>
+                 </button>
+               </div>
+             </form>`
           : ""
       }
     </section>`;
@@ -233,6 +374,8 @@ function icoFile() { return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2
 function icoNote() { return svg('<path d="M4 4h16v12l-4 4H4z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="13" y2="13"/>'); }
 function icoAlert() { return svg('<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/>'); }
 function icoHelp() { return svg('<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>'); }
+function icoUpload() { return svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'); }
+function icoMail() { return svg('<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>'); }
 function icoDownload() { return svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'); }
 function icoTruck() { return svg('<path d="M10 17V6a1 1 0 0 0-1-1H2v11h2"/><path d="M14 17h-4"/><path d="M20 17h2v-4l-3-4h-5v8h2"/><circle cx="7" cy="17.5" r="2.5"/><circle cx="17" cy="17.5" r="2.5"/>'); }
 function icoRepeat() { return svg('<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>'); }
@@ -291,6 +434,25 @@ export const MODAL_STYLES = `
   .hyve-modal__link { color: var(--hyve-teal-dark); font-weight: 700; text-decoration: none; }
   .hyve-modal__muted { font-size: 12px; color: var(--hyve-muted); margin: 0; }
   .hyve-modal__note { display: flex; gap: 7px; align-items: flex-start; font-size: 11.5px; color: #B45309; background: #FEF3C7; border-radius: 8px; padding: 8px 10px; margin: 12px 0 0; }
+
+  .hyve-modal__proof-actions { margin: 12px 0 0; border-top: 1px solid var(--hyve-border); padding-top: 12px; }
+  .hyve-modal__proof-label { display: block; font-size: 11.5px; color: var(--hyve-muted); margin-bottom: 5px; }
+  .hyve-modal__proof-input { width: 100%; border: 1px solid var(--hyve-border-strong); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 12.5px; color: var(--hyve-900); resize: vertical; }
+  .hyve-modal__proof-input:focus { outline: 2px solid rgba(110,222,225,0.45); outline-offset: 1px; }
+  .hyve-modal__proof-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+  .hyve-art__line { margin-top: 12px; }
+  .hyve-art__line-title { display: block; font-size: 12px; font-weight: 700; color: var(--hyve-900); margin-bottom: 6px; }
+  .hyve-art__zone { border: 1px solid var(--hyve-border); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
+  .hyve-art__zone.is-filled { background: #F8FAFC; }
+  .hyve-art__zone-label { display: block; font-size: 11.5px; font-weight: 600; color: var(--hyve-700); margin-bottom: 6px; }
+  .hyve-art__file { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--hyve-900); text-decoration: none; font-weight: 600; }
+  .hyve-art__file svg { width: 14px; height: 14px; flex-shrink: 0; }
+  .hyve-art__pick { display: block; font-size: 11px; color: var(--hyve-muted); margin-bottom: 4px; }
+  .hyve-art__select { width: 100%; border: 1px solid var(--hyve-border-strong); border-radius: 8px; padding: 7px 9px; font: inherit; font-size: 12.5px; background: #fff; }
+  .hyve-art__or { display: block; font-size: 11px; color: var(--hyve-muted); margin: 8px 0 4px; }
+  .hyve-art__input { width: 100%; font-size: 12px; }
+  .hyve-art__limits { font-size: 11px; color: var(--hyve-muted); margin: 8px 0 0; }
   .hyve-modal__note svg { width: 15px; height: 15px; flex-shrink: 0; margin-top: 1px; }
 
   .hyve-modal__proofs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

@@ -42,7 +42,14 @@ export function dashboardPage({ customer = null, stats = {}, payment = null, rec
         ${statCard(icoBox(), "lime", stats.totalOrders ?? 0, "Total Orders")}
         ${statCard(icoClock(), "amber", stats.pendingProofs ?? 0, "Pending Proofs")}
         ${statCard(icoQuote(), "blue", stats.activeQuotes ?? 0, "Active Quotes")}
-        ${statCard(icoWallet(), "teal", stats.storeCredit || "&mdash;", "Store Credit")}
+        ${statCard(
+          icoWallet(),
+          "teal",
+          stats.storeCredit || "&mdash;",
+          "Store Credit",
+          // M3: the figure never appears undated.
+          // stats.storeCreditIssuedAt ? `Issued ${esc(stats.storeCreditIssuedAt)}` : "",
+        )}
       </div>
 
       <div class="hyve-dash__actions">

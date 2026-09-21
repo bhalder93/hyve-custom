@@ -151,6 +151,9 @@ function InvoiceDoc({ doc }) {
                 {line}
               </Text>
             ))}
+            {doc.shopRegistrationNumber ? (
+              <Text style={styles.brandLine}>Co. Reg. No. {doc.shopRegistrationNumber}</Text>
+            ) : null}
             {doc.shopEmail ? <Text style={styles.brandLine}>{doc.shopEmail}</Text> : null}
           </View>
           <View style={styles.meta}>
@@ -188,11 +191,17 @@ function InvoiceDoc({ doc }) {
                 {line}
               </Text>
             ))}
+            {doc.billToTaxNumber ? (
+              <Text style={styles.partyLine}>Tax Reg. No. {doc.billToTaxNumber}</Text>
+            ) : null}
           </View>
           <View style={styles.party}>
             <Text style={styles.partyLabel}>PAYMENT TERMS</Text>
             <Text style={styles.partyStrong}>{doc.termsName || "Due on receipt"}</Text>
             <Text style={styles.partyLine}>Order {doc.orderName}</Text>
+            {doc.incoterm ? (
+              <Text style={styles.partyLine}>Incoterm {doc.incoterm}</Text>
+            ) : null}
           </View>
         </View>
 
@@ -212,6 +221,11 @@ function InvoiceDoc({ doc }) {
                     {[li.variantTitle, li.sku ? `SKU ${li.sku}` : ""].filter(Boolean).join("  ·  ")}
                   </Text>
                 ) : null}
+                {(li.options || []).map((option, n) => (
+                  <Text key={n} style={styles.itemSub}>
+                    {option}
+                  </Text>
+                ))}
               </View>
               <Text style={[styles.cell, styles.colQty]}>{li.quantity}</Text>
               <Text style={[styles.cell, styles.colUnit]}>{li.unitLabel}</Text>
@@ -226,7 +240,7 @@ function InvoiceDoc({ doc }) {
             <Text style={styles.sumVal}>{doc.subtotalLabel}</Text>
           </View>
           <View style={styles.sumRow}>
-            <Text style={styles.sumLabel}>Shipping</Text>
+            <Text style={styles.sumLabel}>{doc.shippingName || "Shipping"}</Text>
             <Text style={styles.sumVal}>{doc.shippingLabel}</Text>
           </View>
           <View style={styles.total}>

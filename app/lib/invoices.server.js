@@ -7,7 +7,7 @@
  * all derived from real order data.
  *
  */
-import { formatMoney, formatDate } from "./portal.server";
+import { formatMoney, formatDate, orderStatusKey } from "./portal.server";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -21,7 +21,9 @@ const INVOICES_QUERY = `#graphql
           name
           createdAt
           poNumber
+          tags
           displayFinancialStatus
+          displayFulfillmentStatus
           totalPriceSet { shopMoney { amount currencyCode } }
           totalOutstandingSet { shopMoney { amount currencyCode } }
           lineItems(first: 3) { nodes { title quantity } }
@@ -66,6 +68,9 @@ export async function loadInvoices(admin, locationGids) {
       .flatMap((r) => r.orders)
       // Only orders on terms produce an invoice; a prepaid order is already settled.
       .filter((o) => o.paymentTerms)
+      // K8: no invoice exists until sales has confirmed the order, so an order
+      // still sitting in Credit Under Review is not listed.
+      .filter((o) => orderStatusKey(o) !== "credit-under-review")
       .map(toInvoice)
       .filter((invoice) => {
         if (!invoice || seen.has(invoice.orderId)) return false;
@@ -102,7 +107,10 @@ function toInvoice(order) {
     schedule.totalBalance?.currencyCode ||
     "";
   const outstanding = Number(order.totalOutstandingSet?.shopMoney?.amount ?? 0);
-  const total = Number(schedule.totalBalance?.amount ?? order.totalPriceSet?.shopMoney?.amount ?? 0);
+  // The amount billed, which is the order's total. A schedule's `totalBalance`
+  // drops to zero the moment it is settled, so reading the invoice amount from
+  // it made every paid invoice display as nil.
+  const total = Number(order.totalPriceSet?.shopMoney?.amount ?? schedule.totalBalance?.amount ?? 0);
   const paid = Boolean(schedule.completedAt) || outstanding <= 0;
   const dueAt = schedule.dueAt ? new Date(schedule.dueAt) : null;
   const days = dueAt ? Math.ceil((dueAt.getTime() - Date.now()) / DAY_MS) : null;

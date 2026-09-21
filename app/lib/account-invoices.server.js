@@ -16,6 +16,7 @@ export function invoicesPage({
   storeCredit = "",
   storeCreditUsed = "",
   storeCreditIssued = "",
+  storeCreditIssuedAt = "",
   storeCreditPercentUsed = null,
   paymentTerms = "",
   salesRep = "",
@@ -29,7 +30,7 @@ export function invoicesPage({
       <h1 class="hyve-inv__title">Invoices</h1>
       <p class="hyve-inv__sub">View and download your invoices</p>
 
-      ${creditPanel({ storeCredit, storeCreditUsed, storeCreditIssued, storeCreditPercentUsed, paymentTerms, tier })}
+      ${creditPanel({ storeCredit, storeCreditUsed, storeCreditIssued, storeCreditIssuedAt, storeCreditPercentUsed, paymentTerms, tier })}
       ${salesRep ? repBar(salesRep, salesRepEmail, salesRepPhone) : ""}
 
       <div class="hyve-inv__card">
@@ -66,6 +67,7 @@ function creditPanel({
   storeCredit,
   storeCreditUsed,
   storeCreditIssued,
+  storeCreditIssuedAt,
   storeCreditPercentUsed,
   paymentTerms,
   tier,
@@ -82,11 +84,15 @@ function creditPanel({
           ${tier ? `<span class="hyve-inv__tier">${esc(tier)}</span>` : ""}
         </div>
         ${storeCredit ? `<span class="hyve-inv__big hyve-inv__big--credit">${esc(storeCredit)}</span>` : ""}
-        <span class="hyve-inv__muted">Applied automatically at checkout</span>
+        <span class="hyve-inv__muted">Choose store credit at checkout to use it</span>
         ${
           storeCreditUsed
             ? `<div class="hyve-inv__credit-grid">
-                 <div><span class="hyve-inv__muted">Issued</span><strong>${esc(storeCreditIssued)}</strong></div>
+                 <div>
+                   <span class="hyve-inv__muted">Issued</span>
+                   <strong>${esc(storeCreditIssued)}</strong>
+                   ${storeCreditIssuedAt ? `<span class="hyve-inv__asof">${esc(storeCreditIssuedAt)}</span>` : ""}
+                 </div>
                  <div><span class="hyve-inv__muted">Used</span><strong>${esc(storeCreditUsed)}</strong></div>
                </div>`
             : ""
@@ -199,6 +205,7 @@ const INVOICE_STYLES = `
   .hyve-inv__credit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
   .hyve-inv__credit-grid div { display: flex; flex-direction: column; background: #F8FAFC; border-radius: 8px; padding: 8px 10px; }
   .hyve-inv__credit-grid strong { font-size: 13px; font-weight: 700; }
+  .hyve-inv__asof { font-size: 10.5px; color: var(--hyve-muted); margin-top: 2px; }
   .hyve-inv__meter { height: 6px; border-radius: 9999px; background: #E2E8F0; overflow: hidden; margin-top: 6px; }
   .hyve-inv__meter span { display: block; height: 100%; background: var(--hyve-gradient); }
   .hyve-inv__meter-legend { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

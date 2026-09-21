@@ -122,6 +122,7 @@ export const action = async ({ request }) => {
       const marketsSold = marketsArray.length ? marketsArray.join(", ") : "Singapore";
       const requestCredit = formData.get("requestCredit") === "true";
       const registrationNumber = String(formData.get("registrationNumber") || "").trim();
+      const taxRegistrationNumber = String(formData.get("taxRegistrationNumber") || "").trim();
       const expectedVolume = String(formData.get("expectedVolume") || "").trim();
       const registeredAddress = String(formData.get("registeredAddress") || "").trim();
 
@@ -161,6 +162,7 @@ export const action = async ({ request }) => {
         marketsSold,
         requestCredit,
         registrationNumber,
+        taxRegistrationNumber,
         expectedVolume,
         registeredAddress,
         registrationDocName,
@@ -184,6 +186,7 @@ export const action = async ({ request }) => {
         markets_sold: marketsSold,
         request_credit: requestCredit ? "true" : "false",
         registration_number: registrationNumber,
+        tax_registration_number: taxRegistrationNumber,
         expected_annual_volume: expectedVolume,
         registered_address: registeredAddress,
         registration_document_name: registrationDocName,

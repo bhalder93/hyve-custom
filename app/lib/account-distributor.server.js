@@ -174,13 +174,24 @@ export function distributorPage({
             <!-- Left Subcolumn -->
             <div class="hyve-dist__col">
               <div class="hyve-dist__field">
-                <label class="hyve-dist__label" for="dist-uen">Business Registration Number (UEN / Tax ID) <span class="hyve-dist__req">*</span></label>
+                <label class="hyve-dist__label" for="dist-uen">Business Registration Number (UEN) <span class="hyve-dist__req">*</span></label>
                 <input
                   type="text"
                   id="dist-uen"
                   name="registrationNumber"
                   class="hyve-dist__input"
                   placeholder="e.g. 201912345G"
+                >
+              </div>
+
+              <div class="hyve-dist__field">
+                <label class="hyve-dist__label" for="dist-tax">Tax Registration Number <span class="hyve-dist__req">*</span></label>
+                <input
+                  type="text"
+                  id="dist-tax"
+                  name="taxRegistrationNumber"
+                  class="hyve-dist__input"
+                  placeholder="As shown on your tax certificate"
                 >
               </div>
 

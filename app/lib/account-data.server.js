@@ -14,6 +14,7 @@ import {
   AWAITING_DISTRIBUTOR,
   CUSTOMER_METAFIELDS,
   formatMoney,
+  formatDate,
 } from "./portal.server";
 
 /** Give up before Shopify gives up on the proxy response. */
@@ -50,6 +51,9 @@ const ACCOUNT_QUERY = `#graphql
                       amount { amount currencyCode }
                     }
                   }
+                  latestCredit: transactions(first: 1, query: "type:credit", sortKey: CREATED_AT, reverse: true) {
+                    nodes { createdAt }
+                  }
                 }
               }
               salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
@@ -69,6 +73,7 @@ const ACCOUNT_QUERY = `#graphql
           statusPageUrl
           displayFulfillmentStatus
           totalPriceSet { shopMoney { amount currencyCode } }
+          paymentTerms { paymentTermsName }
           poNumberMeta: metafield(namespace: "hyve", key: "po_number") { value }
           estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
           productionDueAt: metafield(namespace: "hyve", key: "production_due_at") { value }
@@ -88,6 +93,7 @@ const ACCOUNT_QUERY = `#graphql
               quantity
               variantTitle
               sku
+              customAttributes { key value }
               variant { id }
               originalUnitPriceSet { shopMoney { amount currencyCode } }
               discountedTotalSet { shopMoney { amount currencyCode } }
@@ -176,7 +182,13 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
 
 /**
  * Commercial terms for the sidebar panel (M2) and the credit card on the
- * dashboard. Credit figures are keyed to the date they were last entered (M3).
+ * dashboard.
+ *
+ * M3 asks for a date against every credit figure. The balance itself is live
+ * from Shopify and can't be stale, and a store credit account carries no
+ * "updated at" — so the date shown is when credit was last issued, taken from
+ * the most recent credit transaction. That dates the Issued figure, which is
+ * the one a buyer would ask "since when?" about.
  */
 function buildTerms(customer, orderNodes) {
   const fallbackCurrency = orderNodes[0]?.totalPriceSet?.shopMoney?.currencyCode || "";
@@ -207,6 +219,9 @@ function buildTerms(customer, orderNodes) {
 
   return {
     locationIds,
+    // The saved artwork library hangs off the company, so it is shared by
+    // everyone on it rather than trapped on one person's record (F4).
+    companyId: profiles[0]?.company?.id || null,
     company: location ? profiles[0].company.name : "",
     paymentTerms: location?.buyerExperienceConfiguration?.paymentTermsTemplate?.name || "",
     salesRep: location?.salesRep?.value || "",
@@ -220,6 +235,7 @@ function buildTerms(customer, orderNodes) {
     storeCreditUsedAmount: Number.isFinite(used) ? used : null,
     storeCreditIssued: Number.isFinite(issued) ? formatMoney(issued, currency) : "",
     storeCreditIssuedAmount: Number.isFinite(issued) ? issued : null,
+    storeCreditIssuedAt: formatDate(account?.latestCredit?.nodes?.[0]?.createdAt) || "",
     currency,
   };
 }
@@ -235,8 +251,13 @@ function storeCreditUsed(account) {
   const nodes = account?.transactions?.nodes;
   if (!Array.isArray(nodes)) return null;
 
+  // Shopify signs these from the account's point of view: a debit is negative
+  // because it takes the balance down, a revert is positive because it puts it
+  // back. "Used" is the opposite view — money spent — so each amount is taken
+  // by magnitude and the revert subtracts. Summing the raw values instead made
+  // spend come out negative, which then made Issued smaller than the balance.
   return nodes.reduce((total, tx) => {
-    const amount = Number(tx?.amount?.amount);
+    const amount = Math.abs(Number(tx?.amount?.amount));
     if (!Number.isFinite(amount)) return total;
     // A revert puts credit back, so it cancels out part of the spend.
     return tx.__typename === "StoreCreditAccountDebitRevertTransaction"
@@ -289,6 +310,9 @@ const CHROME_QUERY = `#graphql
                       __typename
                       amount { amount currencyCode }
                     }
+                  }
+                  latestCredit: transactions(first: 1, query: "type:credit", sortKey: CREATED_AT, reverse: true) {
+                    nodes { createdAt }
                   }
                 }
               }

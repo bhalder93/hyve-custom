@@ -19,7 +19,9 @@ function percentUsed(terms) {
   const used = Number(terms?.storeCreditUsedAmount);
   const issued = Number(terms?.storeCreditIssuedAmount);
   if (!Number.isFinite(used) || !Number.isFinite(issued) || issued <= 0) return null;
-  return Math.min(Math.round((used / issued) * 1000) / 10, 100);
+  // A share of a total is never below nil or above everything, whatever the
+  // transactions say.
+  return Math.min(Math.max(Math.round((used / issued) * 1000) / 10, 0), 100);
 }
 
 export const loader = async ({ request }) => {
@@ -47,6 +49,7 @@ export const loader = async ({ request }) => {
               storeCredit: chrome.terms?.storeCredit || "",
               storeCreditUsed: chrome.terms?.storeCreditUsed || "",
               storeCreditIssued: chrome.terms?.storeCreditIssued || "",
+              storeCreditIssuedAt: chrome.terms?.storeCreditIssuedAt || "",
               storeCreditPercentUsed: percentUsed(chrome.terms),
               paymentTerms: chrome.terms?.paymentTerms || "",
               salesRep: chrome.terms?.salesRep || "",

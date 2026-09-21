@@ -1,4 +1,4 @@
-import { useLoaderData, useRouteError } from "react-router";
+import { Link, useLoaderData, useRouteError } from "react-router";
 import { authenticate } from "../shopify.server";
 import { getAllDistributorApplications } from "../lib/distributor-metaobject.server";
 import { quoteDecision } from "../lib/account-quotes.server";
@@ -75,6 +75,10 @@ export const loader = async ({ request }) => {
       rejected: quotes.filter((q) => decision(q) === false).length,
       recent: quotes.slice(0, 5).map((q) => ({
         id: q.id,
+        // The quote detail route is keyed on the bare draft order number, the
+        // same as the quotes list uses. Passing the GID put encoded slashes in
+        // the path segment, which is not the address that route answers on.
+        numericId: String(q.id).replace("gid://shopify/DraftOrder/", ""),
         name: quoteReference(q.name),
         customer: q.customer?.displayName || "—",
         total: money(q.totalPriceSet?.shopMoney),
@@ -200,9 +204,9 @@ export default function DashboardPage() {
               <div className="hyv-panel">
                 <div className="hyv-panel__head">
                   <span className="hyv-panel__title">Latest quotes</span>
-                  <a className="hyv-panel__link" href="/app/quotes">
+                  <Link className="hyv-panel__link" to="/app/quotes">
                     View all
-                  </a>
+                  </Link>
                 </div>
                 <div className="hyv-panel__body">
                   {quotes.recent.length === 0 ? (
@@ -216,7 +220,7 @@ export default function DashboardPage() {
                     quotes.recent.map((quote) => (
                       <Row
                         key={quote.id}
-                        href={`/app/quote/${encodeURIComponent(quote.id)}`}
+                        href={`/app/quote/${encodeURIComponent(quote.numericId)}`}
                         columns="minmax(0,1fr) auto auto"
                         primary={quote.name}
                         sub={quote.customer}
@@ -246,9 +250,9 @@ export default function DashboardPage() {
               <div className="hyv-panel">
                 <div className="hyv-panel__head">
                   <span className="hyv-panel__title">Latest applications</span>
-                  <a className="hyv-panel__link" href="/app/distributors">
+                  <Link className="hyv-panel__link" to="/app/distributors">
                     View all
-                  </a>
+                  </Link>
                 </div>
                 <div className="hyv-panel__body">
                   {applications.recent.length === 0 ? (

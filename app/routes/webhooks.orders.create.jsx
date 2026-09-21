@@ -1,5 +1,10 @@
 import { authenticate, unauthenticated } from "../shopify.server";
-import { artworkFromOrderPayload, recordOrderArtwork } from "../lib/artwork.server";
+import {
+  artworkFromOrderPayload,
+  recordOrderArtwork,
+  artworkOwnerGid,
+  companyGidForCustomer,
+} from "../lib/artwork.server";
 
 /**
  * orders/create — the product page to Saved Artwork link (F4).
@@ -29,9 +34,14 @@ export const action = async ({ request }) => {
     // Webhooks arrive without a session, so open an offline one for the shop.
     const { admin } = await unauthenticated.admin(shop);
 
+    // The library belongs to the company where the buyer has one. A webhook has
+    // no portal session to read that from, so it is looked up here.
+    const customerGid = `gid://shopify/Customer/${customerId}`;
+    const companyId = await companyGidForCustomer(admin, customerGid);
+
     const result = await recordOrderArtwork(
       admin,
-      `gid://shopify/Customer/${customerId}`,
+      artworkOwnerGid({ companyId, customerId }),
       artworks,
       {
         id: `gid://shopify/Order/${payload.id}`,

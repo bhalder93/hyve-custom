@@ -3,6 +3,7 @@ import { accountShell } from "../lib/account-shell.server";
 import { errorState } from "../lib/account-error.server";
 import { loadAccount } from "../lib/account-data.server";
 import { mapOrders, ordersPage, awaitingActionCount } from "../lib/account-orders.server";
+import { listArtwork, artworkOwnerGid } from "../lib/artwork.server";
 import { signedOutPage } from "../lib/account-signed-out.server";
 
 /**
@@ -27,11 +28,25 @@ export const loader = async ({ request }) => {
 
     const orders = mapOrders(orderNodes);
 
+    // The artwork panel offers the buyer's saved files, but only an order still
+    // waiting on artwork can use them — so the library is fetched only then.
+    const needsArtwork = orders.some((order) => order.statusKey === "awaiting-artwork");
+    const library = needsArtwork
+      ? (
+          await listArtwork(
+            admin,
+            artworkOwnerGid({ companyId: terms?.companyId, customerId }),
+            `gid://shopify/Customer/${customerId}`,
+          )
+        ).files
+      : [];
+
     return liquid(
       accountShell({
         active: "orders",
         main: ordersPage({
           orders,
+          library,
           showDistributorPromo: !isDistributor,
           notice: url.searchParams.get("notice") || "",
           error: url.searchParams.get("error") || "",

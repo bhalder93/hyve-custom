@@ -11,7 +11,19 @@
  * An order without payment terms still gets a document — it was simply paid at
  * checkout rather than on terms, and the buyer may still want the paperwork.
  */
-import { formatMoney, formatDate } from "./portal.server";
+import { formatMoney, formatDate, orderStatusKey } from "./portal.server";
+
+/**
+ * The legal entity that issues the invoice.
+ *
+ * Shopify's `shop.name` is the storefront's trading name ("Hyve.Promo"), which
+ * is not who the invoice is from. A commercial document has to carry the
+ * registered company, so it is stated here rather than read from the store.
+ */
+const LEGAL_NAME = "Hyve Promo Pte Ltd";
+
+/** Hyve's business registration number (UEN). Awaiting the value from Hyve. */
+const BUSINESS_REGISTRATION_NUMBER = "";
 
 const DOCUMENT_QUERY = `#graphql
   query InvoiceDocument($id: ID!) {
@@ -27,11 +39,18 @@ const DOCUMENT_QUERY = `#graphql
       poNumber
       currencyCode
       displayFinancialStatus
+      displayFulfillmentStatus
+      tags
+      incoterm: metafield(namespace: "hyve", key: "incoterm") { value }
       customer { id }
       billingAddress { company name address1 address2 city province zip country }
       purchasingEntity {
         ... on PurchasingCompany {
-          company { id name }
+          company {
+            id
+            name
+            taxRegistrationNumber: metafield(namespace: "hyve", key: "tax_registration_number") { value }
+          }
           location { id name }
         }
       }
@@ -41,10 +60,12 @@ const DOCUMENT_QUERY = `#graphql
           variantTitle
           sku
           quantity
+          customAttributes { key value }
           originalUnitPriceSet { shopMoney { amount currencyCode } }
           discountedTotalSet { shopMoney { amount currencyCode } }
         }
       }
+      shippingLine { title }
       subtotalPriceSet { shopMoney { amount currencyCode } }
       totalShippingPriceSet { shopMoney { amount currencyCode } }
       totalTaxSet { shopMoney { amount currencyCode } }
@@ -90,6 +111,12 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
   const ownedByCompany = locations.includes(order.purchasingEntity?.location?.id);
   if (!ownedByCustomer && !ownedByCompany) return null;
 
+  // K8: the invoice is released only once sales has confirmed the order, which
+  // on a terms order means after Credit Under Review clears. Until then there
+  // is no paperwork to hand over, so the download is refused rather than
+  // producing a document the buyer shouldn't have yet.
+  if (orderStatusKey(order) === "credit-under-review") return null;
+
   // Only an order on terms has a schedule; a prepaid one was settled at checkout.
   const schedule = order.paymentTerms?.paymentSchedules?.nodes?.[0] || null;
 
@@ -102,16 +129,19 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
   const overdue = !paid && dueAt ? dueAt.getTime() < Date.now() : false;
 
   return {
-    shopName: body.data.shop?.name || "",
+    shopName: LEGAL_NAME,
+    shopRegistrationNumber: BUSINESS_REGISTRATION_NUMBER,
     shopEmail: body.data.shop?.contactEmail || "",
     shopAddress: body.data.shop?.shopAddress?.formatted || [],
 
     reference: order.name,
     orderName: order.name,
     poNumber: order.poNumber || "",
+    incoterm: order.incoterm?.value || "",
     currency,
 
     billTo: billingLines(order, order.purchasingEntity),
+    billToTaxNumber: order.purchasingEntity?.company?.taxRegistrationNumber?.value || "",
 
     issuedLabel: formatDate(schedule?.issuedAt || order.createdAt),
     dueLabel: formatDate(schedule?.dueAt) || "on receipt",
@@ -124,17 +154,36 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
       variantTitle: li.variantTitle || "",
       sku: li.sku || "",
       quantity: li.quantity,
+      // K3: the decoration the buyer chose is part of what they are being
+      // billed for, so it belongs on the invoice next to the item.
+      options: decorationOptions(li.customAttributes),
       unitLabel: formatMoney(amount(li.originalUnitPriceSet), currency),
       totalLabel: formatMoney(amount(li.discountedTotalSet), currency),
     })),
 
     subtotalLabel: formatMoney(amount(order.subtotalPriceSet), currency),
     shippingLabel: formatMoney(amount(order.totalShippingPriceSet), currency),
+    // G9: name the rate rather than just "Shipping", so an FOB Ningbo charge is
+    // identifiable on the invoice instead of hiding inside a generic total.
+    shippingName: order.shippingLine?.title || "Shipping",
     taxLabel: formatMoney(amount(order.totalTaxSet), currency),
     totalLabel: formatMoney(amount(order.totalPriceSet), currency),
     paidAmountLabel: formatMoney(amount(order.totalReceivedSet), currency),
     outstandingLabel: formatMoney(outstanding, currency),
   };
+}
+
+/**
+ * The decoration and extras recorded on a line at add-to-cart time.
+ *
+ * Keys beginning with an underscore are Shopify's convention for a hidden
+ * property — ours carry plumbing like `_hyve_setup`, which means nothing to a
+ * buyer reading an invoice.
+ */
+function decorationOptions(attributes) {
+  return (attributes || [])
+    .filter((attr) => attr?.key && !attr.key.startsWith("_") && attr.value)
+    .map((attr) => `${attr.key}: ${attr.value}`);
 }
 
 /** Who the invoice is addressed to: the company first, then the postal address. */

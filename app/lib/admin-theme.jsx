@@ -1,4 +1,5 @@
 /* eslint-disable react/prop-types */
+import { Link } from "react-router";
 /**
  * Custom styling for the admin screens.
  *
@@ -10,6 +11,11 @@
  * nothing here can reach Polaris' own markup. Anything that wraps content in a
  * link resets colour and underline explicitly, because an inherited link style
  * is what makes a card look broken.
+ *
+ * Internal links use React Router's <Link>, never a bare <a>. Inside the
+ * embedded admin a bare anchor reloads the whole iframe instead of letting the
+ * router run the next route's loader, so the page arrives with no data until
+ * the merchant reloads it by hand.
  */
 
 const CSS = `
@@ -253,9 +259,9 @@ export function Metric({ label, value, foot, icon, accent, soft, active, onClick
 
   if (href) {
     return (
-      <a className={className} style={style} href={href}>
+      <Link className={className} style={style} to={href}>
         {inner}
-      </a>
+      </Link>
     );
   }
 
@@ -284,9 +290,9 @@ export function Row({ href, columns, primary, sub, children }) {
   // unreachable by keyboard.
   if (href) {
     return (
-      <a className="hyv-row" style={style} href={href}>
+      <Link className="hyv-row" style={style} to={href}>
         {inner}
-      </a>
+      </Link>
     );
   }
 

@@ -21,7 +21,7 @@
 export async function completeB2BOnboarding(
   admin,
   companyGid,
-  { paymentTerms, catalogTitle, salesRep, salesRepEmail, salesRepPhone } = {},
+  { paymentTerms, catalogTitle, salesRep, salesRepEmail, salesRepPhone, taxRegistrationNumber } = {},
 ) {
   const steps = [];
   const record = (name, ok, detail) => steps.push({ name, ok, detail });
@@ -131,6 +131,31 @@ export async function completeB2BOnboarding(
     });
     const err = res?.metafieldsSet?.userErrors?.[0];
     record("sales rep", !err, err ? err.message : String(salesRep || salesRepEmail).trim());
+  }
+
+  // 6. The buyer's tax registration number, taken from their application. It
+  // belongs to the company rather than a location, and the invoice PDF prints
+  // it (K3) — a distributor's own tax number has to appear on what they file.
+  if (String(taxRegistrationNumber || "").trim()) {
+    const res = await gql(admin, `#graphql
+      mutation SetCompanyTaxNumber($metafields: [MetafieldsSetInput!]!) {
+        metafieldsSet(metafields: $metafields) {
+          metafields { id }
+          userErrors { field message code }
+        }
+      }`, {
+      metafields: [
+        {
+          ownerId: companyGid,
+          namespace: "hyve",
+          key: "tax_registration_number",
+          type: "single_line_text_field",
+          value: String(taxRegistrationNumber).trim(),
+        },
+      ],
+    });
+    const err = res?.metafieldsSet?.userErrors?.[0];
+    record("tax registration number", !err, err ? err.message : String(taxRegistrationNumber).trim());
   }
 
   return { ok: steps.every((s) => s.ok), steps, locationId };

@@ -17,9 +17,13 @@
  * makes "used in N orders" (F4) and "deletable only when no order uses it"
  * (F13) answerable from a single read.
  *
- * Scoping: F4 asks for a library per company shared across users. Companies are
- * the L-series work and are not built, so it is per customer for now. When Team
- * lands, move this metafield from the customer to the company.
+ * Scoping: F4 asks for a library per company, shared across the users on it, so
+ * the document hangs off the company when the buyer belongs to one. A retail
+ * customer has no company, so theirs stays on the customer record — that is a
+ * different owner, not a fallback for the same one.
+ *
+ * Libraries written before the move are merged into the company's on first read
+ * and then cleared, so nobody loses files and there is only ever one source.
  */
 
 const METAFIELD = { namespace: "hyve", key: "artwork", type: "json" };
@@ -87,19 +91,55 @@ function toView(entry) {
   };
 }
 
+/* ---------------- ownership ---------------- */
+
+/**
+ * Who the library belongs to. A distributor's is the company's, shared with
+ * everyone on it; a retail customer's is their own.
+ *
+ * @param {{companyId?:?string, customerId?:?string}} who
+ */
+export function artworkOwnerGid({ companyId, customerId } = {}) {
+  if (companyId) return companyId;
+  return customerId ? `gid://shopify/Customer/${String(customerId).replace(/\D/g, "")}` : "";
+}
+
+/**
+ * The company a customer buys for, if any. Used where there is no portal
+ * session to read it from, such as a webhook.
+ */
+export async function companyGidForCustomer(admin, customerGid) {
+  const data = await gql(admin, `#graphql
+    query ArtworkOwnerCompany($id: ID!) {
+      customer(id: $id) {
+        companyContactProfiles { company { id } }
+      }
+    }`, { id: customerGid });
+
+  return data?.customer?.companyContactProfiles?.[0]?.company?.id || null;
+}
+
 /* ---------------- read ---------------- */
 
-export async function listArtwork(admin, customerId) {
-  if (!admin || !customerId) return { files: [], failed: true };
+/**
+ * @param {string} ownerGid company or customer, from artworkOwnerGid()
+ * @param {?string} [legacyGid] a customer library to fold in and clear, once
+ */
+export async function listArtwork(admin, ownerGid, legacyGid = null) {
+  if (!admin || !ownerGid) return { files: [], failed: true };
 
   try {
-    const doc = await readDoc(admin, `gid://shopify/Customer/${customerId}`);
+    let doc = await readDoc(admin, ownerGid);
     if (doc === null) return { files: [], failed: true };
+
+    if (legacyGid && legacyGid !== ownerGid) {
+      doc = await absorbLegacyLibrary(admin, ownerGid, legacyGid, doc);
+    }
 
     // Shopify processes uploads asynchronously, so a file saved moments ago is
     // still pointing at its temporary staged URL. Swap in the permanent one as
     // soon as it exists — the staged URL expires.
-    const settled = await settleStagedUrls(admin, `gid://shopify/Customer/${customerId}`, doc);
+    const settled = await settleStagedUrls(admin, ownerGid, doc);
 
     const files = settled.files
       .map(toView)
@@ -118,8 +158,8 @@ export async function listArtwork(admin, customerId) {
  * Stage the bytes into Shopify Files, then add the entry to the library with an
  * empty order list. It gains orders as they use it.
  */
-export async function uploadArtwork(admin, customerId, file) {
-  if (!admin || !customerId) return { ok: false, error: "You need to be signed in to upload artwork." };
+export async function uploadArtwork(admin, ownerGid, file) {
+  if (!admin || !ownerGid) return { ok: false, error: "You need to be signed in to upload artwork." };
   if (!file || typeof file.arrayBuffer !== "function") return { ok: false, error: "No file received." };
 
   const filename = String(file.name || "artwork");
@@ -192,7 +232,7 @@ export async function uploadArtwork(admin, customerId, file) {
     // read. Fall back to the staged resource URL, which is already public.
     const url = node.url || node.image?.url || target.resourceUrl;
 
-    const saved = await mutateDoc(admin, `gid://shopify/Customer/${customerId}`, (doc) => {
+    const saved = await mutateDoc(admin, ownerGid, (doc) => {
       const key = keyForUrl(url);
       if (doc.files.some((f) => f.id === key)) return doc;
       doc.files.push({
@@ -208,7 +248,9 @@ export async function uploadArtwork(admin, customerId, file) {
     });
     if (!saved.ok) return saved;
 
-    return { ok: true, filename };
+    // The URL goes back to the caller as well as into the library: uploading
+    // from an order needs it to record the file against that order.
+    return { ok: true, filename, url };
   } catch (error) {
     console.error("[artwork] upload failed", error);
     return { ok: false, error: "Something went wrong uploading that file." };
@@ -227,10 +269,10 @@ export async function uploadArtwork(admin, customerId, file) {
  * @param {Array<{url:string, filename:string}>} artworks
  * @param {{id:string, name:string, createdAt:string}} order
  */
-export async function recordOrderArtwork(admin, customerGid, artworks, order) {
-  if (!admin || !customerGid || !artworks?.length) return { ok: true, added: 0 };
+export async function recordOrderArtwork(admin, ownerGid, artworks, order) {
+  if (!admin || !ownerGid || !artworks?.length) return { ok: true, added: 0 };
 
-  const result = await mutateDoc(admin, customerGid, (doc) => {
+  const result = await mutateDoc(admin, ownerGid, (doc) => {
     for (const art of artworks) {
       const key = keyForUrl(art.url);
       if (!key) continue;
@@ -269,24 +311,37 @@ export async function recordOrderArtwork(admin, customerGid, artworks, order) {
  * @param {object} payload orders/create webhook body
  */
 export function artworkFromOrderPayload(payload) {
+  return artworkFromAttributes(
+    (payload?.line_items || []).flatMap((line) =>
+      (line?.properties || []).map((prop) => ({ key: prop?.name, value: prop?.value })),
+    ),
+  );
+}
+
+/**
+ * The same rule applied to line-item properties read through the Admin API,
+ * where they arrive as `customAttributes` with `key` instead of `name`. Used
+ * by the order detail to list the artwork already on an order.
+ *
+ * @param {Array<{key?:string, value?:string}>} attributes
+ */
+export function artworkFromAttributes(attributes) {
   const found = [];
   const seen = new Set();
 
-  for (const line of payload?.line_items || []) {
-    for (const prop of line?.properties || []) {
-      const value = String(prop?.value || "");
-      const name = String(prop?.name || "");
-      if (name.startsWith("_")) continue;
-      if (!/^https?:\/\//i.test(value)) continue;
+  for (const attr of attributes || []) {
+    const value = String(attr?.value || "");
+    const name = String(attr?.key || "");
+    if (name.startsWith("_")) continue;
+    if (!/^https?:\/\//i.test(value)) continue;
 
-      const filename = decodeURIComponent(keyForUrl(value).split("/").pop() || "");
-      if (!ACCEPTED_EXTENSIONS.includes(extensionOf(filename))) continue;
+    const filename = decodeURIComponent(keyForUrl(value).split("/").pop() || "");
+    if (!ACCEPTED_EXTENSIONS.includes(extensionOf(filename))) continue;
 
-      const key = keyForUrl(value);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      found.push({ url: value, filename, zone: name });
-    }
+    const key = keyForUrl(value);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    found.push({ url: value, filename, zone: name });
   }
 
   return found;
@@ -295,20 +350,30 @@ export function artworkFromOrderPayload(payload) {
 /* ---------------- delete ---------------- */
 
 /** F13: deletable only where no order is using it. */
-export async function deleteArtwork(admin, customerId, artworkId) {
-  if (!admin || !customerId || !artworkId) return { ok: false, error: "Nothing to delete." };
+export async function deleteArtwork(admin, ownerGid, artworkId) {
+  if (!admin || !ownerGid || !artworkId) return { ok: false, error: "Nothing to delete." };
 
-  const customerGid = `gid://shopify/Customer/${customerId}`;
-  const doc = await readDoc(admin, customerGid);
+  const doc = await readDoc(admin, ownerGid);
   if (doc === null) return { ok: false, error: "Your library could not be read." };
 
   const entry = doc.files.find((f) => f.id === artworkId);
   if (!entry) return { ok: false, error: "That file is not in your library." };
-  if ((entry.orders || []).length > 0) {
-    return { ok: false, error: "That file is attached to an order and can't be deleted." };
+
+  // F13 blocks deletion only while an order still needs the file. An order that
+  // has shipped and closed, or been cancelled, no longer does — so a file used
+  // once a year ago does not become permanently undeletable.
+  const open = await openOrdersAmong(admin, (entry.orders || []).map((o) => o.id));
+  if (open.length) {
+    const names = open.map((o) => o.name).filter(Boolean).join(", ");
+    return {
+      ok: false,
+      error: names
+        ? `That file is being used on ${names}, so it can't be deleted yet.`
+        : "That file is being used on an open order, so it can't be deleted yet.",
+    };
   }
 
-  const saved = await mutateDoc(admin, customerGid, (d) => {
+  const saved = await mutateDoc(admin, ownerGid, (d) => {
     d.files = d.files.filter((f) => f.id !== artworkId);
     return d;
   });
@@ -326,18 +391,78 @@ export async function deleteArtwork(admin, customerId, artworkId) {
   return { ok: true, deleted: entry.filename };
 }
 
+/** Of the orders given, the ones still in flight. */
+async function openOrdersAmong(admin, orderIds) {
+  const ids = [...new Set((orderIds || []).filter(Boolean))];
+  if (!ids.length) return [];
+
+  const data = await gql(admin, `#graphql
+    query ArtworkOrderState($ids: [ID!]!) {
+      nodes(ids: $ids) {
+        ... on Order { id name closed cancelledAt }
+      }
+    }`, { ids });
+
+  return (data?.nodes || []).filter((node) => node?.id && !node.closed && !node.cancelledAt);
+}
+
+/**
+ * Fold a library written against the customer into the company's, once.
+ *
+ * Two people on the same company can each have one, so this merges rather than
+ * skipping when the company already has files. The customer's copy is emptied
+ * afterwards so there is exactly one library from then on.
+ */
+async function absorbLegacyLibrary(admin, ownerGid, legacyGid, current) {
+  const legacy = await readDoc(admin, legacyGid);
+  if (!legacy?.files?.length) return current;
+
+  const byId = new Map(current.files.map((file) => [file.id, file]));
+  for (const file of legacy.files) {
+    const existing = byId.get(file.id);
+    if (!existing) {
+      byId.set(file.id, file);
+      continue;
+    }
+    // Same file on both sides: keep the union of the orders that used it.
+    const orders = [...(existing.orders || [])];
+    for (const order of file.orders || []) {
+      if (!orders.some((o) => o.id === order.id)) orders.push(order);
+    }
+    existing.orders = orders;
+  }
+
+  const merged = { version: DOC_VERSION, files: [...byId.values()] };
+  const saved = await mutateDoc(admin, ownerGid, () => merged);
+  if (!saved.ok) return current;
+
+  await mutateDoc(admin, legacyGid, (doc) => {
+    doc.files = [];
+    return doc;
+  });
+
+  return merged;
+}
+
 /* ---------------- metafield plumbing ---------------- */
 
 async function readDoc(admin, ownerGid) {
+  // The owner is a Company for a distributor and a Customer for a retail
+  // account, so the read goes through `node` rather than naming one of them.
   const data = await gql(admin, `#graphql
     query ArtworkDoc($id: ID!) {
-      customer(id: $id) {
-        artwork: metafield(namespace: "hyve", key: "artwork") { value }
+      node(id: $id) {
+        ... on Company {
+          artwork: metafield(namespace: "hyve", key: "artwork") { value }
+        }
+        ... on Customer {
+          artwork: metafield(namespace: "hyve", key: "artwork") { value }
+        }
       }
     }`, { id: ownerGid });
 
-  if (!data?.customer) return null;
-  return parseDoc(data.customer.artwork?.value);
+  if (!data?.node) return null;
+  return parseDoc(data.node.artwork?.value);
 }
 
 /** Read, transform, write. Last write wins — see the note in the route. */
