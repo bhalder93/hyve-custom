@@ -145,7 +145,7 @@ uri = "/webhooks/orders/create"
 
 
 [[webhooks.subscriptions]]
-topics = ["orders/updated"]
+topics = [""]
 uri = "/webhooks/orders/update"
 
 
