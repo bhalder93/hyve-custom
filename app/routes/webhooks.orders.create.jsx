@@ -1,19 +1,18 @@
 // app/routes/webhooks.orders.create.jsx
-// ✅ correct
-import shopify from "../shopify.server";
-
+import { authenticate } from "../shopify.server";
 
 export async function action({ request }) {
   console.log("Order created--------------------");
-  const { topic, shop, payload } = await shopify.webhooks.process(request);
+
+  // Verify HMAC + parse webhook
+  const { topic, shop, payload } = await authenticate.webhook(request);
 
   if (topic !== "ORDERS_CREATE") {
     console.warn("Unexpected topic on /webhooks/orders/create:", topic);
     return new Response("Ignored", { status: 200 });
   }
 
-  // payload is the order JSON
-  console.log("Order created:", payload.id, payload.name, "from", shop);
+  console.log("Order created:", payload?.id, payload?.name, "from", shop);
 
   // Your custom logic here (DB write, external API call, etc.)
 
