@@ -1,55 +1,149 @@
+
 // app/routes/webhooks.orders.create.jsx
 
-import { authenticate, unauthenticated } from "../shopify.server";
+import { authenticate } from "../shopify.server";
+import db from "../db.server";
 
 export async function action({ request }) {
   try {
-    console.log("Order created ---------------- Order created ----------------");
+    console.log(
+      "================ ORDERS_CREATE WEBHOOK ================"
+    );
 
-    // 1. Verify webhook + parse payload
-    const { topic, shop, payload } = await authenticate.webhook(request);
+    const {
+      topic,
+      shop,
+      payload,
+      admin,
+      session,
+    } = await authenticate.webhook(request);
+
+    console.log("Webhook topic:", topic);
+    console.log("Shop:", shop);
+    console.log("Order ID:", payload?.id);
+    console.log("Order name:", payload?.name);
 
     if (topic !== "ORDERS_CREATE") {
-      console.warn("Unexpected topic on /webhooks/orders/create:", topic);
-      return new Response("Ignored", { status: 200 });
+      console.warn(
+        "Unexpected webhook topic:",
+        topic
+      );
+
+      return new Response("Ignored", {
+        status: 200,
+      });
+    }
+
+    if (!shop) {
+      console.error(
+        "Shop is missing from webhook"
+      );
+
+      return new Response("Shop missing", {
+        status: 200,
+      });
+    }
+
+    if (!payload?.id) {
+      console.error(
+        "Order ID is missing from webhook payload"
+      );
+
+      return new Response("Order ID missing", {
+        status: 200,
+      });
     }
 
     console.log(
-      "Order created:",
-      payload?.id,
-      payload?.name,
-      "from",
-      shop,
+      "Checking Prisma session for:",
+      shop
     );
 
-    if (!payload?.id && !payload?.admin_graphql_api_id) {
-      console.error("Webhook payload does not contain an order ID");
-      return new Response("Missing order ID", { status: 200 });
-    }
-
-    // 2. Create offline Admin API client for this shop
-    let admin;
-    try {
-      const context = await unauthenticated.admin(shop);
-      admin = context.admin;
-    } catch (error) {
-      console.error(
-        "Could not create Admin API client for shop:",
+    const storedSession = await db.session.findFirst({
+      where: {
         shop,
-        error,
+        isOnline: false,
+      },
+      select: {
+        id: true,
+        shop: true,
+        isOnline: true,
+        scope: true,
+        expires: true,
+      },
+    });
+
+    if (!storedSession) {
+      console.error(
+        `No offline Shopify session found for ${shop}`
       );
-      // Return 200 to avoid retry storms
-      return new Response("Admin context unavailable", { status: 200 });
+
+      console.error(
+        "The shop must authorize/install the app again so an offline session can be stored."
+      );
+
+      return new Response(
+        "Shopify offline session not found",
+        {
+          status: 200,
+        }
+      );
     }
 
-    console.log("GraphQL Start ----------------");
+    console.log(
+      "Offline Shopify session found:",
+      {
+        id: storedSession.id,
+        shop: storedSession.shop,
+        isOnline: storedSession.isOnline,
+        scope: storedSession.scope,
+        expires: storedSession.expires,
+      }
+    );
+
+    if (!session) {
+      console.error(
+        "authenticate.webhook() did not return a session"
+      );
+
+      return new Response(
+        "Shopify session unavailable",
+        {
+          status: 200,
+        }
+      );
+    }
+
+    if (!admin) {
+      console.error(
+        "authenticate.webhook() did not return Admin API context"
+      );
+
+      return new Response(
+        "Shopify Admin API unavailable",
+        {
+          status: 200,
+        }
+      );
+    }
+
+    console.log(
+      "Shopify Admin API context available"
+    );
 
     const mutation = `#graphql
-      mutation AddTagToOrder($id: ID!, $tags: [String!]!) {
-        tagsAdd(id: $id, tags: $tags) {
+      mutation AddTagToOrder(
+        $id: ID!,
+        $tags: [String!]!
+      ) {
+        tagsAdd(
+          id: $id,
+          tags: $tags
+        ) {
           node {
             id
           }
+
           userErrors {
             field
             message
@@ -58,47 +152,128 @@ export async function action({ request }) {
       }
     `;
 
-    // Use the GraphQL GID if present, fall back to REST numeric ID wrapped as a GID
-    const orderIdGid =
-      payload.admin_graphql_api_id ||
-      `gid://shopify/Order/${payload.id}`;
-
     const variables = {
-      id: orderIdGid,
+      id: payload.id,
       tags: ["my-custom-tag"],
     };
 
-    console.log("GraphQL variables:", JSON.stringify(variables));
+    console.log(
+      "Calling Shopify GraphQL..."
+    );
 
-    console.log("GraphQL Call ----------------");
+    const response = await admin.graphql(
+      mutation,
+      {
+        variables,
+      }
+    );
 
-    const response = await admin.graphql(mutation, { variables });
+    if (!response.ok) {
+      const errorText = await response.text();
+
+      console.error(
+        "Shopify GraphQL HTTP error:",
+        response.status,
+        errorText
+      );
+
+      return new Response(
+        "Shopify GraphQL request failed",
+        {
+          status: 200,
+        }
+      );
+    }
+
     const result = await response.json();
 
-    console.log("tagsAdd result:", JSON.stringify(result, null, 2));
+    console.log(
+      "Shopify GraphQL result:",
+      JSON.stringify(
+        result,
+        null,
+        2
+      )
+    );
 
-    if (result?.errors?.length) {
-      console.error("Top-level GraphQL errors:", result.errors);
-      return new Response("Tag update failed", { status: 200 });
+    const graphqlErrors =
+      result?.errors || [];
+
+    if (graphqlErrors.length > 0) {
+      console.error(
+        "Shopify GraphQL errors:",
+        JSON.stringify(
+          graphqlErrors,
+          null,
+          2
+        )
+      );
+
+      return new Response(
+        "Shopify GraphQL error",
+        {
+          status: 200,
+        }
+      );
     }
 
-    const userErrors = result?.data?.tagsAdd?.userErrors || [];
+    const userErrors =
+      result?.data?.tagsAdd?.userErrors || [];
 
     if (userErrors.length > 0) {
-      console.error("Error adding tag:", JSON.stringify(userErrors, null, 2));
-      return new Response("Tag update failed", { status: 200 });
+      console.error(
+        "Shopify tagsAdd user errors:",
+        JSON.stringify(
+          userErrors,
+          null,
+          2
+        )
+      );
+
+      return new Response(
+        "Unable to add order tag",
+        {
+          status: 200,
+        }
+      );
     }
 
-    console.log("Successfully added tag to order:", orderIdGid);
+    console.log(
+      `Successfully added my-custom-tag to order ${payload.name}`
+    );
 
-    return new Response("OK", { status: 200 });
+    console.log(
+      "================ WEBHOOK COMPLETE ================"
+    );
+
+    return new Response("OK", {
+      status: 200,
+    });
   } catch (error) {
-    console.error("Error processing ORDERS_CREATE webhook:", error);
-    // To avoid retry storms, you may still want 200 here; keep 500 only while debugging
-    return new Response("Webhook processing failed", { status: 500 });
+    console.error(
+      "================ WEBHOOK ERROR ================"
+    );
+
+    console.error(
+      "Error processing ORDERS_CREATE webhook:"
+    );
+
+    console.error(error);
+
+    return new Response(
+      "Webhook processing failed",
+      {
+        status: 500,
+      }
+    );
   }
 }
 
 export function loader() {
-  return new Response("Method Not Allowed", { status: 405 });
+  return new Response(
+    "Method Not Allowed",
+    {
+      status: 405,
+    }
+  );
 }
