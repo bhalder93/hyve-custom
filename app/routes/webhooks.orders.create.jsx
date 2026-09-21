@@ -7,6 +7,21 @@ import {
 } from "../lib/artwork.server";
 
 /**
+ * Normalize an Admin ID to a GID.
+ *
+ * If it's already a GID, return as‑is.
+ * If it's a numeric ID, wrap it in a gid://shopify/... GID.
+ */
+function toGid(resource, id) {
+  if (!id) return null;
+  const idStr = String(id);
+  if (idStr.startsWith("gid://")) {
+    return idStr;
+  }
+  return `gid://shopify/${resource}/${idStr}`;
+}
+
+/**
  * Query the newly created order using Admin GraphQL.
  *
  * We use GraphQL because your real order structure exposes
@@ -101,18 +116,6 @@ const METAFIELDS_SET_MUTATION = `#graphql
 
 /**
  * Convert Shopify customAttributes into a simple object.
- *
- * Input:
- * [
- *   { key: "Artwork", value: "Provided now" },
- *   { key: "Rush Production", value: "Yes" }
- * ]
- *
- * Output:
- * {
- *   Artwork: "Provided now",
- *   "Rush Production": "Yes"
- * }
  */
 function customAttributesToMap(customAttributes = []) {
   return customAttributes.reduce((result, attribute) => {
@@ -157,9 +160,7 @@ function normalizeArtworkStatus(value) {
     return "NOT_REQUIRED";
   }
 
-  const normalized = String(value)
-    .trim()
-    .toLowerCase();
+  const normalized = String(value).trim().toLowerCase();
 
   switch (normalized) {
     case "design it for me":
@@ -184,50 +185,22 @@ function analyzeLineItem(lineItem) {
     lineItem?.customAttributes ?? [],
   );
 
-  const imprint = parseImprint(
-    attributes["_imprint"],
-  );
+  const imprint = parseImprint(attributes["_imprint"]);
 
-  /**
-   * Current Hyve storefront rule:
-   *
-   * A line is decorated if it contains decoration/artwork
-   * data.
-   *
-   * Blank products, like your BrüMate sample, have none
-   * of these properties.
-   */
   const decorated = Boolean(
     attributes["_imprint"] ||
       attributes["Imprint Locations"] ||
       attributes["Artwork"],
   );
 
-  /**
-   * Rush is already stored by the storefront as:
-   *
-   * Rush Production = Yes
-   */
   const rush =
-    String(
-      attributes["Rush Production"] ?? "",
-    )
+    String(attributes["Rush Production"] ?? "")
       .trim()
       .toLowerCase() === "yes";
 
-  /**
-   * Find customer-uploaded artwork properties.
-   *
-   * Example:
-   *
-   * Artwork: Transfer - FRONT
-   */
   const artworkFiles = Object.entries(attributes)
     .filter(([key, value]) => {
-      return (
-        key.startsWith("Artwork:") &&
-        Boolean(value)
-      );
+      return key.startsWith("Artwork:") && Boolean(value);
     })
     .map(([key, value]) => ({
       label: key,
@@ -243,26 +216,17 @@ function analyzeLineItem(lineItem) {
     decorated,
     rush,
 
-    imprintMethod:
-      imprint?.method ?? null,
+    imprintMethod: imprint?.method ?? null,
 
-    imprintLocationCount:
-      imprint?.locations ?? 0,
+    imprintLocationCount: imprint?.locations ?? 0,
 
-    imprintLocations:
-      attributes["Imprint Locations"] ??
-      null,
+    imprintLocations: attributes["Imprint Locations"] ?? null,
 
-    artworkChoice:
-      attributes["Artwork"] ?? null,
+    artworkChoice: attributes["Artwork"] ?? null,
 
-    artworkStatus:
-      normalizeArtworkStatus(
-        attributes["Artwork"],
-      ),
+    artworkStatus: normalizeArtworkStatus(attributes["Artwork"]),
 
-    designBrief:
-      attributes["Design Brief"] ?? null,
+    designBrief: attributes["Design Brief"] ?? null,
 
     artworkFiles,
 
@@ -290,31 +254,25 @@ function logUserErrors(operation, errors = []) {
  * Fetch the order from Admin GraphQL.
  */
 async function getHyveOrder(admin, orderGid) {
-  const response = await admin.graphql(
-    GET_ORDER_QUERY,
-    {
-      variables: {
-        id: orderGid,
-      },
+  const response = await admin.graphql(GET_ORDER_QUERY, {
+    variables: {
+      id: orderGid,
     },
-  );
+  });
 
   const result = await response.json();
 
   if (result?.errors?.length) {
+    console.error("[orders/create] getHyveOrder top-level errors", result.errors);
     throw new Error(
-      result.errors
-        .map((error) => error.message)
-        .join(", "),
+      result.errors.map((error) => error.message).join(", "),
     );
   }
 
   const order = result?.data?.order;
 
   if (!order) {
-    throw new Error(
-      `Order not found: ${orderGid}`,
-    );
+    throw new Error(`Order not found: ${orderGid}`);
   }
 
   return order;
@@ -330,41 +288,29 @@ async function getHyveOrder(admin, orderGid) {
  * hyve.artwork_required
  * hyve.rush
  */
-async function initializeHyveOrder(
-  admin,
-  payload,
-  shop,
-) {
-  const orderGid =
-    payload?.admin_graphql_api_id ||
-    (payload?.id
-      ? `gid://shopify/Order/${payload.id}`
-      : null);
+async function initializeHyveOrder(admin, payload, shop) {
+  const rawOrderGid =
+    payload?.admin_graphql_api_id || payload?.id || null;
+
+  const orderGid = toGid("Order", rawOrderGid);
 
   if (!orderGid) {
-    console.error(
-      "[orders/create] Missing order GID",
-      {
-        shop,
-        orderId: payload?.id,
-      },
-    );
+    console.error("[orders/create] Missing order GID", {
+      shop,
+      rawOrderId: payload?.id,
+      admin_graphql_api_id: payload?.admin_graphql_api_id,
+    });
 
     return;
   }
 
-  /**
-   * Fetch the actual order structure.
-   */
-  const order = await getHyveOrder(
-    admin,
+  console.log("[orders/create] Using order GID", {
+    shop,
     orderGid,
-  );
+  });
 
-  /**
-   * PDF requirement:
-   * ignore test orders.
-   */
+  const order = await getHyveOrder(admin, orderGid);
+
   if (order.test === true) {
     console.log(
       `[orders/create] ${order.name} is a test order. HYVE initialization skipped.`,
@@ -373,104 +319,51 @@ async function initializeHyveOrder(
     return;
   }
 
-  const analyzedLines =
-    order.lineItems?.nodes?.map(
-      analyzeLineItem,
-    ) ?? [];
+  const analyzedLines = order.lineItems?.nodes?.map(analyzeLineItem) ?? [];
+
+  const artworkRequired = analyzedLines.some((line) => line.decorated);
+  const isRushOrder = analyzedLines.some((line) => line.rush);
+
+  console.log("[orders/create] HYVE order analysis", {
+    shop,
+    orderId: order.id,
+    orderName: order.name,
+
+    artworkRequired,
+    rush: isRushOrder,
+
+    lines: analyzedLines.map((line) => ({
+      id: line.id,
+      sku: line.sku,
+      title: line.title,
+
+      decorated: line.decorated,
+      rush: line.rush,
+      imprintMethod: line.imprintMethod,
+      imprintLocations: line.imprintLocations,
+      artworkStatus: line.artworkStatus,
+      artworkFiles: line.artworkFiles.length,
+    })),
+  });
 
   /**
-   * If ANY line is decorated, the order requires artwork.
-   *
-   * Example:
-   *
-   * decorated
-   * decorated
-   * decorated
-   * blank
-   *
-   * => artwork_required = true
-   */
-  const artworkRequired =
-    analyzedLines.some(
-      (line) => line.decorated,
-    );
-
-  /**
-   * Current order-level rush rule:
-   *
-   * if ANY line has Rush Production = Yes
-   * then hyve.rush = true
-   */
-  const isRushOrder =
-    analyzedLines.some(
-      (line) => line.rush,
-    );
-
-  console.log(
-    "[orders/create] HYVE order analysis",
-    {
-      shop,
-      orderId: order.id,
-      orderName: order.name,
-
-      artworkRequired,
-      rush: isRushOrder,
-
-      lines: analyzedLines.map(
-        (line) => ({
-          id: line.id,
-          sku: line.sku,
-          title: line.title,
-
-          decorated:
-            line.decorated,
-
-          rush:
-            line.rush,
-
-          imprintMethod:
-            line.imprintMethod,
-
-          imprintLocations:
-            line.imprintLocations,
-
-          artworkStatus:
-            line.artworkStatus,
-
-          artworkFiles:
-            line.artworkFiles.length,
-        }),
-      ),
-    },
-  );
-
-  /**
-   * -----------------------------------------------------
-   * STEP 1
-   * Add initial production status tag
-   * -----------------------------------------------------
+   * STEP 1: Add initial production status tag
    */
   try {
-    const response = await admin.graphql(
-      TAGS_ADD_MUTATION,
-      {
-        variables: {
-          id: order.id,
-
-          tags: [
-            "hyve-status:order-placed",
-          ],
-        },
+    const response = await admin.graphql(TAGS_ADD_MUTATION, {
+      variables: {
+        id: order.id, // already a GID from GraphQL
+        tags: ["hyve-status:order-placed"],
       },
-    );
+    });
 
     const result = await response.json();
 
-    logUserErrors(
-      "tagsAdd",
-      result?.data?.tagsAdd
-        ?.userErrors ?? [],
-    );
+    if (result?.errors?.length) {
+      console.error("[orders/create] tagsAdd top-level errors", result.errors);
+    }
+
+    logUserErrors("tagsAdd", result?.data?.tagsAdd?.userErrors ?? []);
   } catch (error) {
     console.error(
       "[orders/create] Failed adding production status tag",
@@ -483,140 +376,72 @@ async function initializeHyveOrder(
   }
 
   /**
-   * -----------------------------------------------------
-   * STEP 2
-   * Set EXISTING metafield values
-   * -----------------------------------------------------
+   * STEP 2: Set EXISTING metafield values
+   *
+   * IMPORTANT:
+   * The 'type' strings below MUST match your existing metafield definitions.
+   * If they don't, metafieldsSet will return userErrors.
    */
   try {
-    const response = await admin.graphql(
-      METAFIELDS_SET_MUTATION,
-      {
-        variables: {
-          metafields: [
-            /**
-             * Existing definition:
-             * hyve.production_status
-             */
-            {
-              ownerId: order.id,
-
-              namespace: "hyve",
-
-              key:
-                "production_status",
-
-              type:
-                "single_line_text_field",
-
-              value:
-                "Order Placed",
-            },
-
-            /**
-             * Existing definition:
-             * hyve.status_changed_at
-             */
-            {
-              ownerId: order.id,
-
-              namespace: "hyve",
-
-              key:
-                "status_changed_at",
-
-              type: "date_time",
-
-              value:
-                order.createdAt,
-            },
-
-            /**
-             * Existing definition:
-             * hyve.artwork_required
-             */
-            {
-              ownerId: order.id,
-
-              namespace: "hyve",
-
-              key:
-                "artwork_required",
-
-              type: "boolean",
-
-              value:
-                String(
-                  artworkRequired,
-                ),
-            },
-
-            /**
-             * Existing definition:
-             * hyve.rush
-             */
-            {
-              ownerId: order.id,
-
-              namespace: "hyve",
-
-              key: "rush",
-
-              type: "boolean",
-
-              value:
-                String(
-                  isRushOrder,
-                ),
-            },
-          ],
-        },
+    const response = await admin.graphql(METAFIELDS_SET_MUTATION, {
+      variables: {
+        metafields: [
+          {
+            ownerId: order.id,
+            namespace: "hyve",
+            key: "production_status",
+            type: "single_line_text_field",
+            value: "Order Placed",
+          },
+          {
+            ownerId: order.id,
+            namespace: "hyve",
+            key: "status_changed_at",
+            type: "date_time",
+            value: order.createdAt,
+          },
+          {
+            ownerId: order.id,
+            namespace: "hyve",
+            key: "artwork_required",
+            type: "boolean", // ensure your definition is also boolean
+            value: String(artworkRequired), // "true" or "false"
+          },
+          {
+            ownerId: order.id,
+            namespace: "hyve",
+            key: "rush",
+            type: "boolean", // ensure your definition is also boolean
+            value: String(isRushOrder),
+          },
+        ],
       },
-    );
+    });
 
     const result = await response.json();
 
-    const errors =
-      result?.data?.metafieldsSet
-        ?.userErrors ?? [];
+    if (result?.errors?.length) {
+      console.error("[orders/create] metafieldsSet top-level errors", result.errors);
+    }
 
-    const hasErrors =
-      logUserErrors(
-        "metafieldsSet",
-        errors,
-      );
+    const errors = result?.data?.metafieldsSet?.userErrors ?? [];
+    const hasErrors = logUserErrors("metafieldsSet", errors);
 
     if (!hasErrors) {
-      console.log(
-        "[orders/create] HYVE metafields updated",
-        {
-          order:
-            order.name,
-
-          productionStatus:
-            "Order Placed",
-
-          statusChangedAt:
-            order.createdAt,
-
-          artworkRequired,
-
-          rush:
-            isRushOrder,
-        },
-      );
+      console.log("[orders/create] HYVE metafields updated", {
+        order: order.name,
+        productionStatus: "Order Placed",
+        statusChangedAt: order.createdAt,
+        artworkRequired,
+        rush: isRushOrder,
+      });
     }
   } catch (error) {
-    console.error(
-      "[orders/create] Failed setting HYVE metafields",
-      {
-        shop,
-        order:
-          order.name,
-
-        error,
-      },
-    );
+    console.error("[orders/create] Failed setting HYVE metafields", {
+      shop,
+      order: order.name,
+      error,
+    });
   }
 
   return {
@@ -628,48 +453,25 @@ async function initializeHyveOrder(
 }
 
 /**
- * =========================================================
  * ORDERS_CREATE WEBHOOK
- * =========================================================
- *
- * Responsibilities:
- *
- * 1. Set Hyve production state.
- * 2. Set Hyve production metafields.
- * 3. Save uploaded artwork into Saved Artwork.
- *
- * Existing artwork functionality is preserved.
  */
-export const action = async ({
-  request,
-}) => {
-  const {
-    shop,
-    topic,
-    payload,
-  } =
-    await authenticate.webhook(
-      request,
-    );
+export const action = async ({ request }) => {
+  const { shop, topic, payload } = await authenticate.webhook(request);
 
   console.log(
-    `[${topic}] Received ${payload?.name ?? payload?.id}`,
+    `[${topic}] Received order`,
+    {
+      shop,
+      admin_graphql_api_id: payload?.admin_graphql_api_id,
+      id: payload?.id,
+      name: payload?.name,
+    },
   );
 
-  /**
-   * Webhooks do not have an online browser session.
-   *
-   * Open an offline Admin API context and reuse it
-   * for both production initialization and artwork sync.
-   */
   let admin;
 
   try {
-    const context =
-      await unauthenticated.admin(
-        shop,
-      );
-
+    const context = await unauthenticated.admin(shop);
     admin = context.admin;
   } catch (error) {
     console.error(
@@ -680,62 +482,29 @@ export const action = async ({
       },
     );
 
-    /**
-     * Preserve your current strategy:
-     *
-     * Don't cause Shopify webhook retry storms.
-     */
     return new Response();
   }
 
   /**
-   * =====================================================
-   * PART 1
-   * HYVE PRODUCTION INITIALIZATION
-   * =====================================================
+   * PART 1: HYVE PRODUCTION INITIALIZATION
    */
   try {
-    await initializeHyveOrder(
-      admin,
-      payload,
-      shop,
-    );
+    await initializeHyveOrder(admin, payload, shop);
   } catch (error) {
-    /**
-     * Do not stop artwork sync if production
-     * initialization fails.
-     */
-    console.error(
-      "[orders/create] HYVE initialization failed",
-      {
-        shop,
-        order:
-          payload?.name,
-
-        error,
-      },
-    );
+    console.error("[orders/create] HYVE initialization failed", {
+      shop,
+      order: payload?.name,
+      error,
+    });
   }
 
   /**
-   * =====================================================
-   * PART 2
-   * EXISTING SAVED ARTWORK FUNCTIONALITY
-   * =====================================================
+   * PART 2: EXISTING SAVED ARTWORK FUNCTIONALITY
    */
   try {
-    const customerId =
-      payload?.customer?.id;
+    const rawCustomerId = payload?.customer?.id;
 
-    /**
-     * Important:
-     *
-     * We no longer return before HYVE initialization.
-     *
-     * Production initialization should work even when
-     * there is no customer record.
-     */
-    if (!customerId) {
+    if (!rawCustomerId) {
       console.log(
         `[${topic}] ${payload?.name}: no customer found, Saved Artwork sync skipped`,
       );
@@ -743,10 +512,14 @@ export const action = async ({
       return new Response();
     }
 
-    const artworks =
-      artworkFromOrderPayload(
-        payload,
-      );
+    const customerGid = toGid("Customer", rawCustomerId);
+
+    console.log("[orders/create] Customer IDs", {
+      rawCustomerId,
+      customerGid,
+    });
+
+    const artworks = artworkFromOrderPayload(payload);
 
     if (!artworks.length) {
       console.log(
@@ -756,60 +529,34 @@ export const action = async ({
       return new Response();
     }
 
-    /**
-     * The Saved Artwork library belongs to the company
-     * where the buyer has one.
-     */
-    const customerGid =
-      `gid://shopify/Customer/${customerId}`;
+    const companyId = await companyGidForCustomer(admin, customerGid);
 
-    const companyId =
-      await companyGidForCustomer(
-        admin,
-        customerGid,
-      );
+    const orderGidForArtwork =
+      payload?.admin_graphql_api_id ||
+      toGid("Order", payload?.id);
 
-    const result =
-      await recordOrderArtwork(
-        admin,
-
-        artworkOwnerGid({
-          companyId,
-          customerId,
-        }),
-
-        artworks,
-
-        {
-          id:
-            payload
-              ?.admin_graphql_api_id ||
-            `gid://shopify/Order/${payload.id}`,
-
-          name:
-            payload?.name ||
-            `#${
-              payload
-                ?.order_number ||
-              payload?.id
-            }`,
-
-          createdAt:
-            payload?.created_at ||
-            new Date().toISOString(),
-        },
-      );
+    const result = await recordOrderArtwork(
+      admin,
+      artworkOwnerGid({
+        companyId,
+        customerId: rawCustomerId, // keep original behavior for your helper
+      }),
+      artworks,
+      {
+        id: orderGidForArtwork,
+        name:
+          payload?.name ||
+          `#${payload?.order_number || payload?.id}`,
+        createdAt:
+          payload?.created_at || new Date().toISOString(),
+      },
+    );
 
     console.log(
       `[${topic}] ${payload?.name}: ${artworks.length} artwork file(s) recorded`,
       result.ok,
     );
   } catch (error) {
-    /**
-     * Preserve your original behavior:
-     * never fail the Shopify webhook due to
-     * Saved Artwork sync.
-     */
     console.error(
       "[orders/create] artwork sync failed",
       error,
