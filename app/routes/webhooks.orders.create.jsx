@@ -14,8 +14,6 @@ export async function action({ request }) {
       topic,
       shop,
       payload,
-      admin,
-      session,
     } = await authenticate.webhook(request);
 
     console.log("Webhook topic:", topic);
@@ -55,8 +53,7 @@ export async function action({ request }) {
     }
 
     console.log(
-      "Checking Prisma session for:",
-      shop
+      "Checking offline Prisma session..."
     );
 
     const storedSession = await db.session.findFirst({
@@ -67,19 +64,17 @@ export async function action({ request }) {
       select: {
         id: true,
         shop: true,
+        state: true,
         isOnline: true,
         scope: true,
         expires: true,
+        accessToken: true,
       },
     });
 
     if (!storedSession) {
       console.error(
         `No offline Shopify session found for ${shop}`
-      );
-
-      console.error(
-        "The shop must authorize/install the app again so an offline session can be stored."
       );
 
       return new Response(
@@ -91,7 +86,7 @@ export async function action({ request }) {
     }
 
     console.log(
-      "Offline Shopify session found:",
+      "Offline session found:",
       {
         id: storedSession.id,
         shop: storedSession.shop,
@@ -101,22 +96,40 @@ export async function action({ request }) {
       }
     );
 
-    if (!session) {
+    if (!storedSession.accessToken) {
       console.error(
-        "authenticate.webhook() did not return a session"
+        `Offline session exists but accessToken is missing for ${shop}`
       );
 
       return new Response(
-        "Shopify session unavailable",
+        "Shopify access token missing",
         {
           status: 200,
         }
       );
     }
 
+    console.log(
+      "Creating Shopify Admin context..."
+    );
+
+    /*
+     * authenticate.admin() must NOT be called here.
+     *
+     * This is a Shopify webhook request, not an
+     * Admin UI request.
+     *
+     * The Admin context should come from the
+     * webhook authentication/session configuration.
+     */
+
+    const { admin } = await authenticate.webhook(
+      request
+    );
+
     if (!admin) {
       console.error(
-        "authenticate.webhook() did not return Admin API context"
+        `Could not create Admin API context for ${shop}`
       );
 
       return new Response(
@@ -128,7 +141,7 @@ export async function action({ request }) {
     }
 
     console.log(
-      "Shopify Admin API context available"
+      "Shopify Admin API context created"
     );
 
     const mutation = `#graphql
@@ -168,27 +181,10 @@ export async function action({ request }) {
       }
     );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-
-      console.error(
-        "Shopify GraphQL HTTP error:",
-        response.status,
-        errorText
-      );
-
-      return new Response(
-        "Shopify GraphQL request failed",
-        {
-          status: 200,
-        }
-      );
-    }
-
     const result = await response.json();
 
     console.log(
-      "Shopify GraphQL result:",
+      "Shopify GraphQL response:",
       JSON.stringify(
         result,
         null,
@@ -196,14 +192,11 @@ export async function action({ request }) {
       )
     );
 
-    const graphqlErrors =
-      result?.errors || [];
-
-    if (graphqlErrors.length > 0) {
+    if (result?.errors?.length) {
       console.error(
         "Shopify GraphQL errors:",
         JSON.stringify(
-          graphqlErrors,
+          result.errors,
           null,
           2
         )
@@ -222,7 +215,7 @@ export async function action({ request }) {
 
     if (userErrors.length > 0) {
       console.error(
-        "Shopify tagsAdd user errors:",
+        "tagsAdd user errors:",
         JSON.stringify(
           userErrors,
           null,
@@ -239,7 +232,7 @@ export async function action({ request }) {
     }
 
     console.log(
-      `Successfully added my-custom-tag to order ${payload.name}`
+      `Successfully added my-custom-tag to ${payload.name}`
     );
 
     console.log(
@@ -277,3 +270,4 @@ export function loader() {
     }
   );
 }
+
