@@ -17,7 +17,12 @@ export default function App() {
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
         <s-link href="/app/quotes">Quotes</s-link>
+        <s-link href="/app/production-orders">Production Orders</s-link>
         <s-link href="/app/distributors">Distributor Applications</s-link>
+        <s-link href="/app/notification-recipients">Notification Recipients</s-link>
+        <s-link href="/app/business-holidays">Holidays</s-link>
+        <s-link href="/app/sla-engine">Manual SLA</s-link>
+        {/* <s-link href="/app/sla-rules"> SLA Rules</s-link> */}
       </s-app-nav>
       <Outlet />
     </AppProvider>

@@ -1,13 +1,13 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-application_url = "https://hyve-custom-vuui.onrender.com"
+application_url = "https://hyve-custom-app.onrender.com"
 client_id = "767ec15914737650a3eccf2ba70921d7"
 embedded = true
 name = "Hyve Custom"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_customers,write_companies,read_orders,read_payment_terms,read_store_credit_accounts,read_store_credit_account_transactions,write_orders,write_files,write_products,write_metaobjects,write_metaobject_definitions,write_draft_orders"
+scopes = "read_fulfillments,write_customers,write_companies,read_orders,read_payment_terms,read_store_credit_accounts,read_store_credit_account_transactions,write_orders,write_files,write_products,write_metaobjects,write_metaobject_definitions,write_draft_orders"
 
 [product.metafields.app.demo_info]
 description = "Tracks products created by the Shopify app template for development"
@@ -86,6 +86,11 @@ type = "single_line_text_field"
 name = "Registration Number"
 type = "single_line_text_field"
 
+[metaobjects.app.distributor_application.fields.tax_registration_number]
+name = "Tax Registration Number"
+type = "single_line_text_field"
+
+
 [metaobjects.app.distributor_application.fields.expected_annual_volume]
 name = "Expected Annual Volume"
 type = "single_line_text_field"
@@ -127,6 +132,350 @@ description = "Quote status: true for accepted, false for rejected, unset for aw
 name = "Draft Order Status"
 type = "boolean"
 
+
+
+# ============================================================
+# HYVE ORDER PRODUCTION STATUS
+# ============================================================
+
+[order.metafields.app.production_status]
+name = "Production Status"
+description = "Current Hyve production lifecycle status"
+type = "single_line_text_field"
+
+# # Admin can read/write the value
+# access.admin = "merchant_read_write"
+
+# # Enable filtering by this metafield in Admin (UI + Admin API)
+# capabilities.admin_filterable = true
+
+
+
+[order.metafields.app.production_status.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.status_changed_at]
+name = "Status Changed At"
+description = "Date and time the current Hyve production status was entered"
+type = "date_time"
+
+[order.metafields.app.status_changed_at.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.production_due_at]
+name = "Production Due At"
+description = "Production completion target calculated from proof approval"
+type = "date_time"
+
+[order.metafields.app.production_due_at.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.artwork_required]
+name = "Artwork Required"
+description = "Whether artwork and proof workflow is required"
+type = "boolean"
+
+[order.metafields.app.artwork_required.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.rush]
+name = "Rush Order"
+description = "Whether the order uses the rush production SLA"
+type = "boolean"
+
+[order.metafields.app.rush.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.proof_url]
+name = "Proof URL"
+description = "URL of the current customer proof"
+type = "url"
+
+[order.metafields.app.proof_url.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.proof_version]
+name = "Proof Version"
+description = "Current proof version number"
+type = "number_integer"
+
+[order.metafields.app.proof_version.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.production_photo_url]
+name = "Production Photo URL"
+description = "URL of the production-complete photo"
+type = "url"
+
+[order.metafields.app.production_photo_url.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.on_hold_reason]
+name = "On Hold Reason"
+description = "Reason the order production workflow is currently on hold"
+type = "single_line_text_field"
+
+[order.metafields.app.on_hold_reason.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.breach_log]
+name = "SLA Breach Log"
+description = "Human-readable SLA breach summary for this order"
+type = "multi_line_text_field"
+
+[order.metafields.app.breach_log.access]
+admin = "merchant_read_write"
+
+
+
+# ============================================================
+# ORDER STATUS HISTORY
+# ============================================================
+
+[metaobjects.app.order_status_history]
+name = "Order Status History"
+description = "Audit history of Hyve order production status changes"
+display_name_field = "order_name"
+
+[metaobjects.app.order_status_history.access]
+admin = "merchant_read_write"
+
+
+[metaobjects.app.order_status_history.fields.order_id]
+name = "Order ID"
+required = true
+type = "single_line_text_field"
+
+
+[metaobjects.app.order_status_history.fields.order_name]
+name = "Order Name"
+required = true
+type = "single_line_text_field"
+
+
+[metaobjects.app.order_status_history.fields.from_status]
+name = "Previous Status"
+type = "single_line_text_field"
+
+
+[metaobjects.app.order_status_history.fields.to_status]
+name = "New Status"
+required = true
+type = "single_line_text_field"
+
+
+[metaobjects.app.order_status_history.fields.changed_at]
+name = "Changed At"
+required = true
+type = "date_time"
+
+
+[metaobjects.app.order_status_history.fields.changed_by]
+name = "Changed By"
+type = "single_line_text_field"
+
+
+[metaobjects.app.order_status_history.fields.source]
+name = "Source"
+type = "single_line_text_field"
+
+
+[metaobjects.app.order_status_history.fields.note]
+name = "Note"
+type = "multi_line_text_field"
+
+
+
+# ============================================================
+# SLA BREACH HISTORY
+# ============================================================
+
+[metaobjects.app.sla_breach]
+name = "SLA Breach"
+description = "Records production SLA breaches for Hyve orders"
+display_name_field = "order_name"
+
+[metaobjects.app.sla_breach.access]
+admin = "merchant_read_write"
+
+
+[metaobjects.app.sla_breach.fields.order_id]
+name = "Order ID"
+required = true
+type = "single_line_text_field"
+
+
+[metaobjects.app.sla_breach.fields.order_name]
+name = "Order Name"
+required = true
+type = "single_line_text_field"
+
+
+[metaobjects.app.sla_breach.fields.status]
+name = "Status"
+required = true
+type = "single_line_text_field"
+
+
+[metaobjects.app.sla_breach.fields.target_at]
+name = "Target At"
+type = "date_time"
+
+
+[metaobjects.app.sla_breach.fields.breached_at]
+name = "Breached At"
+required = true
+type = "date_time"
+
+
+[metaobjects.app.sla_breach.fields.resolved_at]
+name = "Resolved At"
+type = "date_time"
+
+
+[metaobjects.app.sla_breach.fields.recipient]
+name = "Alert Recipient"
+type = "single_line_text_field"
+
+
+[metaobjects.app.sla_breach.fields.alert_sent]
+name = "Alert Sent"
+type = "boolean"
+
+
+[metaobjects.app.sla_breach.fields.resolution_note]
+name = "Resolution Note"
+type = "multi_line_text_field"
+
+
+
+# ============================================================
+# SLA RULE CONFIGURATION
+# ============================================================
+
+[metaobjects.app.sla_rule]
+name = "SLA Rule"
+description = "Configurable production SLA rule"
+display_name_field = "status"
+
+[metaobjects.app.sla_rule.access]
+admin = "merchant_read_write"
+
+
+[metaobjects.app.sla_rule.fields.status]
+name = "Status"
+required = true
+type = "single_line_text_field"
+
+
+[metaobjects.app.sla_rule.fields.next_status]
+name = "Expected Next Status"
+type = "single_line_text_field"
+
+
+[metaobjects.app.sla_rule.fields.duration]
+name = "Duration"
+required = true
+type = "number_integer"
+
+
+[metaobjects.app.sla_rule.fields.duration_unit]
+name = "Duration Unit"
+required = true
+type = "single_line_text_field"
+
+
+[metaobjects.app.sla_rule.fields.business_days]
+name = "Business Days"
+type = "boolean"
+
+
+[metaobjects.app.sla_rule.fields.alert_role]
+name = "Alert Role"
+type = "single_line_text_field"
+
+
+[metaobjects.app.sla_rule.fields.template_code]
+name = "Template Code"
+type = "single_line_text_field"
+
+
+[metaobjects.app.sla_rule.fields.enabled]
+name = "Enabled"
+type = "boolean"
+
+# ============================================================
+# NOTIFICATION RECIPIENTS
+# ============================================================
+
+[metaobjects.app.notification_recipient]
+name = "Notification Recipient"
+display_name_field = "name"
+
+[metaobjects.app.notification_recipient.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.notification_recipient.fields.role]
+name = "Role"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.notification_recipient.fields.email]
+name = "Email"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.notification_recipient.fields.enabled]
+name = "Enabled"
+type = "boolean"
+required = true
+
+
+
+# ============================================================
+# BUSINESS HOLIDAYS
+# ============================================================
+
+[metaobjects.app.business_holiday]
+name = "Business Holiday"
+description = "Holiday excluded from Hyve production SLA calculations"
+display_name_field = "name"
+
+[metaobjects.app.business_holiday.access]
+admin = "merchant_read_write"
+
+[metaobjects.app.business_holiday.fields.name]
+name = "Holiday Name"
+required = true
+type = "single_line_text_field"
+
+[metaobjects.app.business_holiday.fields.market]
+name = "Production Market"
+required = true
+type = "single_line_text_field"
+
+[metaobjects.app.business_holiday.fields.date]
+name = "Holiday Date"
+required = true
+type = "date"
+
+[metaobjects.app.business_holiday.fields.enabled]
+name = "Enabled"
+type = "boolean"
+
+
+
 [webhooks]
 api_version = "2026-10"
 
@@ -138,29 +487,26 @@ uri = "/webhooks/app/uninstalled"
 topics = ["app/scopes_update"]
 uri = "/webhooks/app/scopes_update"
 
-
 [[webhooks.subscriptions]]
 topics = ["orders/create"]
 uri = "/webhooks/orders/create"
 
 
 [[webhooks.subscriptions]]
-topics = ["orders/updated"]
-uri = "/webhooks/orders/update"
-
-
+topics = ["fulfillments/create"]
+uri = "/webhooks/fulfillments/create"
 
 [app_proxy]
-# Storefront /apps/account/quote  ->  https://hyve-custom-vuui.onrender.com/proxy/quote
+# Storefront /apps/account/quote  ->  https://hyve-custom-app.onrender.com/proxy/quote
 # NOTE: `shopify app dev` rewrites this to the dev tunnel; re-deploy to restore production.
 prefix = "apps"
 subpath = "account"
-url = "https://hyve-custom-vuui.onrender.com/proxy"
+url = "https://hyve-custom-app.onrender.com/proxy"
 
 
 
 [auth]
-redirect_urls = ["https://hyve-custom-vuui.onrender.com/api/auth"]
+redirect_urls = ["https://hyve-custom-app.onrender.com/api/auth"]
 
 [build]
 automatically_update_urls_on_dev = true
