@@ -5,9 +5,13 @@
  * shopper can see. A quote in the portal has no such page, so the same shape is
  * assembled here from the draft order Shopify already holds.
  *
- * The draft order is only returned if it belongs to the signed-in customer, so
+ * The draft order is only returned to someone who has proved it is theirs, so
  * one buyer can't pull another's quote by guessing an ID.
  */
+
+/** How long a quote stands. The scheduled sweep that withdraws quotes uses the
+ *  same figure — change both together. */
+export const QUOTE_VALID_DAYS = 14;
 
 const QUOTE_QUERY = `#graphql
   query QuoteDocument($id: ID!) {
@@ -37,11 +41,15 @@ const QUOTE_QUERY = `#graphql
 
 /**
  * @param {string} draftGid the quote's draft order
- * @param {string} customerGid the signed-in buyer
+ * @param {{customerGid?:string, email?:string}} proof who is asking. A signed-in
+ *   buyer proves it with their customer id; the end client retrieving a quote
+ *   without an account proves it with the email the quote was sent to, which
+ *   the retrieve page has just checked.
  * @returns {Promise<?object>} null when missing or owned by someone else
  */
-export async function loadQuoteDocument(admin, draftGid, customerGid) {
-  if (!admin || !draftGid || !customerGid) return null;
+export async function loadQuoteDocument(admin, draftGid, proof = {}) {
+  const { customerGid, email } = proof;
+  if (!admin || !draftGid || (!customerGid && !email)) return null;
 
   const response = await admin.graphql(QUOTE_QUERY, { variables: { id: draftGid } });
   const body = await response.json();
@@ -52,7 +60,10 @@ export async function loadQuoteDocument(admin, draftGid, customerGid) {
 
   const draft = body?.data?.draftOrder;
   if (!draft) return null;
-  if (draft.customer?.id !== customerGid) return null;
+  const ownedByCustomer = customerGid && draft.customer?.id === customerGid;
+  const ownedByEmail =
+    email && String(draft.email || "").toLowerCase() === String(email).toLowerCase();
+  if (!ownedByCustomer && !ownedByEmail) return null;
 
   const currency = draft.totalPriceSet?.shopMoney?.currencyCode || "USD";
   // The renderer works in cents, the way the cart payload does.
@@ -68,7 +79,9 @@ export async function loadQuoteDocument(admin, draftGid, customerGid) {
     ref: quoteReference(draft.name),
     currency,
     dateStr: formatDay(draft.createdAt),
-    validStr: validUntil || formatDay(addDays(draft.createdAt, 14)),
+    // Must match the scheduled job that withdraws expired quotes, or the PDF
+    // promises a date the quote no longer honours.
+    validStr: validUntil || formatDay(addDays(draft.createdAt, QUOTE_VALID_DAYS)),
 
     merch: lines.map((li) => ({
       title: li.title,

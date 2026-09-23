@@ -228,9 +228,11 @@ export async function uploadArtwork(admin, ownerGid, file) {
       return { ok: false, error: created?.fileCreate?.userErrors?.[0]?.message || "The file could not be saved." };
     }
 
-    // Files are processed asynchronously, so the URL can be empty on the first
-    // read. Fall back to the staged resource URL, which is already public.
-    const url = node.url || node.image?.url || target.resourceUrl;
+    // Files are processed asynchronously, so the permanent URL is often not
+    // ready the instant the file is created. The staged URL works but expires,
+    // so anything written outside this library — an order, an email — would be
+    // left pointing at a dead link. Wait briefly for the real one.
+    const url = await settledFileUrl(admin, node.id, node.url || node.image?.url || target.resourceUrl);
 
     const saved = await mutateDoc(admin, ownerGid, (doc) => {
       const key = keyForUrl(url);
@@ -504,6 +506,34 @@ async function gql(admin, query, variables) {
 }
 
 const STAGED_HOST = "shopify-staged-uploads.storage.googleapis.com";
+
+/**
+ * The file's permanent URL, once Shopify has finished processing it.
+ *
+ * Give it a moment rather than storing a staged URL that stops working: a few
+ * short attempts cover the usual case, and on the rare slow one the library's
+ * own settling pass picks it up later.
+ */
+async function settledFileUrl(admin, fileId, fallback) {
+  if (!fileId || !String(fallback).includes(STAGED_HOST)) return fallback;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    const data = await gql(admin, `#graphql
+      query ArtworkFileUrl($id: ID!) {
+        node(id: $id) {
+          ... on MediaImage { image { url } }
+          ... on GenericFile { url }
+        }
+      }`, { id: fileId });
+
+    const settled = data?.node?.url || data?.node?.image?.url;
+    if (settled && !String(settled).includes(STAGED_HOST)) return settled;
+  }
+
+  return fallback;
+}
 
 /**
  * Replace temporary staged URLs with the permanent Shopify Files URL.

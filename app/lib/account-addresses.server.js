@@ -14,14 +14,13 @@ import { esc } from "./account-shell.server";
 
 /**
  * Format and normalize Shopify Customer addresses for display.
- * If customer has no saved addresses, returns sample addresses matching the design.
+ *
+ * A customer with none saved gets an empty list and the page says so. It used
+ * to invent three addresses from the mockup — a fictional person, company and
+ * phone number — and show them as the customer's own, which risked a shipment
+ * going to an address nobody had ever entered.
  */
 export function mapAddresses(rawAddresses = [], defaultAddressId = null, customer = null) {
-  if (!rawAddresses || rawAddresses.length === 0) {
-    // Demo / initial preview addresses matching the exact screenshot design
-    return getSampleAddresses(customer);
-  }
-
   return rawAddresses.map((addr, index) => {
     const isDefault =
       addr.id === defaultAddressId ||
@@ -94,93 +93,8 @@ export function mapAddresses(rawAddresses = [], defaultAddressId = null, custome
       countryCodeV2: addr.countryCodeV2 || "SG",
       phone: addr.phone || "",
       lines,
-      isSample: false,
     };
   });
-}
-
-/**
- * Return default sample addresses modeled directly from the UI mockup.
- */
-function getSampleAddresses(customer = null) {
-  const custName = customer?.name || "Sarah Mitchell";
-  return [
-    {
-      id: "demo-1",
-      rawId: "demo-1",
-      isDefault: true,
-      type: "shipping",
-      primaryName: custName,
-      firstName: "Sarah",
-      lastName: "Mitchell",
-      company: "Acme Corp Pte. Ltd.",
-      address1: "1 Raffles Place, #20-01",
-      address2: "One Raffles Place Tower 2",
-      city: "Singapore",
-      zip: "048616",
-      country: "Singapore",
-      countryCodeV2: "SG",
-      phone: "+65 9123 4567",
-      lines: [
-        "Acme Corp Pte. Ltd.",
-        "1 Raffles Place, #20-01",
-        "One Raffles Place Tower 2",
-        "Singapore 048616",
-        "+65 9123 4567",
-      ],
-      isSample: true,
-    },
-    {
-      id: "demo-2",
-      rawId: "demo-2",
-      isDefault: false,
-      type: "billing",
-      primaryName: "Acme Corp Pte. Ltd.",
-      firstName: "Finance",
-      lastName: "Department",
-      company: "Acme Corp Pte. Ltd.",
-      address1: "1 Raffles Place, #20-01",
-      address2: "One Raffles Place Tower 2",
-      city: "Singapore",
-      zip: "048616",
-      country: "Singapore",
-      countryCodeV2: "SG",
-      phone: "",
-      lines: [
-        "Finance Department",
-        "1 Raffles Place, #20-01",
-        "One Raffles Place Tower 2",
-        "Singapore 048616",
-        "Tax reg. no.: 201912345G",
-      ],
-      isSample: true,
-    },
-    {
-      id: "demo-3",
-      rawId: "demo-3",
-      isDefault: false,
-      type: "shipping",
-      primaryName: `${custName} — KL Office`,
-      firstName: "Sarah",
-      lastName: "Mitchell",
-      company: "Acme Corp Sdn. Bhd.",
-      address1: "Level 15, Menara UOA",
-      address2: "Jalan Pinang, 50450",
-      city: "Kuala Lumpur",
-      zip: "50450",
-      country: "Malaysia",
-      countryCodeV2: "MY",
-      phone: "+60 12 345 6789",
-      lines: [
-        "Acme Corp Sdn. Bhd.",
-        "Level 15, Menara UOA",
-        "Jalan Pinang, 50450",
-        "Kuala Lumpur, Malaysia",
-        "+60 12 345 6789",
-      ],
-      isSample: true,
-    },
-  ];
 }
 
 /**
@@ -206,6 +120,12 @@ export function addressesPage({
         <h1 class="hyve-addr__title">Addresses</h1>
         <p class="hyve-addr__sub">Manage your shipping and billing addresses</p>
       </header>
+
+      ${
+        addresses.length
+          ? ""
+          : `<p class="hyve-addr__empty">You have no saved addresses yet. Add one and it will be offered at checkout.</p>`
+      }
 
       <div class="hyve-addr__grid">
         ${cardsHtml}
@@ -236,7 +156,7 @@ function renderAddressCard(addr) {
     .join("");
 
   const setDefaultBtn = !addr.isDefault
-    ? `<button type="button" class="hyve-addr__btn hyve-addr__btn--default" data-set-default="${esc(addr.id)}" data-sample="${addr.isSample ? "1" : "0"}">Set Default</button>`
+    ? `<button type="button" class="hyve-addr__btn hyve-addr__btn--default" data-set-default="${esc(addr.id)}">Set Default</button>`
     : "";
 
   const encodedData = esc(JSON.stringify(addr));
@@ -593,6 +513,8 @@ const ADDRESSES_STYLES = `
   }
 
   /* Grid Layout: Responsive fluid auto-fill matching 4 cards on desktop */
+  .hyve-addr__empty { font-size: 13px; color: var(--hyve-muted); margin: 0 0 16px; }
+
   .hyve-addr__grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
@@ -904,6 +826,7 @@ const ADDRESSES_STYLES = `
     display: flex;
   }
   .hyve-modal__backdrop {
+    display: block !important;
     position: fixed;
     inset: 0;
     background: rgba(15, 23, 42, 0.45);
@@ -1286,23 +1209,6 @@ const ADDRESSES_SCRIPT = `
   document.querySelectorAll('[data-set-default]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       const addrId = btn.getAttribute('data-set-default');
-      const isSample = btn.getAttribute('data-sample') === '1';
-
-      if (isSample) {
-        // Sample addresses in demo mode: update UI visually
-        document.querySelectorAll('.hyve-addr-card').forEach(c => {
-          c.classList.remove('hyve-addr-card--default');
-          const badge = c.querySelector('.hyve-addr__badge-default');
-          if (badge) badge.remove();
-        });
-        const card = btn.closest('.hyve-addr-card');
-        card.classList.add('hyve-addr-card--default');
-        const head = card.querySelector('.hyve-addr-card__head');
-        head.insertAdjacentHTML('beforeend', '<span class="hyve-addr__badge-default">${icoCheck()} DEFAULT</span>');
-        btn.remove();
-        return;
-      }
-
       // Live Shopify customer: submit POST request
       const formData = new FormData();
       formData.append('intent', 'setDefault');

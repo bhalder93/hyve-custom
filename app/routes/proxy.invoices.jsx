@@ -50,6 +50,7 @@ export const loader = async ({ request }) => {
               storeCreditUsed: chrome.terms?.storeCreditUsed || "",
               storeCreditIssued: chrome.terms?.storeCreditIssued || "",
               storeCreditIssuedAt: chrome.terms?.storeCreditIssuedAt || "",
+              storeCreditExpired: chrome.terms?.storeCreditExpired || "",
               storeCreditPercentUsed: percentUsed(chrome.terms),
               paymentTerms: chrome.terms?.paymentTerms || "",
               salesRep: chrome.terms?.salesRep || "",

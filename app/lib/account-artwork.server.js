@@ -61,10 +61,13 @@ function fileTile(file) {
   // We now hold which orders used the file, not just how many, so the count
   // carries the order numbers as a tooltip.
   const orderNames = (file.orders || []).map((o) => o.name).filter(Boolean).join(", ");
+  // Always shown, including none. Hiding it at zero read as a missing count
+  // rather than a count of nothing, and it is also what explains why the file
+  // can be deleted.
   const used =
     file.orderCount > 0
       ? `<span class="hyve-art__used"${orderNames ? ` title="${esc(orderNames)}"` : ""}>Used in ${esc(file.orderCount)} order${file.orderCount === 1 ? "" : "s"}</span>`
-      : "";
+      : `<span class="hyve-art__used hyve-art__used--none">Not used in an order yet</span>`;
 
   // A browser cannot preview AI or EPS, so those get a generic file icon (F13).
   const thumb =
@@ -125,6 +128,7 @@ const ARTWORK_STYLES = `
   .hyve-art__name { display: block; font-size: 12px; font-weight: 600; color: var(--hyve-900); margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hyve-art__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px; font-weight: 400; color: var(--hyve-muted); margin-top: 2px; }
   .hyve-art__used { background: rgba(110, 222, 225, 0.12); color: #0E7490; border-radius: 9999px; padding: 2px 6px; font-size: 9px; font-weight: 700; }
+  .hyve-art__used--none { background: rgba(100, 116, 139, 0.12); color: #64748B; font-weight: 600; }
 
   .hyve-art__del { position: absolute; top: 16px; right: 16px; opacity: 0; transition: opacity 0.15s ease; }
   .hyve-art__item:hover .hyve-art__del, .hyve-art__del:focus-within { opacity: 1; }

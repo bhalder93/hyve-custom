@@ -49,6 +49,11 @@ export function mapOrders(nodes = []) {
       // Only an order on terms has an invoice — a prepaid one was settled at
       // checkout and there is no paperwork to hand over.
       hasInvoice: Boolean(node?.paymentTerms),
+      // Set where this order began life as a quote, so the detail can offer
+      // that quote's PDF alongside the invoice.
+      quoteHref: node?.quoteDraftId
+        ? `/apps/account/quotes/pdf?draft=${encodeURIComponent(node.quoteDraftId)}`
+        : "",
       statusKey,
       items: itemsSummary(lineItems),
       date: formatDate(node?.createdAt),
@@ -58,7 +63,10 @@ export function mapOrders(nodes = []) {
       trackHref: tracking?.url || "",
       carrier: tracking?.company || "",
       trackingNumber: tracking?.number || "",
-      estimatedShipDate: formatDate(node?.estimatedShipDate?.value || node?.productionDueAt?.value),
+      // Set by customer service against the published lead time, never worked
+      // out here. Falling back to the production due date computed from the
+      // service levels put a date in front of the buyer that nobody promised.
+      estimatedShipDate: formatDate(node?.estimatedShipDate?.value),
       proofDueDate: formatDate(node?.proofDueAt?.value),
       proofUrl: node?.proofUrl?.value || "",
       onHoldReason: node?.onHoldReason?.value || "",
@@ -90,7 +98,7 @@ export function mapOrders(nodes = []) {
           .map((attr) => `${attr.key}: ${attr.value}`),
         // F11: where this line is decorated, so a send-later order can be
         // completed against the same positions the buyer chose.
-        zones: zonesFromAttributes(li.customAttributes),
+        zones: zonesFromAttributes(li.customAttributes, node?.customAttributes),
         unitPrice: formatMoney(
           li.originalUnitPriceSet?.shopMoney?.amount,
           li.originalUnitPriceSet?.shopMoney?.currencyCode,
@@ -194,20 +202,23 @@ export function orderRow(order) {
 
 /** J9: the action that fits the status. View is always available. */
 function rowActions(order, statusKey) {
-  const actions = [
-    `<button type="button" class="hyve-ord__btn hyve-ord__btn--ghost" data-modal-open="order-${esc(order.name)}">${icoEye()}<span>View</span></button>`,
-  ];
+  // Everything the buyer does with an order happens in its detail, so the row
+  // has one button that opens it. Where there is something waiting on them,
+  // that button says so instead of a generic "View" — two buttons opening the
+  // same panel is just two buttons.
+  const openDetail = (icon, label, variant) =>
+    `<button type="button" class="hyve-ord__btn hyve-ord__btn--${variant}" data-modal-open="order-${esc(order.name)}">${icon}<span>${esc(label)}</span></button>`;
+
+  const actions = [];
 
   if (statusKey === "proof-sent") {
-    // The proof, and the Approve / Request changes buttons, live in the order
-    // detail. This used to fall back to a page anchor that went nowhere.
-    actions.push(
-      `<button type="button" class="hyve-ord__btn hyve-ord__btn--primary" data-modal-open="order-${esc(order.name)}">${icoProof()}<span>Review Proof</span></button>`,
-    );
+    actions.push(openDetail(icoProof(), "Review Proof", "primary"));
+  } else if (statusKey === "awaiting-artwork") {
+    actions.push(openDetail(icoUpload(), "Upload Artwork", "primary"));
+  } else {
+    actions.push(openDetail(icoEye(), "View", "ghost"));
   }
-  if (statusKey === "awaiting-artwork") {
-    actions.push(action(`/apps/account/artwork?order=${encodeURIComponent(order.name)}`, icoUpload(), "Upload Artwork", "primary"));
-  }
+
   if (statusKey === "shipped" && order.trackHref) {
     actions.push(action(order.trackHref, icoTruck(), "Track"));
   }

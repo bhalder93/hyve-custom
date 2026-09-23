@@ -14,23 +14,34 @@
 import { formatMoney, formatDate, orderStatusKey } from "./portal.server";
 
 /**
- * The legal entity that issues the invoice.
+ * The legal entity that issues the invoice, confirmed by Hyve on 22 September.
  *
- * Shopify's `shop.name` is the storefront's trading name ("Hyve.Promo"), which
- * is not who the invoice is from. A commercial document has to carry the
- * registered company, so it is stated here rather than read from the store.
+ * All three are stated here rather than read from the store. Shopify's
+ * `shop.name` is the trading name ("Hyve.Promo"), and `shop.shopAddress` is the
+ * trading address — which is the Orchard Road one Hyve has said must not appear
+ * on customer-facing documents. A commercial document carries the registered
+ * company, so the registered details are the source.
  */
-const LEGAL_NAME = "Hyve Promo Pte Ltd";
+const LEGAL_NAME = "HYVE PROMO PTE. LTD.";
 
-/** Hyve's business registration number (UEN). Awaiting the value from Hyve. */
-const BUSINESS_REGISTRATION_NUMBER = "";
+/** Hyve's business registration number (UEN). */
+const BUSINESS_REGISTRATION_NUMBER = "202509530E";
+
+/**
+ * The registered business address. It doubles as the remit-to address: Hyve
+ * confirmed there is no separate one.
+ */
+const LEGAL_ADDRESS = [
+  "2 Venture Drive, #11-05",
+  "Vision Exchange",
+  "Singapore 608526",
+];
 
 const DOCUMENT_QUERY = `#graphql
   query InvoiceDocument($id: ID!) {
     shop {
       name
       contactEmail
-      shopAddress { formatted }
     }
     order(id: $id) {
       id
@@ -132,7 +143,7 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
     shopName: LEGAL_NAME,
     shopRegistrationNumber: BUSINESS_REGISTRATION_NUMBER,
     shopEmail: body.data.shop?.contactEmail || "",
-    shopAddress: body.data.shop?.shopAddress?.formatted || [],
+    shopAddress: LEGAL_ADDRESS,
 
     reference: order.name,
     orderName: order.name,

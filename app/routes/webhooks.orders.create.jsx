@@ -1,6 +1,12 @@
 // app/routes/webhooks.orders.create.jsx
 
-import { authenticate } from "../shopify.server";
+import { authenticate, unauthenticated } from "../shopify.server";
+import {
+  artworkFromOrderPayload,
+  recordOrderArtwork,
+  artworkOwnerGid,
+  companyGidForCustomer,
+} from "../lib/artwork.server";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Constants                                 */
@@ -1013,6 +1019,15 @@ export async function action({ request }) {
       previousStatusTags: statusTags,
     });
 
+    /* ---------------------------------------------------------------------- */
+    /* Saved Artwork (F4)                                                      */
+    /*                                                                         */
+    /* The product page uploads artwork as line-item properties, so the file    */
+    /* only becomes knowable once the order exists. It lives here because       */
+    /* orders/create is the one delivery carrying those properties.             */
+    /* ---------------------------------------------------------------------- */
+    await recordArtworkFromOrder(shop, topic, payload);
+
     return new Response(null, {
       status: 200,
     });
@@ -1026,5 +1041,41 @@ export async function action({ request }) {
     return new Response("Webhook processing failed", {
       status: 500,
     });
+  }
+}
+
+/**
+ * Adds any artwork on the new order to the buyer's Saved Artwork library and
+ * records the order against it, which is what makes the "used in N orders"
+ * count real. Never throws: the order exists by the time this runs.
+ */
+async function recordArtworkFromOrder(shop, topic, payload) {
+  try {
+    const customerId = payload?.customer?.id;
+    if (!customerId) return;
+
+    const artworks = artworkFromOrderPayload(payload);
+    if (!artworks.length) return;
+
+    const { admin } = await unauthenticated.admin(shop);
+
+    // The library belongs to the company where the buyer has one.
+    const customerGid = `gid://shopify/Customer/${customerId}`;
+    const companyId = await companyGidForCustomer(admin, customerGid);
+
+    const result = await recordOrderArtwork(
+      admin,
+      artworkOwnerGid({ companyId, customerId }),
+      artworks,
+      {
+        id: payload?.admin_graphql_api_id || `gid://shopify/Order/${payload.id}`,
+        name: payload?.name || `#${payload?.order_number || payload?.id}`,
+        createdAt: payload?.created_at || new Date().toISOString(),
+      },
+    );
+
+    console.log(`[${topic}] ${payload?.name}: ${artworks.length} artwork file(s) recorded`, result.ok);
+  } catch (error) {
+    console.error("[orders/create] artwork sync failed", error?.message || error);
   }
 }

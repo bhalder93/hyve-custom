@@ -13,7 +13,7 @@
  * so opening one costs no round trip.
  */
 import { esc } from "./account-shell.server";
-import { ACCEPTED_EXTENSIONS, MAX_FILE_LABEL } from "./artwork.server";
+import { ACCEPTED_EXTENSIONS, MAX_FILE_LABEL, isPreviewable } from "./artwork.server";
 import { VISIBLE_STATUSES, statusByKey } from "./portal.server";
 
 const WHATSAPP_NUMBER = "6569322855";
@@ -65,6 +65,11 @@ export function orderModal(order, library = []) {
             // the buyer to a 404.
             order.hasInvoice && order.id && order.statusKey !== "credit-under-review"
               ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="/apps/account/invoices/download?order=${encodeURIComponent(order.id)}">${icoDownload()}<span>Download Invoice</span></a>`
+              : ""
+          }
+          ${
+            order.quoteHref
+              ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="${esc(order.quoteHref)}">${icoFile()}<span>Download Quote</span></a>`
               : ""
           }
           ${order.trackHref ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="${esc(order.trackHref)}">${icoTruck()}<span>Track Shipment</span></a>` : ""}
@@ -199,10 +204,12 @@ function shippingPanel(order) {
  * the customer to the proof and to support rather than faking an action.
  */
 /**
- * J2/F11: the artwork on the order, one slot per decoration position, mirroring
- * the picker on the product page and in the cart. A send-later order is
- * completed here: each empty position takes a file from the buyer's saved
- * artwork or a fresh upload, and filling them releases the hold.
+ * J2/F11: the artwork on the order, one slot per decoration position, laid out
+ * like the picker on the product page — a drop zone per position, with the
+ * buyer's saved artwork one click away.
+ *
+ * A send-later order is completed here: fill the empty positions and the hold
+ * is released.
  */
 function artworkPanel(order, library = []) {
   const lines = (order.lines || []).filter((li) => (li.zones || []).length);
@@ -212,48 +219,62 @@ function artworkPanel(order, library = []) {
 
   const blocks = lines
     .map((li) => {
-      const slots = li.zones.map((zone) => zoneSlot(zone, editable, library, order.name)).join("");
+      const filled = li.zones.filter((zone) => zone.url);
+      const empty = li.zones.filter((zone) => !zone.url);
+
       return `
         <div class="hyve-art__line">
           <span class="hyve-art__line-title">${esc(li.title)}</span>
-          ${slots}
+          ${
+            filled.length
+              ? `<div class="hyve-tile-grid">${filled
+                  .map((zone) => zoneSlot(zone, editable, order.name))
+                  .join("")}</div>`
+              : ""
+          }
+          ${empty.map((zone) => zoneSlot(zone, editable, order.name)).join("")}
         </div>`;
     })
     .join("");
 
-  const body = editable
-    ? `<form method="post" action="/apps/account/orders/artwork" enctype="multipart/form-data">
-         <input type="hidden" name="order" value="${esc(order.id)}">
-         ${blocks}
-         <div class="hyve-modal__proof-buttons">
-           <button type="submit" class="hyve-ord__btn hyve-ord__btn--primary">
-             ${icoUpload()}<span>Send Artwork</span>
-           </button>
-         </div>
-         <p class="hyve-art__limits">${esc(ARTWORK_ACCEPT_LABEL)}, up to ${esc(ARTWORK_MAX_LABEL)} per file.</p>
-       </form>`
-    : blocks;
+  if (!editable) {
+    return `
+    <section class="hyve-modal__panel-box">
+      <h3 class="hyve-modal__panel-title">${icoImage()} Artwork</h3>
+      ${blocks}
+    </section>`;
+  }
 
   return `
     <section class="hyve-modal__panel-box">
       <h3 class="hyve-modal__panel-title">${icoImage()} Artwork</h3>
-      ${body}
+      <form method="post" action="/apps/account/orders/artwork" enctype="multipart/form-data" data-art-form>
+        <input type="hidden" name="order" value="${esc(order.id)}">
+        ${blocks}
+        <div class="hyve-modal__proof-buttons">
+          <button type="submit" class="hyve-ord__btn hyve-ord__btn--primary">
+            ${icoUpload()}<span>Send Artwork</span>
+          </button>
+        </div>
+        <p class="hyve-art__limits">${esc(ARTWORK_ACCEPT_LABEL)}, up to ${esc(ARTWORK_MAX_LABEL)} per file.</p>
+      </form>
+      ${savedArtworkPicker(library, order.name)}
     </section>`;
 }
 
 /** One decoration position: what is on it, or a way to supply it. */
-function zoneSlot(zone, editable, library, orderName) {
+function zoneSlot(zone, editable, orderName) {
   const field = `zone:${zone.key}`;
   const id = `${orderName}-${zone.key}`.replace(/[^A-Za-z0-9-]/g, "-");
 
   if (zone.url) {
-    return `
-      <div class="hyve-art__zone is-filled">
-        <span class="hyve-art__zone-label">${esc(zone.label)}</span>
-        <a class="hyve-art__file" href="${esc(zone.url)}" target="_blank" rel="noopener">
-          ${icoFile()}<span>${esc(filenameOf(zone.url))}</span>
-        </a>
-      </div>`;
+    const filename = filenameOf(zone.url);
+    return fileTile({
+      href: zone.url,
+      label: zone.label,
+      sub: filename,
+      previewUrl: isPreviewable(filename) ? zone.url : "",
+    });
   }
 
   if (!editable) {
@@ -264,29 +285,82 @@ function zoneSlot(zone, editable, library, orderName) {
       </div>`;
   }
 
-  // Saved artwork first — most buyers are reusing a logo they have already sent.
-  const saved = library.length
-    ? `<label class="hyve-art__pick" for="${esc(id)}-saved">Use saved artwork</label>
-       <select class="hyve-art__select" id="${esc(id)}-saved" name="${esc(field)}:saved">
-         <option value="">Choose a file…</option>
-         ${library
-           .map((file) => `<option value="${esc(file.url)}">${esc(file.filename)}</option>`)
-           .join("")}
-       </select>
-       <span class="hyve-art__or">or upload a new file</span>`
-    : "";
+  return `
+    <div class="hyve-art__zone" data-art-zone data-zone-id="${esc(id)}">
+      <span class="hyve-art__zone-label">${esc(zone.label)}</span>
+
+      <label class="hyve-art__drop" for="${esc(id)}-file" data-art-drop>
+        ${icoUpload()}
+        <span class="hyve-art__drop-text">Drop logo or <strong>browse</strong></span>
+      </label>
+
+      <button type="button" class="hyve-art__saved-btn" data-art-pick="${esc(id)}">
+        ${icoImage()}<span>Use saved artwork</span>
+      </button>
+
+      <p class="hyve-art__chosen" data-art-chosen hidden></p>
+
+      <input type="file" id="${esc(id)}-file" name="${esc(field)}:file" class="hyve-art__hidden-input"
+        accept="${esc(ARTWORK_ACCEPT)}" data-art-file>
+      <input type="hidden" name="${esc(field)}:saved" value="" data-art-saved>
+    </div>`;
+}
+
+/**
+ * One picker shared by every position on the order. Opening it remembers which
+ * position asked, so the chosen file lands in the right slot.
+ */
+function savedArtworkPicker(library, orderName) {
+  const id = `art-picker-${String(orderName).replace(/[^A-Za-z0-9-]/g, "-")}`;
+
+  const files = library.length
+    ? library
+        .map(
+          (file) => `
+        <button type="button" class="hyve-art__saved-item" data-art-choose
+          data-url="${esc(file.url)}" data-name="${esc(file.filename)}">
+          ${
+            file.previewUrl
+              ? `<img src="${esc(file.previewUrl)}" alt="" class="hyve-art__saved-thumb">`
+              : `<span class="hyve-art__saved-thumb hyve-art__saved-thumb--file">${icoFile()}</span>`
+          }
+          <span class="hyve-art__saved-name">${esc(file.filename)}</span>
+        </button>`,
+        )
+        .join("")
+    : `<p class="hyve-modal__muted">You have no saved artwork yet. Upload a file and it will be saved here for next time.</p>`;
 
   return `
-    <div class="hyve-art__zone">
-      <span class="hyve-art__zone-label">${esc(zone.label)}</span>
-      ${saved}
-      <input
-        type="file"
-        class="hyve-art__input"
-        id="${esc(id)}-file"
-        name="${esc(field)}:file"
-        accept="${esc(ARTWORK_ACCEPT)}">
+    <div class="hyve-art__picker" id="${esc(id)}" data-art-picker hidden>
+      <div class="hyve-art__picker-backdrop" data-art-picker-close></div>
+      <div class="hyve-art__picker-panel" role="dialog" aria-modal="true" aria-label="Saved artwork">
+        <header class="hyve-art__picker-head">
+          <h4 class="hyve-art__picker-title">Saved artwork</h4>
+          <button type="button" class="hyve-modal__close" aria-label="Close" data-art-picker-close>${icoClose()}</button>
+        </header>
+        <div class="hyve-art__saved-grid">${files}</div>
+      </div>
     </div>`;
+}
+
+/**
+ * One file as a thumbnail card: the image itself where a browser can render it,
+ * a plain icon where it cannot, with the label and filename over the bottom.
+ * Shared by the artwork and proof panels so both read the same.
+ */
+function fileTile({ href, label, sub, previewUrl }) {
+  const art = previewUrl
+    ? `<img class="hyve-tile__img" src="${esc(previewUrl)}" alt="" loading="lazy">`
+    : `<span class="hyve-tile__img hyve-tile__img--file">${icoFile()}</span>`;
+
+  return `
+    <a class="hyve-tile" href="${esc(href)}" target="_blank" rel="noopener">
+      ${art}
+      <span class="hyve-tile__caption">
+        <span class="hyve-tile__label">${esc(label)}</span>
+        ${sub ? `<span class="hyve-tile__sub">${esc(sub)}</span>` : ""}
+      </span>
+    </a>`;
 }
 
 function filenameOf(url) {
@@ -300,7 +374,7 @@ function filenameOf(url) {
 
 function proofsPanel(order) {
   const items = [
-    order.proofUrl ? ["Digital Proof", order.proofUrl, "Proof"] : null,
+    order.proofUrl ? ["Artwork Proof", order.proofUrl, "Proof"] : null,
     order.productionPhotoUrl ? ["Production Photo", order.productionPhotoUrl, "Free photo"] : null,
   ].filter(Boolean);
 
@@ -309,15 +383,15 @@ function proofsPanel(order) {
       <h3 class="hyve-modal__panel-title">${icoImage()} Proofs &amp; Photos</h3>
       ${
         items.length
-          ? `<div class="hyve-modal__proofs">
+          ? `<div class="hyve-tile-grid">
               ${items
-                .map(
-                  ([label, href, sub]) => `
-                <a class="hyve-modal__proof" href="${esc(href)}" target="_blank" rel="noopener">
-                  ${icoFile()}
-                  <span class="hyve-modal__proof-label">${esc(label)}</span>
-                  <span class="hyve-modal__proof-sub">${esc(sub)}</span>
-                </a>`,
+                .map(([label, href, sub]) =>
+                  fileTile({
+                    href,
+                    label,
+                    sub,
+                    previewUrl: isPreviewable(filenameOf(href)) ? href : "",
+                  }),
                 )
                 .join("")}
             </div>`
@@ -432,7 +506,7 @@ export const MODAL_STYLES = `
   .hyve-modal__row span { color: var(--hyve-muted); flex-shrink: 0; }
   .hyve-modal__row strong { font-weight: 700; text-align: right; }
   .hyve-modal__link { color: var(--hyve-teal-dark); font-weight: 700; text-decoration: none; }
-  .hyve-modal__muted { font-size: 12px; color: var(--hyve-muted); margin: 0; }
+  .hyve-modal__muted { font-size: 12px; color: var(--hyve-muted); margin: 0; word-break: break-all; }
   .hyve-modal__note { display: flex; gap: 7px; align-items: flex-start; font-size: 11.5px; color: #B45309; background: #FEF3C7; border-radius: 8px; padding: 8px 10px; margin: 12px 0 0; }
 
   .hyve-modal__proof-actions { margin: 12px 0 0; border-top: 1px solid var(--hyve-border); padding-top: 12px; }
@@ -441,19 +515,78 @@ export const MODAL_STYLES = `
   .hyve-modal__proof-input:focus { outline: 2px solid rgba(110,222,225,0.45); outline-offset: 1px; }
   .hyve-modal__proof-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 
-  .hyve-art__line { margin-top: 12px; }
-  .hyve-art__line-title { display: block; font-size: 12px; font-weight: 700; color: var(--hyve-900); margin-bottom: 6px; }
-  .hyve-art__zone { border: 1px solid var(--hyve-border); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
-  .hyve-art__zone.is-filled { background: #F8FAFC; }
-  .hyve-art__zone-label { display: block; font-size: 11.5px; font-weight: 600; color: var(--hyve-700); margin-bottom: 6px; }
-  .hyve-art__file { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--hyve-900); text-decoration: none; font-weight: 600; }
-  .hyve-art__file svg { width: 14px; height: 14px; flex-shrink: 0; }
-  .hyve-art__pick { display: block; font-size: 11px; color: var(--hyve-muted); margin-bottom: 4px; }
-  .hyve-art__select { width: 100%; border: 1px solid var(--hyve-border-strong); border-radius: 8px; padding: 7px 9px; font: inherit; font-size: 12.5px; background: #fff; }
-  .hyve-art__or { display: block; font-size: 11px; color: var(--hyve-muted); margin: 8px 0 4px; }
-  .hyve-art__input { width: 100%; font-size: 12px; }
+  .hyve-art__line { margin-top: 14px; }
+  .hyve-art__line-title { display: block; font-size: 12px; font-weight: 700; color: var(--hyve-900); margin-bottom: 8px; }
+  .hyve-art__zone { margin-top: 12px; }
+  .hyve-art__zone-label { display: block; font-size: 12px; font-weight: 700; color: var(--hyve-900); margin-bottom: 6px; }
+
+  /* Matches the drop zone on the product page. */
+  .hyve-art__drop {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    border: 1.5px dashed #CBD5E1; border-radius: 10px; padding: 18px 12px;
+    font-size: 13px; color: var(--hyve-500); cursor: pointer; text-align: center;
+  }
+  .hyve-art__drop strong { color: #0F766E; }
+  .hyve-art__drop svg { width: 18px; height: 18px; }
+  .hyve-art__drop:hover, .hyve-art__zone.is-dragging .hyve-art__drop { border-color: #0F766E; background: rgba(110,222,225,0.08); }
+  .hyve-art__hidden-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+  .hyve-art__saved-btn {
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;
+    border: 1px solid var(--hyve-border-strong); background: #fff; border-radius: 8px;
+    padding: 7px 12px; font: inherit; font-size: 12px; font-weight: 600; color: var(--hyve-700); cursor: pointer;
+  }
+  .hyve-art__saved-btn svg { width: 14px; height: 14px; }
+  .hyve-art__saved-btn:hover { border-color: var(--hyve-900); color: var(--hyve-900); }
+
+  .hyve-art__chosen { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #15803D; margin: 8px 0 0; }
+  .hyve-art__chosen[hidden] { display: none; }
+
+  .hyve-art__picker { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .hyve-art__picker[hidden] { display: none; }
+  .hyve-art__picker-backdrop { display: block !important; position: absolute; inset: 0; background: rgba(15,23,42,0.5); }
+  .hyve-art__picker-panel { position: relative; background: #fff; border-radius: 14px; width: min(520px, 100%); max-height: 80vh; overflow: auto; padding: 18px 20px 20px; }
+  .hyve-art__picker-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .hyve-art__picker-title { font-size: 15px; font-weight: 700; margin: 0; }
+  .hyve-art__saved-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+  .hyve-art__saved-item {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    border: 1px solid var(--hyve-border); border-radius: 10px; padding: 10px; background: #fff;
+    font: inherit; font-size: 11.5px; cursor: pointer; text-align: center;
+  }
+  .hyve-art__saved-item:hover { border-color: #0F766E; }
+  .hyve-art__saved-thumb { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 8px; background: #F8FAFC; }
+  .hyve-art__saved-thumb--file { display: flex; align-items: center; justify-content: center; }
+  .hyve-art__saved-thumb--file svg { width: 24px; height: 24px; color: var(--hyve-muted); }
+  .hyve-art__saved-name { word-break: break-word; font-weight: 600; color: var(--hyve-700); }
+
   .hyve-art__limits { font-size: 11px; color: var(--hyve-muted); margin: 8px 0 0; }
   .hyve-modal__note svg { width: 15px; height: 15px; flex-shrink: 0; margin-top: 1px; }
+
+  .hyve-tile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+  .hyve-tile {
+    position: relative; display: block; aspect-ratio: 4 / 3; overflow: hidden;
+    border: 1px solid var(--hyve-border); border-radius: 10px; text-decoration: none; background: #F8FAFC;
+  }
+  .hyve-tile:hover { border-color: var(--hyve-teal-dark); }
+  .hyve-tile__img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .hyve-tile__img--file { display: flex; align-items: center; justify-content: center; }
+  .hyve-tile__img--file svg { width: 28px; height: 28px; color: var(--hyve-muted); margin: 0; }
+  .hyve-tile__caption {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 20px 10px 8px;
+    display: flex; flex-direction: column; gap: 1px;
+    background: linear-gradient(to top, rgba(15,23,42,0.82), rgba(15,23,42,0));
+  }
+  .hyve-tile__label { font-size: 11.5px; font-weight: 700; color: #fff; }
+  .hyve-tile__sub {     
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.82);
+    word-break: break-all;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden; 
+  }
 
   .hyve-modal__proofs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .hyve-modal__proof { display: flex; flex-direction: column; gap: 3px; padding: 14px 12px; border: 1px solid var(--hyve-border); border-radius: 10px; text-decoration: none; color: var(--hyve-900); background: #F8FAFC; }
@@ -504,6 +637,93 @@ export const MODAL_SCRIPT = `
 
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape') close();
+  });
+
+  /* ---------- artwork: drop zones and the saved-artwork picker ---------- */
+
+  var pickingFor = null;
+
+  function nameFromUrl(url) {
+    var path = String(url || '').split('?')[0];
+    try { return decodeURIComponent(path.split('/').pop() || 'Artwork'); }
+    catch (e) { return path.split('/').pop() || 'Artwork'; }
+  }
+
+  // A position holds either an upload or a saved file, never both — choosing
+  // one clears the other so the order cannot receive two files for one spot.
+  function showChoice(zone, label, fromSaved) {
+    var chosen = zone.querySelector('[data-art-chosen]');
+    var file = zone.querySelector('[data-art-file]');
+    var saved = zone.querySelector('[data-art-saved]');
+    if (fromSaved && file) file.value = '';
+    if (!fromSaved && saved) saved.value = '';
+    if (chosen) {
+      chosen.textContent = label ? '\u2713 ' + label : '';
+      chosen.hidden = !label;
+    }
+  }
+
+  document.addEventListener('change', function (event) {
+    var file = event.target.closest && event.target.closest('[data-art-file]');
+    if (!file) return;
+    var zone = file.closest('[data-art-zone]');
+    if (zone) showChoice(zone, file.files && file.files[0] ? file.files[0].name : '', false);
+  });
+
+  document.addEventListener('click', function (event) {
+    var pick = event.target.closest && event.target.closest('[data-art-pick]');
+    if (pick) {
+      pickingFor = pick.closest('[data-art-zone]');
+      var picker = pick.closest('.hyve-modal__panel').querySelector('[data-art-picker]');
+      if (picker) picker.hidden = false;
+      return;
+    }
+
+    if (event.target.closest && event.target.closest('[data-art-picker-close]')) {
+      var openPicker = event.target.closest('[data-art-picker]');
+      if (openPicker) openPicker.hidden = true;
+      pickingFor = null;
+      return;
+    }
+
+    var choose = event.target.closest && event.target.closest('[data-art-choose]');
+    if (choose && pickingFor) {
+      var saved = pickingFor.querySelector('[data-art-saved]');
+      if (saved) saved.value = choose.getAttribute('data-url') || '';
+      showChoice(pickingFor, choose.getAttribute('data-name') || nameFromUrl(choose.getAttribute('data-url')), true);
+      var box = choose.closest('[data-art-picker]');
+      if (box) box.hidden = true;
+      pickingFor = null;
+    }
+  });
+
+  // Dropping a file onto a position is the same as choosing it, so the buyer
+  // can drag a logo straight in as they do on the product page.
+  ['dragenter', 'dragover'].forEach(function (type) {
+    document.addEventListener(type, function (event) {
+      var zone = event.target.closest && event.target.closest('[data-art-zone]');
+      if (!zone) return;
+      event.preventDefault();
+      zone.classList.add('is-dragging');
+    });
+  });
+
+  document.addEventListener('dragleave', function (event) {
+    var zone = event.target.closest && event.target.closest('[data-art-zone]');
+    if (zone) zone.classList.remove('is-dragging');
+  });
+
+  document.addEventListener('drop', function (event) {
+    var zone = event.target.closest && event.target.closest('[data-art-zone]');
+    if (!zone) return;
+    event.preventDefault();
+    zone.classList.remove('is-dragging');
+    var dropped = event.dataTransfer && event.dataTransfer.files;
+    if (!dropped || !dropped.length) return;
+    var input = zone.querySelector('[data-art-file]');
+    if (!input) return;
+    input.files = dropped;
+    showChoice(zone, dropped[0].name, false);
   });
 
   // Arriving from another page with ?order=#1234 opens that order straight

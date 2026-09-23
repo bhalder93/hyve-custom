@@ -26,7 +26,9 @@ export const loader = async ({ request }) => {
     const chrome = await portalChrome(admin, customerId);
     if (!chrome.isDistributor) return redirectToQuotes();
 
-    const doc = await loadQuoteDocument(admin, draftGid, `gid://shopify/Customer/${customerId}`);
+    const doc = await loadQuoteDocument(admin, draftGid, {
+      customerGid: `gid://shopify/Customer/${customerId}`,
+    });
     if (!doc) return new Response("Quote not found.", { status: 404 });
 
     const { buildQuotePdf } = await import("../lib/quote-pdf.server.jsx");

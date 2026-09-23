@@ -925,6 +925,27 @@ export default function DistributorDetailPage() {
 
                   <s-stack direction="block" gap="none">
                     <s-text color="subdued" type="small">
+                      Business Type
+                    </s-text>
+                    <s-text>{application?.business_type || "—"}</s-text>
+                  </s-stack>
+
+                  <s-stack direction="block" gap="none">
+                    <s-text color="subdued" type="small">
+                      Relation to the Business
+                    </s-text>
+                    <s-text>{application?.relation_to_business || "—"}</s-text>
+                  </s-stack>
+
+                  <s-stack direction="block" gap="none">
+                    <s-text color="subdued" type="small">
+                      Preferred Currency
+                    </s-text>
+                    <s-text>{application?.preferred_currency || "—"}</s-text>
+                  </s-stack>
+
+                  <s-stack direction="block" gap="none">
+                    <s-text color="subdued" type="small">
                       Business Registration (UEN)
                     </s-text>
                     <s-text>{application?.registration_number || "—"}</s-text>

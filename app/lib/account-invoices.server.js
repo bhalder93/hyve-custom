@@ -17,6 +17,7 @@ export function invoicesPage({
   storeCreditUsed = "",
   storeCreditIssued = "",
   storeCreditIssuedAt = "",
+  storeCreditExpired = "",
   storeCreditPercentUsed = null,
   paymentTerms = "",
   salesRep = "",
@@ -30,7 +31,7 @@ export function invoicesPage({
       <h1 class="hyve-inv__title">Invoices</h1>
       <p class="hyve-inv__sub">View and download your invoices</p>
 
-      ${creditPanel({ storeCredit, storeCreditUsed, storeCreditIssued, storeCreditIssuedAt, storeCreditPercentUsed, paymentTerms, tier })}
+      ${creditPanel({ storeCredit, storeCreditUsed, storeCreditIssued, storeCreditIssuedAt, storeCreditExpired, storeCreditPercentUsed, paymentTerms, tier })}
       ${salesRep ? repBar(salesRep, salesRepEmail, salesRepPhone) : ""}
 
       <div class="hyve-inv__card">
@@ -68,6 +69,7 @@ function creditPanel({
   storeCreditUsed,
   storeCreditIssued,
   storeCreditIssuedAt,
+  storeCreditExpired,
   storeCreditPercentUsed,
   paymentTerms,
   tier,
@@ -94,6 +96,11 @@ function creditPanel({
                    ${storeCreditIssuedAt ? `<span class="hyve-inv__asof">${esc(storeCreditIssuedAt)}</span>` : ""}
                  </div>
                  <div><span class="hyve-inv__muted">Used</span><strong>${esc(storeCreditUsed)}</strong></div>
+                 ${
+                   storeCreditExpired
+                     ? `<div><span class="hyve-inv__muted">Expired</span><strong>${esc(storeCreditExpired)}</strong></div>`
+                     : ""
+                 }
                </div>`
             : ""
         }

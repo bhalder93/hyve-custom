@@ -20,6 +20,59 @@ import {
 /** Give up before Shopify gives up on the proxy response. */
 const ADMIN_TIMEOUT_MS = 4000;
 
+/**
+ * Order fields.
+ *
+ * The production fields — proof, production photo, on-hold reason, production
+ * due date and when the status last changed — are written by the SLA engine and
+ * the Production Orders screen under the app's own namespace, so they are read
+ * from `$app`. The commercial fields customer service types in by hand (ship
+ * date, proof due, PO, incoterm, forwarder) live under `hyve`.
+ */
+const PORTAL_ORDER_FIELDS = `#graphql
+  fragment PortalOrder on Order {
+          id
+          name
+          createdAt
+          tags
+          poNumber
+          statusPageUrl
+          displayFulfillmentStatus
+          totalPriceSet { shopMoney { amount currencyCode } }
+          paymentTerms { paymentTermsName }
+          poNumberMeta: metafield(namespace: "hyve", key: "po_number") { value }
+          estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
+          productionDueAt: metafield(namespace: "$app", key: "production_due_at") { value }
+          proofDueAt: metafield(namespace: "hyve", key: "proof_due_at") { value }
+          proofUrl: metafield(namespace: "$app", key: "proof_url") { value }
+          onHoldReason: metafield(namespace: "$app", key: "on_hold_reason") { value }
+          incoterm: metafield(namespace: "hyve", key: "incoterm") { value }
+          forwarder: metafield(namespace: "hyve", key: "forwarder") { value }
+          statusChangedAt: metafield(namespace: "$app", key: "status_changed_at") { value }
+          productionPhotoUrl: metafield(namespace: "$app", key: "production_photo_url") { value }
+          note
+          customAttributes { key value }
+          shippingAddress { name company address1 address2 city provinceCode zip countryCodeV2 }
+          shippingLine { title }
+          lineItems(first: 10) {
+            nodes {
+              title
+              quantity
+              variantTitle
+              sku
+              customAttributes { key value }
+              variant { id }
+              originalUnitPriceSet { shopMoney { amount currencyCode } }
+              discountedTotalSet { shopMoney { amount currencyCode } }
+            }
+          }
+          fulfillments(first: 1) {
+            displayStatus
+            deliveredAt
+            trackingInfo(first: 1) { company number url }
+          }
+        }`;
+
 const ACCOUNT_QUERY = `#graphql
   query PortalAccount($id: ID!, $first: Int!, $draftQuery: String!) {
     customer(id: $id) {
@@ -51,8 +104,11 @@ const ACCOUNT_QUERY = `#graphql
                       amount { amount currencyCode }
                     }
                   }
-                  latestCredit: transactions(first: 1, query: "type:credit", sortKey: CREATED_AT, reverse: true) {
-                    nodes { createdAt }
+                  credits: transactions(first: 250, query: "type:credit", sortKey: CREATED_AT, reverse: true) {
+                    nodes { createdAt amount { amount } }
+                  }
+                  expiries: transactions(first: 250, query: "type:expiration") {
+                    nodes { amount { amount } }
                   }
                 }
               }
@@ -61,62 +117,38 @@ const ACCOUNT_QUERY = `#graphql
               salesRepPhone: metafield(namespace: "hyve", key: "sales_rep_phone") { value }
             }
           }
-        }
-      }
-      orders(first: $first, sortKey: CREATED_AT, reverse: true) {
-        nodes {
-          id
-          name
-          createdAt
-          tags
-          poNumber
-          statusPageUrl
-          displayFulfillmentStatus
-          totalPriceSet { shopMoney { amount currencyCode } }
-          paymentTerms { paymentTermsName }
-          poNumberMeta: metafield(namespace: "hyve", key: "po_number") { value }
-          estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
-          productionDueAt: metafield(namespace: "hyve", key: "production_due_at") { value }
-          proofDueAt: metafield(namespace: "hyve", key: "proof_due_at") { value }
-          proofUrl: metafield(namespace: "hyve", key: "proof_url") { value }
-          onHoldReason: metafield(namespace: "hyve", key: "on_hold_reason") { value }
-          incoterm: metafield(namespace: "hyve", key: "incoterm") { value }
-          forwarder: metafield(namespace: "hyve", key: "forwarder") { value }
-          statusChangedAt: metafield(namespace: "hyve", key: "status_changed_at") { value }
-          productionPhotoUrl: metafield(namespace: "hyve", key: "production_photo_url") { value }
-          note
-          shippingAddress { name company address1 address2 city provinceCode zip countryCodeV2 }
-          shippingLine { title }
-          lineItems(first: 10) {
+
+          # Everyone on the company works from the same orders and quotes, so
+          # these are read from the company rather than the person signed in.
+          orders(first: $first, sortKey: CREATED_AT, reverse: true) {
+            nodes { ...PortalOrder }
+          }
+          draftOrders(first: 50, sortKey: UPDATED_AT, reverse: true) {
             nodes {
-              title
-              quantity
-              variantTitle
-              sku
-              customAttributes { key value }
-              variant { id }
-              originalUnitPriceSet { shopMoney { amount currencyCode } }
-              discountedTotalSet { shopMoney { amount currencyCode } }
+              id
+              order { id }
+              hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
             }
           }
-          fulfillments(first: 1) {
-            displayStatus
-            deliveredAt
-            trackingInfo(first: 1) { company number url }
-          }
         }
+      }
+
+      # A shopper with no company still has their own orders.
+      orders(first: $first, sortKey: CREATED_AT, reverse: true) {
+        nodes { ...PortalOrder }
       }
     }
 
-    # Quotes hang off the shop, not the customer, so the nav badge count needs
-    # its own root field.
+    # And their own quotes, which hang off the shop rather than the customer.
     draftOrders(first: 50, query: $draftQuery) {
       nodes {
         id
+        order { id }
         hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
       }
     }
-  }`;
+  }
+  ${PORTAL_ORDER_FIELDS}`;
 
 export async function loadAccount(admin, customerId, { first = 25 } = {}) {
   const empty = {
@@ -154,8 +186,19 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
     const initials =
       ((first_[0] || "") + (last[0] || "")).toUpperCase() || (name ? name[0].toUpperCase() : "");
 
-    const orderNodes = c.orders?.nodes || [];
+    const orderNodes = companyOrders(c) || c.orders?.nodes || [];
     const distributor = isDistributor(c);
+
+    // An order carries no link back to the quote it came from, but the quote
+    // records the order it became — so the pairing is read from that side and
+    // hung on the order for the detail view to offer the quote PDF.
+    const quotes = companyQuotes(c) || body?.data?.draftOrders?.nodes || [];
+    const quoteByOrder = new Map(
+      quotes.filter((q) => q.order?.id).map((q) => [q.order.id, q.id]),
+    );
+    for (const order of orderNodes) {
+      order.quoteDraftId = quoteByOrder.get(order.id) || null;
+    }
 
     return {
       customer: {
@@ -169,9 +212,7 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
       terms: distributor ? buildTerms(c, orderNodes) : null,
       orderNodes,
       // Quotes awaiting the buyer's decision, for the nav badge.
-      awaitingQuotes: distributor
-        ? (body?.data?.draftOrders?.nodes || []).filter((n) => quoteDecision(n) == null).length
-        : 0,
+      awaitingQuotes: distributor ? quotes.filter((n) => quoteDecision(n) == null).length : 0,
       failed: false,
     };
   } catch (error) {
@@ -214,8 +255,12 @@ function buildTerms(customer, orderNodes) {
   const balance = account?.balance ? Number(account.balance.amount) : null;
   const currency = account?.balance?.currencyCode || fallbackCurrency;
   const used = storeCreditUsed(account);
-  // What was ever put on the account: what's been spent plus what's left.
-  const issued = balance != null && used != null ? used + balance : null;
+  // Counted from the credits themselves. Working it out as "spent plus left"
+  // was wrong the moment any credit expired: expiry takes money off the
+  // balance without anyone spending it, so 2,000 issued with 400 spent and
+  // 1,600 expired reported as 400 ever issued.
+  const issued = sumAmounts(account?.credits?.nodes);
+  const expired = sumAmounts(account?.expiries?.nodes);
 
   return {
     locationIds,
@@ -235,7 +280,10 @@ function buildTerms(customer, orderNodes) {
     storeCreditUsedAmount: Number.isFinite(used) ? used : null,
     storeCreditIssued: Number.isFinite(issued) ? formatMoney(issued, currency) : "",
     storeCreditIssuedAmount: Number.isFinite(issued) ? issued : null,
-    storeCreditIssuedAt: formatDate(account?.latestCredit?.nodes?.[0]?.createdAt) || "",
+    storeCreditIssuedAt: formatDate(account?.credits?.nodes?.[0]?.createdAt) || "",
+    // Only shown when some has actually lapsed, so the figures add up: what was
+    // issued, less what was spent, less what expired, is what is left.
+    storeCreditExpired: expired > 0 ? formatMoney(expired, currency) : "",
     currency,
   };
 }
@@ -247,6 +295,15 @@ function buildTerms(customer, orderNodes) {
  * history: every debit, less any that were reverted. An account that has never
  * been debited returns 0, not null — nothing spent is a real answer.
  */
+/** Totals a set of transactions by magnitude — Shopify signs them by direction. */
+function sumAmounts(nodes) {
+  if (!Array.isArray(nodes)) return null;
+  return nodes.reduce((total, tx) => {
+    const amount = Math.abs(Number(tx?.amount?.amount));
+    return Number.isFinite(amount) ? total + amount : total;
+  }, 0);
+}
+
 function storeCreditUsed(account) {
   const nodes = account?.transactions?.nodes;
   if (!Array.isArray(nodes)) return null;
@@ -311,14 +368,34 @@ const CHROME_QUERY = `#graphql
                       amount { amount currencyCode }
                     }
                   }
-                  latestCredit: transactions(first: 1, query: "type:credit", sortKey: CREATED_AT, reverse: true) {
-                    nodes { createdAt }
+                  credits: transactions(first: 250, query: "type:credit", sortKey: CREATED_AT, reverse: true) {
+                    nodes { createdAt amount { amount } }
+                  }
+                  expiries: transactions(first: 250, query: "type:expiration") {
+                    nodes { amount { amount } }
                   }
                 }
               }
               salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
               salesRepEmail: metafield(namespace: "hyve", key: "sales_rep_email") { value }
               salesRepPhone: metafield(namespace: "hyve", key: "sales_rep_phone") { value }
+            }
+          }
+
+          # The badge counts have to match the pages, which show the company's
+          # orders and quotes rather than the signed-in person's.
+          orders(first: 50, sortKey: CREATED_AT, reverse: true) {
+            nodes {
+              tags
+              displayFulfillmentStatus
+              totalPriceSet { shopMoney { currencyCode } }
+            }
+          }
+          draftOrders(first: 50, sortKey: UPDATED_AT, reverse: true) {
+            nodes {
+              id
+              order { id }
+              hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
             }
           }
         }
@@ -332,11 +409,12 @@ const CHROME_QUERY = `#graphql
       }
     }
 
-    # Quotes are draft orders, and they hang off the shop rather than the
-    # customer, so they need their own root field here.
+    # A shopper with no company has their own quotes, which hang off the shop
+    # rather than the customer.
     draftOrders(first: 50, query: $draftQuery) {
       nodes {
         id
+        order { id }
         hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
       }
     }
@@ -376,7 +454,7 @@ export async function portalChrome(admin, customerId) {
     const first = c.firstName || "";
     const last = c.lastName || "";
     const name = c.displayName || `${first} ${last}`.trim();
-    const orderNodes = c.orders?.nodes || [];
+    const orderNodes = companyOrders(c) || c.orders?.nodes || [];
     const distributor = isDistributor(c);
 
     const awaiting = orderNodes.filter((node) =>
@@ -385,7 +463,7 @@ export async function portalChrome(admin, customerId) {
 
     // A quote needs the buyer's attention until staff mark it approved or
     // rejected, which they do with the hyve_status metafield on the draft order.
-    const awaitingQuotes = (body?.data?.draftOrders?.nodes || []).filter(
+    const awaitingQuotes = (companyQuotes(c) || body?.data?.draftOrders?.nodes || []).filter(
       (node) => quoteDecision(node) == null,
     ).length;
 
@@ -407,6 +485,24 @@ export async function portalChrome(admin, customerId) {
     console.warn("[portal] chrome query failed", error?.message || error);
     return {};
   }
+}
+
+/**
+ * The company's orders, or null when this shopper has no company.
+ *
+ * Everyone on a company works from the same records, so the company's list is
+ * the list. Returning null rather than [] keeps "no company" separate from "a
+ * company with no orders yet".
+ */
+function companyOrders(customer) {
+  const company = customer?.companyContactProfiles?.[0]?.company;
+  return company ? company.orders?.nodes || [] : null;
+}
+
+/** The company's quotes, on the same terms. */
+function companyQuotes(customer) {
+  const company = customer?.companyContactProfiles?.[0]?.company;
+  return company ? company.draftOrders?.nodes || [] : null;
 }
 
 /** The pricing tier a B2B buyer sees is the catalog on their company location (C3). */

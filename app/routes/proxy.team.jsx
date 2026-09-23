@@ -6,9 +6,39 @@ import {
   mapCompanyContactsToMembers,
   teamPage,
   getInitials,
+  canManageTeam,
+  ROLES,
 } from "../lib/account-team.server";
+import { sendTeamWelcomeEmail } from "../lib/team-welcome.server";
 
 const ADMIN_TIMEOUT_MS = 5000;
+
+/**
+ * Where to send an invited colleague. A proxy request arrives at the app's own
+ * host, so the storefront it came from is read from the `shop` parameter
+ * Shopify signs into every proxy request.
+ */
+/** The intents that only an admin may post. */
+const MANAGED_INTENTS = ["invite_member", "remove_member"];
+
+/**
+ * Email a new member to say they have access. Returns whether it went — the
+ * member is on the account either way, so this never throws.
+ */
+async function tellThemTheyHaveAccess(details) {
+  try {
+    await sendTeamWelcomeEmail(details);
+    return true;
+  } catch (error) {
+    console.error("[account] welcome email failed", error?.message || error);
+    return false;
+  }
+}
+
+function portalUrlFor(request) {
+  const shop = new URL(request.url).searchParams.get("shop");
+  return shop ? `https://${shop}/apps/account` : "https://hyve.promo/apps/account";
+}
 
 export const loader = async ({ request }) => {
   const { liquid, admin } = await authenticate.public.appProxy(request);
@@ -203,6 +233,10 @@ export const loader = async ({ request }) => {
       ? mapCompanyContactsToMembers(companyContacts, customer)
       : [];
 
+    // Only an admin sees Invite and Remove. The actions check this again for
+    // themselves — hiding a button is not a permission.
+    const canManage = members.some((m) => m.isCurrentCustomer && m.role === ROLES.ADMIN);
+
     const mainHtml = teamPage({
       members,
       companyName,
@@ -210,6 +244,7 @@ export const loader = async ({ request }) => {
       contactRoles,
       notice,
       error: errorParam,
+      canManage,
     });
 
     return liquid(
@@ -247,6 +282,21 @@ export const action = async ({ request }) => {
     const customerId = url.searchParams.get("logged_in_customer_id");
     const numericCustId = customerId ? customerId.replace(/\D/g, "") : "";
 
+    // Managing the team belongs to an admin. The page hides these from a buyer,
+    // but the forms can still be posted, so ask Shopify who is asking.
+    if (MANAGED_INTENTS.includes(intent)) {
+      const allowed = await canManageTeam(admin, numericCustId);
+      if (!allowed) {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location:
+              "/apps/account/team?error=Only+an+account+admin+can+manage+team+members.",
+          },
+        });
+      }
+    }
+
     if (intent === "invite_member") {
       const firstName = String(formData.get("firstName") || "").trim();
       const lastName = String(formData.get("lastName") || "").trim();
@@ -274,7 +324,9 @@ export const action = async ({ request }) => {
       let companyLocationId = selectedLocationId;
       let companyContactRoleId = selectedRoleId;
       let companyContactId = null;
-      let newCustomerId = null;
+      let inviteCompanyName = "your company";
+      let invitedBy = "";
+      let mailed = false;
 
       // -----------------------------------------------------------------------
       // Step 1: Identify inviter's company, default location, and roles
@@ -285,9 +337,11 @@ export const action = async ({ request }) => {
             `#graphql
             query GetCompanyContextForInvite($id: ID!) {
               customer(id: $id) {
+                displayName
                 companyContactProfiles {
                   company {
                     id
+                    name
                     locations(first: 10) {
                       edges {
                         node {
@@ -312,10 +366,13 @@ export const action = async ({ request }) => {
           );
 
           const compData = await compRes.json();
-          const company = compData?.data?.customer?.companyContactProfiles?.[0]?.company;
+          const inviter = compData?.data?.customer;
+          const company = inviter?.companyContactProfiles?.[0]?.company;
+          invitedBy = inviter?.displayName || "";
 
           if (company) {
             companyId = company.id;
+            inviteCompanyName = company.name || inviteCompanyName;
 
             // Resolve location
             if (!companyLocationId) {
@@ -459,7 +516,6 @@ export const action = async ({ request }) => {
           }
 
           companyContactId = createContactData?.data?.companyContactCreate?.companyContact?.id;
-          newCustomerId = createContactData?.data?.companyContactCreate?.companyContact?.customer?.id;
         }
 
         // ---------------------------------------------------------------------
@@ -505,30 +561,21 @@ export const action = async ({ request }) => {
         }
 
         // ---------------------------------------------------------------------
-        // Step 4: Email invitation / account activation
+        // Step 4: Tell them they have access
+        //
+        // They are already on the account by this point — there is nothing to
+        // accept — so a mail failure is worth reporting but does not undo the
+        // rest. Shopify will not send this one for us: its B2B welcome email is
+        // denied to this app, and its account-invite email only works on stores
+        // still using legacy customer accounts.
         // ---------------------------------------------------------------------
-        if (newCustomerId) {
-          try {
-            await admin.graphql(
-              `#graphql
-              mutation SendCustomerInvite($customerId: ID!) {
-                customerSendAccountInvite(customerId: $customerId) {
-                  customer {
-                    id
-                  }
-                  userErrors {
-                    field
-                    message
-                    code
-                  }
-                }
-              }`,
-              { variables: { customerId: newCustomerId } },
-            );
-          } catch (inviteSendErr) {
-            console.warn("[account] customerSendAccountInvite warning:", inviteSendErr?.message || inviteSendErr);
-          }
-        }
+        mailed = await tellThemTheyHaveAccess({
+          to: email,
+          firstName,
+          companyName: inviteCompanyName,
+          addedBy: invitedBy,
+          portalUrl: portalUrlFor(request),
+        });
       } else {
         // Fallback for stores where B2B Company objects are not enabled:
         // Create a customer account with company attribution tags
@@ -570,33 +617,27 @@ export const action = async ({ request }) => {
         const createdCustId = custCreateData?.data?.customerCreate?.customer?.id;
 
         if (createdCustId) {
-          try {
-            await admin.graphql(
-              `#graphql
-              mutation SendAccountInvite($customerId: ID!) {
-                customerSendAccountInvite(customerId: $customerId) {
-                  customer {
-                    id
-                  }
-                  userErrors {
-                    field
-                    message
-                  }
-                }
-              }`,
-              { variables: { customerId: createdCustId } },
-            );
-          } catch (inviteSendErr) {
-            // Non-fatal
-          }
+          mailed = await tellThemTheyHaveAccess({
+            to: email,
+            firstName,
+            companyName: inviteCompanyName,
+            addedBy: invitedBy,
+            portalUrl: portalUrlFor(request),
+          });
         }
       }
 
+      // They are on the account whether or not the email went, so say which.
+      const added = `${email} has been added to the account as a ${roleName.toLowerCase()}`;
+      const outcome = mailed
+        ? `?notice=${encodeURIComponent(`${added}, and emailed sign-in details.`)}`
+        : `?error=${encodeURIComponent(
+            `${added}. We could not email them — they can still sign in with this address, so tell them the account is ready.`,
+          )}`;
+
       return new Response(null, {
         status: 302,
-        headers: {
-          Location: `/apps/account/team?notice=Invitation+sent+successfully+to+${encodeURIComponent(email)}+with+ordering+permissions!`,
-        },
+        headers: { Location: `/apps/account/team${outcome}` },
       });
     }
 

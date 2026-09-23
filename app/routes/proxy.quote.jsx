@@ -1,4 +1,6 @@
 import { authenticate } from "../shopify.server";
+import { purchasingCompanyFor, purchasingEntity } from "../lib/purchasing-company.server";
+import { notifyQuoteRaised } from "../lib/quote-notification.server";
 
 /**
  * Quote endpoint — one route for all three cart actions.
@@ -16,8 +18,35 @@ import { authenticate } from "../shopify.server";
  * Chunk Q1: verifies the round-trip only (signature, cart payload, login state).
  * Draft-order creation / email / share / pdf land in Q2–Q4.
  */
+/** A link straight to the quote in the Shopify admin, for whoever picks it up. */
+function adminDraftUrl(shop, draftGid) {
+  if (!shop || !draftGid) return "";
+  return `https://admin.shopify.com/store/${String(shop).replace(/\.myshopify\.com$/, "")}/draft_orders/${draftGid.split("/").pop()}`;
+}
+
+/** The wording every quote date in the portal uses. */
+function formatDay(date) {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(date);
+}
+
+/**
+ * The reference and validity a quote should carry.
+ *
+ * The storefront invents both — the reference from the clock — so neither is
+ * trusted. The reference is the draft order's own number, which is what the
+ * Quotes list and the Retrieve a Quote page look it up by, and the validity
+ * comes from the single constant the PDF, the copy and the expiry job share.
+ */
+function quoteLabels(draftOrder, validDays) {
+  const name = String(draftOrder?.name || "");
+  return {
+    ...(name ? { ref: name.replace(/^#D/, "Q-").replace(/^#(?!D)/, "Q-") } : {}),
+    validStr: formatDay(new Date(Date.now() + validDays * 86400000)),
+  };
+}
+
 export const action = async ({ request }) => {
-  const { admin } = await authenticate.public.appProxy(request);
+  const { admin, session } = await authenticate.public.appProxy(request);
 
   const url = new URL(request.url);
   const loggedInCustomerId = url.searchParams.get("logged_in_customer_id") || null;
@@ -38,36 +67,14 @@ export const action = async ({ request }) => {
     return Response.json({ ok: false, error: "Invalid intent." }, { status: 400 });
   }
 
-  // PDF: no draft order, no login required. The storefront sends a display-ready
-  // `invoice` object; we render it to a real PDF and stream it back as a download.
-  if (intent === "pdf") {
-    const inv = payload.invoice;
-    if (!inv || !Array.isArray(inv.merch) || !inv.merch.length) {
-      return Response.json({ ok: false, error: "Nothing to quote." }, { status: 400 });
-    }
-    try {
-      const { buildQuotePdf } = await import("../lib/quote-pdf.server.jsx");
-      const pdf = await buildQuotePdf(inv);
-      const safeRef = String(inv.ref || "quote").replace(/[^A-Za-z0-9._-]/g, "");
-      return new Response(pdf, {
-        status: 200,
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="${safeRef}.pdf"`,
-          "Content-Length": String(pdf.length),
-          "Cache-Control": "no-store",
-        },
-      });
-    } catch (err) {
-      return Response.json({ ok: false, error: "Could not generate the PDF." }, { status: 500 });
-    }
-  }
-
   if (!items.length) {
     return Response.json({ ok: false, error: "Your cart is empty." }, { status: 400 });
   }
 
-  // Email/share produce a payable link, so we need a recipient.
+  // Every quote is a tracked sales lead, so all three actions create a real
+  // draft order — the PDF included. That is what gives the quote a number the
+  // Quotes list and the Retrieve a Quote page can find it by. Retrieval is
+  // proved with the email it was sent to, so we need one either way.
   const needEmail = !loggedInCustomerId && !email;
   if (needEmail) {
     return Response.json({ ok: true, needEmail: true });
@@ -77,7 +84,7 @@ export const action = async ({ request }) => {
     return Response.json({ ok: false, error: "Store session unavailable." }, { status: 500 });
   }
 
-  // ----- email / share: create a draft order from the cart -----
+  // ----- create the draft order this quote is -----
   const currencyCode = (payload.currency || "USD").toUpperCase();
   const draftInput = {
     note: "Quote created from cart",
@@ -86,7 +93,11 @@ export const action = async ({ request }) => {
     lineItems: buildLineItems(items, currencyCode),
   };
   if (loggedInCustomerId) {
-    draftInput.purchasingEntity = { customerId: `gid://shopify/Customer/${loggedInCustomerId}` };
+    const customerGid = `gid://shopify/Customer/${loggedInCustomerId}`;
+    // A quote raised by someone buying for a company belongs to that company,
+    // so their colleagues see it and it is priced against their catalog.
+    const company = await purchasingCompanyFor(admin, loggedInCustomerId);
+    draftInput.purchasingEntity = purchasingEntity(company, customerGid);
   } else {
     draftInput.email = email;
   }
@@ -96,7 +107,7 @@ export const action = async ({ request }) => {
       `#graphql
       mutation QuoteDraftCreate($input: DraftOrderInput!) {
         draftOrderCreate(input: $input) {
-          draftOrder { id invoiceUrl email }
+          draftOrder { id name invoiceUrl email }
           userErrors { field message }
         }
       }`,
@@ -111,8 +122,50 @@ export const action = async ({ request }) => {
     const draftOrder = result.draftOrder;
     const payUrl = draftOrder.invoiceUrl;
 
+    const { QUOTE_VALID_DAYS: validDays } = await import("../lib/quote-document.server");
+    const labels = quoteLabels(draftOrder, validDays);
+
+    // Every quote is a sales lead, however it was raised.
+    const source = { pdf: "Cart — downloaded", share: "Cart — shared link", email: "Cart — emailed" }[intent];
+    await notifyQuoteRaised(admin, {
+      ref: labels.ref,
+      email: email || draftOrder.email || "",
+      items: (payload.invoice?.merch || [])
+        .map((line) => `${line.title}${line.qty > 1 ? ` x${line.qty}` : ""}`)
+        .join(" + "),
+      total: payload.invoice?.grandTotal != null
+        ? `${(payload.currency || "USD").toUpperCase()} ${(payload.invoice.grandTotal / 100).toFixed(2)}`
+        : "",
+      source,
+      adminUrl: adminDraftUrl(session?.shop, draftOrder.id),
+    });
+
     if (intent === "share") {
-      return Response.json({ ok: true, intent: "share", invoiceUrl: payUrl });
+      return Response.json({ ok: true, intent: "share", invoiceUrl: payUrl, ref: labels.ref });
+    }
+
+    if (intent === "pdf") {
+      const source = payload.invoice;
+      if (!source || !Array.isArray(source.merch) || !source.merch.length) {
+        return Response.json({ ok: false, error: "Nothing to quote." }, { status: 400 });
+      }
+      try {
+        const { buildQuotePdf } = await import("../lib/quote-pdf.server.jsx");
+        const pdf = await buildQuotePdf({ ...source, ...labels });
+        const safeRef = String(labels.ref || "quote").replace(/[^A-Za-z0-9._-]/g, "");
+        return new Response(pdf, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="${safeRef}.pdf"`,
+            "Content-Length": String(pdf.length),
+            "Cache-Control": "no-store",
+          },
+        });
+      } catch (pdfErr) {
+        console.error("[quote-pdf] render failed", pdfErr?.message || pdfErr);
+        return Response.json({ ok: false, error: "Could not generate the PDF." }, { status: 500 });
+      }
     }
 
     // intent === "email" -> send OUR OWN email (Gmail SMTP) with the pay link +
@@ -129,9 +182,12 @@ export const action = async ({ request }) => {
       );
     }
 
-    // Render the PDF from the display-ready invoice the storefront sent.
+    // Render the PDF from the display-ready invoice the storefront sent, but
+    // under the draft's own number and validity. The storefront makes both up —
+    // the reference from the clock — and a quote labelled with an invented
+    // number can never be found again on the Retrieve a Quote page.
     let pdfBuffer = null;
-    const inv = payload.invoice;
+    const inv = payload.invoice ? { ...payload.invoice, ...labels } : null;
     if (inv && Array.isArray(inv.merch) && inv.merch.length) {
       try {
         const { buildQuotePdf } = await import("../lib/quote-pdf.server.jsx");

@@ -1,35 +1,37 @@
 /**
- * SMTP mailer (server-only) for sending the quote email with the PDF attached.
- * Configured via env vars:
- *   EMAIL_SERVICE       — nodemailer service preset, e.g. "gmail"
- *   EMAIL_USER          — the account that authenticates (also the From address)
- *   EMAIL_PASSWORD      — an app password (for Gmail, 2FA must be on)
- *   EMAIL_FROM_NAME     — optional display name (default "Hyve Promo")
+ * Outbound email for the portal — the quote PDF and the team welcome note.
  *
- * Note: Gmail forces the From address to the authenticated account (or a
- * verified "Send mail as" alias), so the sender will be EMAIL_USER.
+ * The SMTP connection itself lives in ./email/mailer.server.js, which the order
+ * notifications also use, so there is one pooled transport and one set of
+ * settings (SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, plus
+ * EMAIL_FROM_NAME and EMAIL_FROM_ADDRESS for the sender).
+ *
+ * This file adds what that one does not do: attachments.
  */
-import nodemailer from "nodemailer";
+import { getMailer, getDefaultFrom } from "./email/mailer.server";
 
-let transporter = null;
+/**
+ * @param {object} opts
+ * @param {string} opts.to
+ * @param {string} opts.subject
+ * @param {string} [opts.html]
+ * @param {string} [opts.text]
+ * @param {Array} [opts.attachments]
+ */
+export async function sendEmail({ to, subject, html, text, attachments = [] }) {
+  if (!to) throw new Error("Email recipient is required.");
 
-function getTransport() {
-  const user = process.env.EMAIL_USER;
-  const pass = process.env.EMAIL_PASSWORD;
-  const service = process.env.EMAIL_SERVICE || "gmail";
-  if (!user || !pass) {
-    throw new Error("Email is not configured (missing EMAIL_USER / EMAIL_PASSWORD).");
-  }
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      service,
-      auth: { user, pass },
-      connectionTimeout: 15000,
-      greetingTimeout: 10000,
-      socketTimeout: 20000,
-    });
-  }
-  return transporter;
+  const result = await getMailer().sendMail({
+    from: getDefaultFrom(),
+    to,
+    subject,
+    text,
+    html,
+    attachments,
+  });
+
+  console.log("[EMAIL:SENT]", { to, subject, messageId: result.messageId });
+  return result;
 }
 
 /**
@@ -42,13 +44,13 @@ function getTransport() {
  * @param {string} [opts.filename]
  */
 export async function sendQuoteEmail({ to, subject, html, text, pdfBuffer, filename }) {
-  const transport = getTransport();
-  const fromName = process.env.EMAIL_FROM_NAME || "Hyve Promo";
-  const from = `${fromName} <${process.env.EMAIL_USER}>`;
-
-  const attachments = pdfBuffer
-    ? [{ filename: filename || "quote.pdf", content: pdfBuffer, contentType: "application/pdf" }]
-    : [];
-
-  return transport.sendMail({ from, to, subject, text, html, attachments });
+  return sendEmail({
+    to,
+    subject,
+    html,
+    text,
+    attachments: pdfBuffer
+      ? [{ filename: filename || "quote.pdf", content: pdfBuffer, contentType: "application/pdf" }]
+      : [],
+  });
 }

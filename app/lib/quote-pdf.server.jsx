@@ -111,6 +111,12 @@ const styles = StyleSheet.create({
   },
   grandLabel: { fontSize: 11, fontFamily: "Helvetica-Bold" },
   grandVal: { fontSize: 18, fontFamily: "Helvetica-Bold", color: "#16a34a" },
+  dutyNote: {
+    marginTop: 14,
+    fontSize: 9,
+    fontStyle: "italic",
+    color: "#0f766e",
+  },
   foot: {
     marginTop: 24,
     paddingTop: 14,
@@ -126,7 +132,9 @@ function QuoteDoc({ inv, withImages }) {
   const currency = inv.currency || "USD";
   const merch = Array.isArray(inv.merch) ? inv.merch : [];
   const fees = Array.isArray(inv.fees) ? inv.fees : [];
-  const shopName = inv.shopName || "Quote";
+  // The store name carries a trailing space ("Hyve.Promo "), which read as
+  // "Hyve.Promo ." in the footer.
+  const shopName = String(inv.shopName || "Quote").trim();
 
   return (
     <Document title={"Quote " + (inv.ref || "")}>
@@ -147,6 +155,11 @@ function QuoteDoc({ inv, withImages }) {
             <Text style={styles.metaRow}>
               Valid until <Text style={styles.metaB}>{inv.validStr}</Text>
             </Text>
+            {inv.leadTime ? (
+              <Text style={styles.metaRow}>
+                Lead time <Text style={styles.metaB}>{inv.leadTime}</Text>
+              </Text>
+            ) : null}
           </View>
         </View>
 
@@ -193,8 +206,11 @@ function QuoteDoc({ inv, withImages }) {
             <Text style={styles.sumLabel}>Shipping</Text>
             <Text style={styles.sumNote}>Calculated at checkout</Text>
           </View>
+          {/* Duties are worked out at checkout, once the destination is known.
+              Named here anyway so the grand total is not read as the final
+              amount payable. */}
           <View style={styles.sumRow}>
-            <Text style={styles.sumLabel}>Taxes</Text>
+            <Text style={styles.sumLabel}>Import duties and taxes</Text>
             <Text style={styles.sumNote}>Calculated at checkout</Text>
           </View>
           <View style={styles.grand}>
@@ -203,9 +219,11 @@ function QuoteDoc({ inv, withImages }) {
           </View>
         </View>
 
+        {inv.dutyNote ? <Text style={styles.dutyNote}>{inv.dutyNote}</Text> : null}
+
         <Text style={styles.foot}>
-          This is an estimate, not a tax invoice. Shipping and taxes are calculated at
-          checkout. Prices valid until the date shown above. Thank you for choosing {shopName}.
+          This is an estimate, not a tax invoice. Shipping is calculated at checkout.
+          Prices valid until the date shown above. Thank you for choosing {shopName}.
         </Text>
       </Page>
     </Document>

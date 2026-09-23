@@ -15,6 +15,9 @@ export const METAOBJECT_FIELDS_SCHEMA = [
   { name: "Customer ID", key: "customer_id", type: "single_line_text_field" },
   { name: "Company ID", key: "company_id", type: "single_line_text_field" },
   { name: "Customer Email", key: "customer_email", type: "single_line_text_field" },
+  { name: "Business Type", key: "business_type", type: "single_line_text_field" },
+  { name: "Relation to Business", key: "relation_to_business", type: "single_line_text_field" },
+  { name: "Preferred Currency", key: "preferred_currency", type: "single_line_text_field" },
   { name: "Country Based In", key: "country_based", type: "single_line_text_field" },
   { name: "Markets Sold Into", key: "markets_sold", type: "single_line_text_field" },
   { name: "Request Credit", key: "request_credit", type: "single_line_text_field" },
@@ -42,7 +45,9 @@ export async function ensureDistributorMetaobjectDefinition(admin) {
     const found = await definitionByType(admin, type);
     if (found) {
       await addMissingFields(admin, found);
-      return { ok: true, type };
+      // The definition's own type, not the candidate we searched by, so the
+      // caller creates against exactly what exists.
+      return { ok: true, type: found.type || type };
     }
   }
 
@@ -357,6 +362,9 @@ export async function createDistributorApplication(admin, fields = {}) {
     { key: "customer_id", value: fields.customerId || "" },
     { key: "company_id", value: fields.companyId || "" },
     { key: "customer_email", value: fields.customerEmail || "" },
+    { key: "business_type", value: fields.businessType || "" },
+    { key: "relation_to_business", value: fields.relationToBusiness || "" },
+    { key: "preferred_currency", value: fields.preferredCurrency || "" },
     { key: "country_based", value: fields.countryBased || "Singapore" },
     { key: "markets_sold", value: fields.marketsSold || "Singapore" },
     { key: "request_credit", value: fields.requestCredit ? "true" : "false" },
@@ -378,58 +386,48 @@ export async function createDistributorApplication(admin, fields = {}) {
     },
   ];
 
-  let lastError = "Failed to save application";
+  // Create against the type the definition actually has. Trying a list of
+  // candidate types and reporting the last failure hid the real one: the plain
+  // `distributor_application` is never defined on a store where this app owns
+  // the definition, so every failure came back as "No metaobject definition
+  // exists for type \"distributor_application\"" whatever had really gone wrong.
+  const type = definition.type;
 
-  for (const type of METAOBJECT_TYPES) {
-    try {
-      let response = await admin.graphql(
-        `#graphql
-        mutation CreateDistributorApplication($metaobject: MetaobjectCreateInput!) {
-          metaobjectCreate(metaobject: $metaobject) {
-            metaobject {
-              id
-              handle
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }`,
-        {
-          variables: {
-            metaobject: {
-              type,
-              handle: cleanHandle,
-              fields: metaobjectFields,
-            },
-          },
-        },
-      );
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation CreateDistributorApplication($metaobject: MetaobjectCreateInput!) {
+        metaobjectCreate(metaobject: $metaobject) {
+          metaobject { id handle type }
+          userErrors { field message code }
+        }
+      }`,
+      { variables: { metaobject: { type, handle: cleanHandle, fields: metaobjectFields } } },
+    );
 
-      let body = await response.json();
-      let errors = body?.data?.metaobjectCreate?.userErrors;
+    const body = await response.json();
 
-      if (errors && errors.length > 0) {
-        lastError = errors.map((e) => e.message).join(", ");
-        continue;
-      }
-
-      const metaobject = body?.data?.metaobjectCreate?.metaobject;
-      if (metaobject?.id) {
-        return {
-          success: true,
-          metaobject,
-        };
-      }
-    } catch (err) {
-      console.warn(`[metaobject] createDistributorApplication (${type}) error:`, err);
-      lastError = err?.message || lastError;
+    if (body?.errors) {
+      console.error(`[metaobject] create (${type}) failed:`, JSON.stringify(body.errors));
+      return { error: body.errors[0]?.message || "Failed to save application" };
     }
-  }
 
-  return { error: lastError };
+    const errors = body?.data?.metaobjectCreate?.userErrors || [];
+    if (errors.length) {
+      console.error(`[metaobject] create (${type}) rejected:`, JSON.stringify(errors));
+      return { error: errors.map((e) => `${e.message}${e.field ? ` (${e.field})` : ""}`).join(", ") };
+    }
+
+    const metaobject = body?.data?.metaobjectCreate?.metaobject;
+    if (!metaobject?.id) return { error: "Failed to save application" };
+
+    return { success: true, metaobject };
+  } catch (err) {
+    console.error(`[metaobject] create (${type}) threw:`, err?.message || err);
+    return { error: err?.message || "Failed to save application" };
+  }
 }
+
 
 /**
  * Update application status (Approve / Reject / Pending) in metaobject.

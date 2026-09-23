@@ -155,6 +155,7 @@ function termsPanel(terms, isDistributor) {
     terms.paymentTerms ? ["Payment", esc(terms.paymentTerms)] : null,
     terms.storeCredit ? ["Store Credit", esc(terms.storeCredit)] : null,
     terms.storeCreditUsed ? ["Used", esc(terms.storeCreditUsed)] : null,
+    terms.storeCreditExpired ? ["Expired", esc(terms.storeCreditExpired)] : null,
     // M3: date the credit so the figure is never read as an undated claim.
     terms.storeCreditIssuedAt ? ["Issued", esc(terms.storeCreditIssuedAt)] : null,
     terms.salesRep ? ["Sales Rep", esc(terms.salesRep)] : null,

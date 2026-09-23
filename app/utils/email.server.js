@@ -1,8 +1,9 @@
 // app/utils/email.server.js
 
-import nodemailer from "nodemailer";
+// One SMTP connection for the whole app, shared with the quote and team emails
+// so there is a single pooled transport and a single set of settings.
+import { getMailer, getDefaultFrom } from "../lib/email/mailer.server";
 
-let transporter = null;
 
 const BRAND = {
   name: "HYVE",
@@ -17,37 +18,6 @@ const BRAND = {
     "linear-gradient(90deg, #A3EA6E, #5EEAD4)",
 };
 
-function requiredEnv(name) {
-  const value = process.env[name];
-
-  if (!value?.trim()) {
-    throw new Error(`${name} is required.`);
-  }
-
-  return value.trim();
-}
-
-function getTransporter() {
-  if (transporter) {
-    return transporter;
-  }
-
-  transporter = nodemailer.createTransport({
-    host: requiredEnv("SMTP_HOST"),
-    port: Number(process.env.SMTP_PORT || 587),
-    secure:
-      String(process.env.SMTP_SECURE || "false").toLowerCase() ===
-      "true",
-    auth: {
-      user: requiredEnv("SMTP_USER"),
-      pass: requiredEnv("SMTP_PASS"),
-    },
-    pool: true,
-    maxConnections: 5,
-  });
-
-  return transporter;
-}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -525,14 +495,10 @@ export async function sendEmail({
     throw new Error("Email recipient is required.");
   }
 
-  const fromName =
-    process.env.EMAIL_FROM_NAME || "Hyve Promo";
-
-  const fromAddress =
-    requiredEnv("EMAIL_FROM_ADDRESS");
-
-  const result = await getTransporter().sendMail({
-    from: `"${fromName}" <${fromAddress}>`,
+  // Falls back to the authenticated mailbox when no from address is set,
+  // rather than refusing to send.
+  const result = await getMailer().sendMail({
+    from: getDefaultFrom(),
     to,
     subject,
     html,

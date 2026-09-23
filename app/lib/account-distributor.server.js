@@ -20,12 +20,23 @@ import { esc } from "./account-shell.server";
  * If `application` is provided, renders the "Application Received / Under Review" view.
  * Otherwise, renders the application form.
  */
+/**
+ * @param {object} [opts.values] what the applicant typed, echoed back when a
+ *   submission fails. Losing a filled-in form to a server error is the fastest
+ *   way to lose the applicant, which is the whole point of this page.
+ */
 export function distributorPage({
   customer = null,
   application = null,
   notice = null,
   error = null,
+  values = null,
+  currencies = [],
 } = {}) {
+  const typed = (field, fallback = "") => esc(values?.[field] ?? fallback);
+  /** `selected` for the option the applicant chose, else for the default. */
+  const chosen = (field, option, fallback = false) =>
+    (values?.[field] != null ? values[field] === option : fallback) ? " selected" : "";
   const toastHtml = renderNotificationToast(notice, error);
 
   if (application) {
@@ -66,7 +77,6 @@ export function distributorPage({
             <span class="hyve-dist__card-icon">${icoBuilding()}</span>
             <h2 class="hyve-dist__card-title">Company Information &amp; Operating Details</h2>
           </div>
-          <span class="hyve-dist__step-badge">Step 1 of 2</span>
         </div>
 
         <div class="hyve-dist__grid-2">
@@ -81,7 +91,7 @@ export function distributorPage({
                 class="hyve-dist__input"
                 required
                 placeholder="e.g. Acme Corporation SG Pte Ltd"
-                value="${esc(customer?.company || "")}"
+                value="${typed("companyName", customer?.company || "")}"
               >
             </div>
 
@@ -94,6 +104,7 @@ export function distributorPage({
                 class="hyve-dist__input"
                 required
                 placeholder="e.g. https://acmecorp.sg"
+                value="${typed("companyWebsite")}"
               >
             </div>
 
@@ -105,7 +116,7 @@ export function distributorPage({
                 name="contactPerson"
                 class="hyve-dist__input"
                 placeholder="e.g. Sarah Mitchell"
-                value="${esc(customer?.name || "")}"
+                value="${typed("contactPerson", customer?.name || "")}"
               >
             </div>
 
@@ -117,7 +128,7 @@ export function distributorPage({
                 name="contactPhone"
                 class="hyve-dist__input"
                 placeholder="e.g. +65 9123 4567"
-                value="${esc(customer?.phone || "")}"
+                value="${typed("contactPhone", customer?.phone || "")}"
               >
             </div>
           </div>
@@ -127,32 +138,69 @@ export function distributorPage({
             <div class="hyve-dist__field">
               <label class="hyve-dist__label" for="dist-country">Country / Market Based In <span class="hyve-dist__req">*</span></label>
               <select id="dist-country" name="countryBased" class="hyve-dist__select" required>
-                <option value="Singapore" selected>Singapore</option>
-                <option value="Malaysia">Malaysia</option>
-                <option value="Hong Kong">Hong Kong</option>
-                <option value="Philippines">Philippines</option>
-                <option value="Thailand">Thailand</option>
-                <option value="Indonesia">Indonesia</option>
-                <option value="Vietnam">Vietnam</option>
-                <option value="Australia">Australia</option>
-                <option value="United States">United States</option>
-                <option value="Other">Other</option>
+                <option value="Singapore"${chosen("countryBased", "Singapore", true)}>Singapore</option>
+                <option value="Malaysia"${chosen("countryBased", "Malaysia", false)}>Malaysia</option>
+                <option value="Hong Kong"${chosen("countryBased", "Hong Kong", false)}>Hong Kong</option>
+                <option value="Philippines"${chosen("countryBased", "Philippines", false)}>Philippines</option>
+                <option value="Thailand"${chosen("countryBased", "Thailand", false)}>Thailand</option>
+                <option value="Indonesia"${chosen("countryBased", "Indonesia", false)}>Indonesia</option>
+                <option value="Vietnam"${chosen("countryBased", "Vietnam", false)}>Vietnam</option>
+                <option value="Australia"${chosen("countryBased", "Australia", false)}>Australia</option>
+                <option value="United States"${chosen("countryBased", "United States", false)}>United States</option>
+                <option value="Other"${chosen("countryBased", "Other", false)}>Other</option>
               </select>
             </div>
 
             <div class="hyve-dist__field">
-              <label class="hyve-dist__label">Markets You Sell Into <span class="hyve-dist__req">*</span> <span class="hyve-dist__opt">(Select all that apply)</span></label>
-              <div class="hyve-dist__markets-grid">
-                ${renderMarketOption("Singapore", "SG", true)}
-                ${renderMarketOption("Hong Kong", "HK", false)}
-                ${renderMarketOption("Malaysia", "MY", false)}
-                ${renderMarketOption("Philippines", "PH", false)}
-                ${renderMarketOption("Thailand", "TH", false)}
-                ${renderMarketOption("Indonesia", "ID", false)}
-                ${renderMarketOption("Vietnam", "VN", false)}
-                ${renderMarketOption("Other", "🌐", false)}
-              </div>
+              <label class="hyve-dist__label" for="dist-business-type">Business Type <span class="hyve-dist__req">*</span></label>
+              <select id="dist-business-type" name="businessType" class="hyve-dist__select" required>
+                <option value="">Select…</option>
+                  <option value="Distributor"${chosen("businessType", "Distributor")}>Distributor</option>
+                  <option value="Wholesaler"${chosen("businessType", "Wholesaler")}>Wholesaler</option>
+                  <option value="Marketing agency"${chosen("businessType", "Marketing agency")}>Marketing agency</option>
+                  <option value="E-commerce retailer"${chosen("businessType", "E-commerce retailer")}>E-commerce retailer</option>
+                  <option value="Stockist"${chosen("businessType", "Stockist")}>Stockist</option>
+                  <option value="Drop-shipper"${chosen("businessType", "Drop-shipper")}>Drop-shipper</option>
+                  <option value="Other"${chosen("businessType", "Other")}>Other</option>
+              </select>
             </div>
+
+            <div class="hyve-dist__field">
+              <label class="hyve-dist__label" for="dist-relation">Your Relation to the Business <span class="hyve-dist__req">*</span></label>
+              <select id="dist-relation" name="relationToBusiness" class="hyve-dist__select" required>
+                <option value="">Select…</option>
+                  <option value="Owner"${chosen("relationToBusiness", "Owner")}>Owner</option>
+                  <option value="Management"${chosen("relationToBusiness", "Management")}>Management</option>
+                  <option value="Executive"${chosen("relationToBusiness", "Executive")}>Executive</option>
+                  <option value="Other"${chosen("relationToBusiness", "Other")}>Other</option>
+              </select>
+            </div>
+
+            <div class="hyve-dist__field">
+              <label class="hyve-dist__label" for="dist-currency">Preferred Currency <span class="hyve-dist__req">*</span></label>
+              <select id="dist-currency" name="preferredCurrency" class="hyve-dist__select" required>
+                ${(currencies || [])
+                  .map((code) => `<option value="${esc(code)}"${chosen("preferredCurrency", code)}>${esc(code)}</option>`)
+                  .join("")}
+              </select>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Markets spans the card: eight pills read better on one row pair
+             than squeezed into half the width, and it evens up the columns. -->
+        <div class="hyve-dist__field hyve-dist__field--wide">
+          <label class="hyve-dist__label">Markets You Sell Into <span class="hyve-dist__req">*</span> <span class="hyve-dist__opt">(Select all that apply)</span></label>
+          <div class="hyve-dist__markets-grid hyve-dist__markets-grid--wide">
+            ${renderMarketOption("Singapore", "SG", true, values?.markets ?? null)}
+            ${renderMarketOption("Hong Kong", "HK", false, values?.markets ?? null)}
+            ${renderMarketOption("Malaysia", "MY", false, values?.markets ?? null)}
+            ${renderMarketOption("Philippines", "PH", false, values?.markets ?? null)}
+            ${renderMarketOption("Thailand", "TH", false, values?.markets ?? null)}
+            ${renderMarketOption("Indonesia", "ID", false, values?.markets ?? null)}
+            ${renderMarketOption("Vietnam", "VN", false, values?.markets ?? null)}
+            ${renderMarketOption("Other", "🌐", false, values?.markets ?? null)}
           </div>
         </div>
 
@@ -164,7 +212,7 @@ export function distributorPage({
               <p class="hyve-dist__terms-sub">Prepayment is standard. Enable this to request custom credit limits and billing accounts.</p>
             </div>
             <label class="hyve-dist__switch">
-              <input type="checkbox" name="requestCredit" value="true" id="dist-credit-toggle">
+              <input type="checkbox" name="requestCredit" value="true" id="dist-credit-toggle"${values?.requestCredit ? " checked" : ""}>
               <span class="hyve-dist__switch-slider"></span>
             </label>
           </div>
@@ -181,6 +229,7 @@ export function distributorPage({
                   name="registrationNumber"
                   class="hyve-dist__input"
                   placeholder="e.g. 201912345G"
+                  value="${typed("registrationNumber")}"
                 >
               </div>
 
@@ -192,16 +241,17 @@ export function distributorPage({
                   name="taxRegistrationNumber"
                   class="hyve-dist__input"
                   placeholder="As shown on your tax certificate"
+                  value="${typed("taxRegistrationNumber")}"
                 >
               </div>
 
               <div class="hyve-dist__field">
                 <label class="hyve-dist__label" for="dist-volume">Expected Annual Order Volume <span class="hyve-dist__req">*</span></label>
                 <select id="dist-volume" name="expectedVolume" class="hyve-dist__select">
-                  <option value="Under SGD 10,000">Under SGD 10,000</option>
-                  <option value="SGD 10,000 - SGD 50,000" selected>SGD 10,000 - SGD 50,000</option>
-                  <option value="SGD 50,000 - SGD 200,000">SGD 50,000 - SGD 200,000</option>
-                  <option value="SGD 200,000+">SGD 200,000+</option>
+                  <option value="Under SGD 10,000"${chosen("expectedVolume", "Under SGD 10,000", false)}>Under SGD 10,000</option>
+                  <option value="SGD 10,000 - SGD 50,000"${chosen("expectedVolume", "SGD 10,000 - SGD 50,000", true)}>SGD 10,000 - SGD 50,000</option>
+                  <option value="SGD 50,000 - SGD 200,000"${chosen("expectedVolume", "SGD 50,000 - SGD 200,000", false)}>SGD 50,000 - SGD 200,000</option>
+                  <option value="SGD 200,000+"${chosen("expectedVolume", "SGD 200,000+", false)}>SGD 200,000+</option>
                 </select>
               </div>
 
@@ -213,7 +263,7 @@ export function distributorPage({
                   class="hyve-dist__textarea"
                   rows="3"
                   placeholder="Enter company's registered business address"
-                ></textarea>
+                >${typed("registeredAddress")}</textarea>
               </div>
             </div>
 
@@ -250,13 +300,18 @@ export function distributorPage({
 /**
  * Render Market checkbox option pill matching the screenshot.
  */
-function renderMarketOption(name, code, isDefault = false) {
+/**
+ * @param {string[]|null} [picked] the markets the applicant chose, when a failed
+ *   submission is being shown again. Null means this is a fresh form.
+ */
+function renderMarketOption(name, code, isDefault = false, picked = null) {
   const isEmoji = code.length > 2;
   const badgeContent = isEmoji ? code : `<span>${esc(code)}</span>`;
+  const checked = picked ? picked.includes(name) : isDefault;
 
   return `
-    <label class="hyve-dist__market-pill${isDefault ? " is-checked" : ""}">
-      <input type="checkbox" name="markets" value="${esc(name)}" ${isDefault ? "checked" : ""}>
+    <label class="hyve-dist__market-pill${checked ? " is-checked" : ""}">
+      <input type="checkbox" name="markets" value="${esc(name)}" ${checked ? "checked" : ""}>
       <span class="hyve-dist__market-code">${badgeContent}</span>
       <span class="hyve-dist__market-name">${esc(name)}</span>
       <span class="hyve-dist__market-check">${icoCheck()}</span>
@@ -732,6 +787,18 @@ const DISTRIBUTOR_STYLES = `
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
+  }
+  /* Spanning the card, so the eight pills sit four across instead of stacking. */
+  .hyve-dist__markets-grid--wide {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .hyve-dist__field--wide {
+    margin-top: 4px;
+  }
+  @media (max-width: 900px) {
+    .hyve-dist__markets-grid--wide {
+      grid-template-columns: 1fr 1fr;
+    }
   }
   .hyve-dist__market-pill {
     display: flex;
@@ -1371,7 +1438,8 @@ const DISTRIBUTOR_STYLES = `
       align-items: flex-start;
       gap: 8px;
     }
-    .hyve-dist__markets-grid {
+    .hyve-dist__markets-grid,
+    .hyve-dist__markets-grid--wide {
       grid-template-columns: 1fr;
     }
     .hyve-dist__terms-header {

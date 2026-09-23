@@ -8,6 +8,7 @@ import {
   createDistributorApplication,
 } from "../lib/distributor-metaobject.server";
 import { uploadToShopifyFiles } from "../lib/shopify-files.server";
+import { sendApplicationEmails } from "../lib/application-emails.server";
 
 /**
  * Customer Account Portal — Apply for Distributor Portal Route.
@@ -21,6 +22,35 @@ import { uploadToShopifyFiles } from "../lib/shopify-files.server";
  */
 
 const ADMIN_TIMEOUT_MS = 5000;
+
+/**
+ * The currencies the applicant may choose from (B6).
+ *
+ * Read from the store's own market settings rather than hard-coded, so the list
+ * follows whatever markets are switched on. The launch market set is still
+ * being settled, and this way settling it needs no code change.
+ */
+async function supportedCurrencies(admin) {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      query SupportedCurrencies {
+        shop {
+          currencyCode
+          enabledPresentmentCurrencies
+        }
+      }`,
+    );
+    const body = await response.json();
+    const shop = body?.data?.shop;
+    const list = shop?.enabledPresentmentCurrencies || [];
+    if (list.length) return list;
+    return shop?.currencyCode ? [shop.currencyCode] : [];
+  } catch (error) {
+    console.warn("[account] could not read supported currencies", error?.message || error);
+    return [];
+  }
+}
 
 export const loader = async ({ request }) => {
   const { liquid, admin } = await authenticate.public.appProxy(request);
@@ -58,6 +88,7 @@ export const loader = async ({ request }) => {
           application: existingApplication,
           notice,
           error: errorParam,
+          currencies: await supportedCurrencies(admin),
         }),
         customer,
       
@@ -118,6 +149,9 @@ export const action = async ({ request }) => {
       const contactPerson = String(formData.get("contactPerson") || "").trim();
       const contactPhone = String(formData.get("contactPhone") || "").trim();
       const countryBased = String(formData.get("countryBased") || "Singapore").trim();
+      const businessType = String(formData.get("businessType") || "").trim();
+      const relationToBusiness = String(formData.get("relationToBusiness") || "").trim();
+      const preferredCurrency = String(formData.get("preferredCurrency") || "").trim();
       const marketsArray = formData.getAll("markets");
       const marketsSold = marketsArray.length ? marketsArray.join(", ") : "Singapore";
       const requestCredit = formData.get("requestCredit") === "true";
@@ -159,6 +193,9 @@ export const action = async ({ request }) => {
         customerId: gidCustomerId,
         customerEmail,
         countryBased,
+        businessType,
+        relationToBusiness,
+        preferredCurrency,
         marketsSold,
         requestCredit,
         registrationNumber,
@@ -170,8 +207,61 @@ export const action = async ({ request }) => {
       });
 
       if (result.error) {
-        return respond(isAjax, { error: result.error });
+        // The applicant filled this in once; do not make them do it twice, and
+        // do not show them the raw failure. The real reason goes to the log.
+        console.error("[account] distributor application failed:", result.error);
+
+        if (isAjax) {
+          return Response.json({
+            success: false,
+            error: "We could not submit your application just now. Please try again.",
+          });
+        }
+
+        return liquid(
+          accountShell({
+            active: "distributor",
+            main: distributorPage({
+              customer,
+              error: "We could not submit your application just now. Please try again in a moment, or contact us and we will take the details over email.",
+              values: {
+                companyName,
+                companyWebsite,
+                contactPerson,
+                contactPhone,
+                countryBased,
+                businessType,
+                relationToBusiness,
+                preferredCurrency,
+                markets: marketsArray.map(String),
+                requestCredit,
+                registrationNumber,
+                taxRegistrationNumber,
+                expectedVolume,
+                registeredAddress,
+              },
+              currencies: await supportedCurrencies(admin),
+            }),
+            customer,
+            ...(await portalChrome(admin, customerId)),
+          }),
+        );
       }
+
+      // The application is saved by this point, so a mail failure is logged and
+      // does not undo it (B7, B9).
+      await sendApplicationEmails(admin, {
+        companyName,
+        contactPerson,
+        contactPhone,
+        customerEmail,
+        countryBased,
+        businessType,
+        relationToBusiness,
+        preferredCurrency,
+        marketsSold,
+        requestCredit,
+      });
 
       const submittedApplication = {
         id: result.metaobject?.id || `app-${Date.now()}`,
@@ -183,6 +273,9 @@ export const action = async ({ request }) => {
         customer_id: gidCustomerId,
         customer_email: customerEmail,
         country_based: countryBased,
+        business_type: businessType,
+        relation_to_business: relationToBusiness,
+        preferred_currency: preferredCurrency,
         markets_sold: marketsSold,
         request_credit: requestCredit ? "true" : "false",
         registration_number: registrationNumber,

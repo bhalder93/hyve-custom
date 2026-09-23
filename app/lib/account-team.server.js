@@ -16,6 +16,63 @@ export const ROLES = {
   BUYER: "Buyer",
 };
 
+/**
+ * Whether a company contact may manage the team.
+ *
+ * Shopify decides this, not us. A contact holds a role at each company
+ * location, and the two Shopify defines are "Location admin" and "Ordering
+ * only". Only an admin role may invite or remove — being the main contact is a
+ * label, not a permission, and a customer tag is not one either, so neither is
+ * read here.
+ *
+ * @param {object} node a CompanyContact, with its roleAssignments
+ */
+export function isTeamAdmin(node) {
+  const roleNodes =
+    node?.roleAssignments?.edges?.map((e) => e.node) || node?.roleAssignments?.nodes || [];
+  return roleNodes.some((r) =>
+    /admin|owner|manager/i.test(r?.role?.name || r?.companyContactRole?.name || ""),
+  );
+}
+
+const CALLER_ROLE_QUERY = `#graphql
+  query TeamCallerRole($id: ID!) {
+    customer(id: $id) {
+      companyContactProfiles {
+        roleAssignments(first: 10) {
+          edges { node { role { name } } }
+        }
+      }
+    }
+  }`;
+
+/**
+ * Whether the signed-in customer may invite or remove. Asked of Shopify on
+ * every such request: hiding the buttons stops the honest, this stops the rest.
+ *
+ * @param {string} numericCustomerId the id from `logged_in_customer_id`
+ */
+export async function canManageTeam(admin, numericCustomerId) {
+  if (!admin || !numericCustomerId) return false;
+
+  try {
+    const response = await admin.graphql(CALLER_ROLE_QUERY, {
+      variables: { id: `gid://shopify/Customer/${numericCustomerId}` },
+    });
+    const body = await response.json();
+
+    if (body?.errors) {
+      console.warn("[account] team role check failed", JSON.stringify(body.errors));
+      return false;
+    }
+
+    return (body?.data?.customer?.companyContactProfiles || []).some(isTeamAdmin);
+  } catch (error) {
+    console.warn("[account] team role check failed", error?.message || error);
+    return false;
+  }
+}
+
 export function getRoleDescription(name = "") {
   const n = String(name).toLowerCase();
   if (n.includes("order")) {
@@ -97,17 +154,7 @@ export function mapCompanyContactsToMembers(contactNodes = [], currentCustomer =
         foundCurrentCustomer = true;
       }
 
-      // Determine role from role assignments or isMainContact
-      let role = ROLES.BUYER;
-      const roleNodes = node.roleAssignments?.edges?.map((e) => e.node) || node.roleAssignments?.nodes || [];
-      const hasAdminRole = roleNodes.some((r) => {
-        const roleName = r.role?.name || r.companyContactRole?.name || "";
-        return /admin|owner|manager/i.test(roleName);
-      });
-
-      if (node.isMainContact || hasAdminRole || (cust.tags && cust.tags.includes("b2b_admin"))) {
-        role = ROLES.ADMIN;
-      }
+      const role = isTeamAdmin(node) ? ROLES.ADMIN : ROLES.BUYER;
 
       const lastActive = isCurrentCustomer
         ? "Now"
@@ -155,9 +202,10 @@ export function teamPage({
   contactRoles = [],
   notice = null,
   error = null,
+  canManage = false,
 }) {
   const hasMembers = Array.isArray(members) && members.length > 0;
-  const memberRowsHtml = hasMembers ? members.map((m) => renderMemberRow(m)).join("") : "";
+  const memberRowsHtml = hasMembers ? members.map((m) => renderMemberRow(m, canManage)).join("") : "";
   const isOnlyOneMember = members.length === 1;
 
   const hasMultipleLocations = locations && locations.length > 1;
@@ -176,10 +224,12 @@ export function teamPage({
         <p class="hyve-team__subtitle">Manage your team's access and roles</p>
       </div>
 
+      ${canManage ? `
       <button type="button" class="hyve-team__cta-btn" onclick="openInviteModal()">
         ${icoUserPlus()}
         <span>Invite Member</span>
       </button>
+      ` : ""}
     </div>
 
     <!-- Main Table Card -->
@@ -201,24 +251,34 @@ export function teamPage({
           </tbody>
         </table>
       </div>
-      ${isOnlyOneMember ? `
+      ${isOnlyOneMember && canManage ? `
       <div class="hyve-team__solo-banner">
         <span>You are currently the only member in this team. Use <strong>+ Invite Member</strong> above to add colleagues.</span>
+      </div>
+      ` : ""}
+      ${!canManage ? `
+      <div class="hyve-team__solo-banner">
+        <span>Only an account admin can invite or remove team members. Ask your admin if you need a colleague added.</span>
       </div>
       ` : ""}
       ` : `
       <div class="hyve-team__empty">
         <div class="hyve-team__empty-icon">${icoUsersEmpty()}</div>
         <h3 class="hyve-team__empty-title">No team members found</h3>
-        <p class="hyve-team__empty-desc">You don't have any members added yet. Click "+ Invite Member" to invite colleagues to collaborate on quotes and orders.</p>
+        <p class="hyve-team__empty-desc">${canManage
+          ? `You don't have any members added yet. Click "+ Invite Member" to invite colleagues to collaborate on quotes and orders.`
+          : `Only an account admin can invite team members. Ask your admin if you need a colleague added.`}</p>
+        ${canManage ? `
         <button type="button" class="hyve-team__cta-btn" onclick="openInviteModal()">
           ${icoUserPlus()}
           <span>Invite Member</span>
         </button>
+        ` : ""}
       </div>
       `}
     </div>
 
+    ${canManage ? `
     <!-- Invite Member Modal -->
     <div class="hyve-modal" id="inviteMemberModal" style="display: none;">
       <div class="hyve-modal__backdrop" onclick="closeInviteModal()"></div>
@@ -342,10 +402,14 @@ export function teamPage({
         <div class="hyve-member-actions-content">
           <p class="hyve-member-actions-email" id="actionMemberEmail"></p>
 
-          <form method="post" id="removeMemberForm" onsubmit="return confirm('Are you sure you want to remove this member from the company?');">
+          <p class="hyve-member-actions-note">
+            They lose access to the company's orders, quotes, invoices and artwork straight away.
+          </p>
+
+          <form method="post" id="removeMemberForm">
             <input type="hidden" name="intent" value="remove_member" />
-            <input type="hidden" name="memberId" id="actionMemberId" value="" />
-            <input type="hidden" name="memberEmail" id="actionMemberEmailInput" value="" />
+            <input type="hidden" name="memberId" class="js-action-member-id" value="" />
+            <input type="hidden" name="memberEmail" class="js-action-member-email" value="" />
 
             <button type="submit" class="hyve-btn-danger">
               ${icoTrash()}
@@ -355,17 +419,20 @@ export function teamPage({
         </div>
       </div>
     </div>
+    ` : ""}
   </div>
 
   ${renderClientScript()}
   `;
 }
 
-function renderMemberRow(m) {
+function renderMemberRow(m, canManage = false) {
   const roleClass = m.role === ROLES.ADMIN ? "hyve-role-pill--admin" : "hyve-role-pill--buyer";
 
   const actionColHtml = m.isCurrentCustomer
     ? `<span class="hyve-badge-you">You</span>`
+    : !canManage
+    ? ""
     : `
       <button
         type="button"
@@ -433,13 +500,14 @@ function renderClientScript() {
         var m = document.getElementById('memberActionsModal');
         var nameEl = document.getElementById('actionMemberName');
         var emailEl = document.getElementById('actionMemberEmail');
-        var idInput = document.getElementById('actionMemberId');
-        var emailInput = document.getElementById('actionMemberEmailInput');
 
         if (nameEl) nameEl.textContent = name;
         if (emailEl) emailEl.textContent = email;
-        if (idInput) idInput.value = id;
-        if (emailInput) emailInput.value = email;
+
+        var ids = document.querySelectorAll('.js-action-member-id');
+        for (var i = 0; i < ids.length; i++) ids[i].value = id;
+        var emails = document.querySelectorAll('.js-action-member-email');
+        for (var j = 0; j < emails.length; j++) emails[j].value = email;
 
         if (m) m.style.display = 'flex';
       };
@@ -738,6 +806,7 @@ const TEAM_STYLES = `
     box-sizing: border-box;
   }
   .hyve-modal__backdrop {
+    display: block !important;
     position: absolute;
     top: 0;
     left: 0;
@@ -918,6 +987,13 @@ const TEAM_STYLES = `
     background: #fee2e2;
     border-color: #fca5a5;
   }
+  .hyve-member-actions-note {
+    font-size: 12.5px;
+    color: #64748b;
+    line-height: 1.5;
+    margin: 0 0 14px 0;
+  }
+
 
   /* Responsive adjustments */
   @media (max-width: 768px) {

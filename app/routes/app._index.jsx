@@ -2,6 +2,7 @@ import { Link, useLoaderData, useRouteError } from "react-router";
 import { authenticate } from "../shopify.server";
 import { getAllDistributorApplications } from "../lib/distributor-metaobject.server";
 import { quoteDecision } from "../lib/account-quotes.server";
+import { ensureOrderDefinitions } from "../lib/order-metafields.server";
 import {
   AdminTheme,
   Metric,
@@ -37,6 +38,11 @@ const QUOTES_QUERY = `#graphql
 
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
+
+  // The order fields customer service fills in only appear on the order page
+  // once they are defined. Checked when staff open the app, which costs one
+  // query and means nobody has to remember to set them up.
+  await ensureOrderDefinitions(admin);
 
   const applications = await getAllDistributorApplications(admin);
 
@@ -127,7 +133,14 @@ function statusTone(status) {
 export default function DashboardPage() {
   const { applications, quotes } = useLoaderData();
 
-  const needsAttention = applications.pending + quotes.awaiting;
+  // Only applications wait on Hyve. A quote sitting with the buyer is not
+  // staff work, and counting it here made the headline claim work that was not
+  // theirs to do.
+  const needsAttention = applications.pending;
+  // Still worth saying, but as information rather than as work owed.
+  const withBuyer = quotes.awaiting
+    ? `${quotes.awaiting} quote${quotes.awaiting === 1 ? "" : "s"} with the buyer`
+    : "";
 
   return (
     <s-page heading="Hyve distributor portal" inlineSize="large">
@@ -150,9 +163,14 @@ export default function DashboardPage() {
                     {needsAttention === 0 ? "You're all caught up" : `${needsAttention} waiting on you`}
                   </h2>
                   <p className="hyv-hero__sub">
-                    {needsAttention === 0
-                      ? "Every application has been decided and no quote is outstanding."
-                      : `${applications.pending} application${applications.pending === 1 ? "" : "s"} to decide · ${quotes.awaiting} quote${quotes.awaiting === 1 ? "" : "s"} with the buyer`}
+                    {[
+                      needsAttention === 0
+                        ? "Every application has been decided"
+                        : `${needsAttention} application${needsAttention === 1 ? "" : "s"} to decide`,
+                      withBuyer,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                 </div>
                 <Pill tone={needsAttention === 0 ? "success" : "warning"}>

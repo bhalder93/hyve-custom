@@ -20,11 +20,55 @@ import { esc } from "./account-shell.server";
  * means it is still with the buyer. Nothing here is inferred from tags or
  * dates — the metafield is the only source.
  */
+/**
+ * Four states, each one something that has actually happened.
+ *
+ *   Sent     — the quote is with the buyer and they have not acted on it
+ *   Accepted — they accepted it and it became an order
+ *   Declined — Hyve turned the request down
+ *   Expired  — it passed its validity and was withdrawn
+ *
+ * The requirements list "Quote Created" and "Quote Sent" separately, but a
+ * distributor only ever sees a quote that has already been given to them, so
+ * the two read identically from their side. They are one state here.
+ *
+ * Expired is real rather than cosmetic: a Shopify draft order has no expiry and
+ * its payment link never stops working, so a scheduled job deletes the quote —
+ * which does stop it — after copying it to an archive. An expired quote is read
+ * from that archive, not from a label on a quote that would still take money.
+ */
 export const QUOTE_STATUSES = {
-  AWAITING_ACTION: "awaiting-action",
-  APPROVED: "approved",
-  REJECTED: "rejected",
+  SENT: "sent",
+  ACCEPTED: "accepted",
+  DECLINED: "declined",
+  EXPIRED: "expired",
 };
+
+export const QUOTE_STATUS_LABELS = {
+  sent: "Quote Sent",
+  accepted: "Quote Accepted",
+  declined: "Quote Declined",
+  expired: "Quote Expired",
+};
+
+/** An archived quote, shaped like a live one so the page renders them together. */
+export function expiredQuoteToRow(quote) {
+  return {
+    id: quote.id,
+    name: quote.reference,
+    status: QUOTE_STATUSES.EXPIRED,
+    items: quote.items || "Quote",
+    meta: `${quote.date} · Expired`,
+    price: quote.total,
+    rawAmount: 0,
+    invoiceUrl: "",
+    pdfHref: "",
+    orderName: "",
+    orderId: "",
+    orderHref: "",
+    createdAt: quote.expiredAt,
+  };
+}
 
 /**
  * The staff decision on a quote.
@@ -37,6 +81,12 @@ export const QUOTE_STATUSES = {
  * @returns {?boolean} true approved, false rejected, null still with the buyer
  */
 export function quoteDecision(node) {
+  // A quote that has become an order was accepted, whatever the metafield says
+  // — the buyer acted on it. Without this the nav badge and the dashboard count
+  // an ordered quote as still awaiting action, which is what the list shows the
+  // opposite of.
+  if (node?.status === "COMPLETED" || node?.order?.id || node?.order?.name) return true;
+
   const raw = node?.hyveStatus?.value;
   if (raw === null || raw === undefined || raw === "") return null;
 
@@ -76,7 +126,7 @@ export function mapDraftOrdersToQuotes(draftOrderNodes = []) {
     const amount = Number(money.amount) || 0;
     const formattedPrice = `${currency} ${amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
-    let status = QUOTE_STATUSES.AWAITING_ACTION;
+    let status = QUOTE_STATUSES.SENT;
     let metaText = "";
     const createdDate = formatDate(node.createdAt);
 
@@ -85,21 +135,26 @@ export function mapDraftOrdersToQuotes(draftOrderNodes = []) {
     const repAttr = customAttrs.find((a) => a.key === "Sales Rep" || a.key === "Sent By" || a.key === "Representative");
     const validAttr = customAttrs.find((a) => a.key === "Valid Until" || a.key === "Target Date");
     const repName = repAttr?.value || "Sales Team";
-    const validUntil = validAttr?.value ? `Valid until ${validAttr.value}` : calculateValidityDate(node.createdAt);
+    // Only shown when sales actually set one. A date invented from the created
+    // date would read as a promise nobody made.
+    const validUntil = validAttr?.value ? ` · Valid until ${validAttr.value}` : "";
 
     const decision = quoteDecision(node);
+    // A draft Shopify marks COMPLETED has become a real order, which is the
+    // buyer accepting it.
+    const converted = node.status === "COMPLETED" || Boolean(node.order?.name);
 
-    if (decision === true) {
-      status = QUOTE_STATUSES.APPROVED;
+    if (converted) {
+      status = QUOTE_STATUSES.ACCEPTED;
       metaText = node.order?.name
-        ? `${createdDate} · Converted to ${node.order.name}`
-        : `${createdDate} · Approved · ${validUntil}`;
+        ? `${createdDate} · Accepted · Order ${node.order.name}`
+        : `${createdDate} · Accepted`;
     } else if (decision === false) {
-      status = QUOTE_STATUSES.REJECTED;
-      metaText = `${createdDate} · Rejected`;
+      status = QUOTE_STATUSES.DECLINED;
+      metaText = `${createdDate} · Declined`;
     } else {
-      status = QUOTE_STATUSES.AWAITING_ACTION;
-      metaText = `${createdDate} · Sent by ${repName} · ${validUntil}`;
+      status = QUOTE_STATUSES.SENT;
+      metaText = `${createdDate} · Sent by ${repName}${validUntil}`;
     }
 
     return {
@@ -116,21 +171,9 @@ export function mapDraftOrdersToQuotes(draftOrderNodes = []) {
       orderName: node.order?.name || "",
       orderId: node.order?.id || "",
       orderHref: node.order?.name ? `/apps/account/orders?order=${encodeURIComponent(node.order.name)}` : "/apps/account/orders",
-      isRejectedPrice: status === QUOTE_STATUSES.REJECTED,
       createdAt: node.createdAt,
     };
   });
-}
-
-function calculateValidityDate(createdAt) {
-  if (!createdAt) return "Valid for 14 days";
-  try {
-    const d = new Date(createdAt);
-    d.setDate(d.getDate() + 14);
-    return `Valid until ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(d)}`;
-  } catch (e) {
-    return "Valid for 14 days";
-  }
 }
 
 /**
@@ -177,9 +220,10 @@ export function quotesPage({ quotes = [], notice = null, error = null }) {
 
         <div class="hyve-quotes__tabs" role="tablist">
           <button type="button" class="hyve-quotes__tab is-active" data-filter="all">All</button>
-          <button type="button" class="hyve-quotes__tab" data-filter="awaiting-action">Awaiting Action</button>
-          <button type="button" class="hyve-quotes__tab" data-filter="approved">Approved</button>
-          <button type="button" class="hyve-quotes__tab" data-filter="rejected">Rejected</button>
+          <button type="button" class="hyve-quotes__tab" data-filter="sent">Quote Sent</button>
+          <button type="button" class="hyve-quotes__tab" data-filter="accepted">Quote Accepted</button>
+          <button type="button" class="hyve-quotes__tab" data-filter="declined">Quote Declined</button>
+          <button type="button" class="hyve-quotes__tab" data-filter="expired">Quote Expired</button>
         </div>
       </div>
 
@@ -293,69 +337,60 @@ export function quotesPage({ quotes = [], notice = null, error = null }) {
 }
 
 function renderQuoteRow(q) {
-  let badgeHtml = "";
-  let actionButtonsHtml = "";
-
-  if (q.status === QUOTE_STATUSES.AWAITING_ACTION) {
-    badgeHtml = `
-      <span class="hyve-badge hyve-badge--awaiting">
-        ${icoMail()}
-        <span>Awaiting Action</span>
-      </span>`;
-
-    const resumeHref = q.invoiceUrl && q.invoiceUrl !== "#" ? q.invoiceUrl : "javascript:void(0);";
-    const resumeOnclick = !q.invoiceUrl || q.invoiceUrl === "#" ? "onclick=\"alert('Opening checkout invoice for " + esc(q.name) + "...');\"" : "";
-
-    actionButtonsHtml = `
-      <a href="${resumeHref}" ${resumeOnclick} class="hyve-btn hyve-btn--resume">
-        ${icoCart()}
-        <span>Resume &amp; Order</span>
-      </a>
+  const label = QUOTE_STATUS_LABELS[q.status] || q.status;
+  const pdfButton = `
       <a class="hyve-btn hyve-btn--pdf" href="${esc(q.pdfHref)}">
         ${icoDownload()}
         <span>PDF</span>
       </a>`;
-  } else if (q.status === QUOTE_STATUSES.APPROVED) {
-    badgeHtml = `
-      <span class="hyve-badge hyve-badge--approved">
-        ${icoCheck()}
-        <span>Approved</span>
-      </span>`;
-
-    // An approved quote that already became an order is viewable; one that
-    // hasn't been ordered yet still needs its checkout link.
-    const primary = q.orderName
-      ? `<a href="${esc(q.orderHref)}" class="hyve-btn hyve-btn--secondary">${icoEye()}<span>View Order</span></a>`
-      : `<a href="${esc(q.invoiceUrl || "#")}" class="hyve-btn hyve-btn--resume">${icoCart()}<span>Resume &amp; Order</span></a>`;
-
-    actionButtonsHtml = `
-      ${primary}
-      <a class="hyve-btn hyve-btn--pdf" href="${esc(q.pdfHref)}">
-        ${icoDownload()}
-        <span>PDF</span>
-      </a>`;
-  } else {
-    // Rejected: staff turned it down, so the only way forward is a fresh quote.
-    badgeHtml = `
-      <span class="hyve-badge hyve-badge--rejected">
-        ${icoClock()}
-        <span>Rejected</span>
-      </span>`;
-
-    actionButtonsHtml = `
+  const requoteButton = `
       <button type="button" class="hyve-btn hyve-btn--secondary" onclick="requoteItem('${esc(q.name)}', '${esc(q.items)}')">
         ${icoRefresh()}
         <span>Requote</span>
-      </button>
-      <a class="hyve-btn hyve-btn--pdf" href="${esc(q.pdfHref)}">
-        ${icoDownload()}
-        <span>PDF</span>
-      </a>`;
+      </button>`;
+  const resumeButton = q.invoiceUrl
+    ? `
+      <a href="${esc(q.invoiceUrl)}" class="hyve-btn hyve-btn--resume">
+        ${icoCart()}
+        <span>Resume &amp; Order</span>
+      </a>`
+    : "";
+
+  const badge = (tone, icon) => `
+      <span class="hyve-badge hyve-badge--${tone}">
+        ${icon}
+        <span>${esc(label)}</span>
+      </span>`;
+
+  let badgeHtml = "";
+  let actionButtonsHtml = "";
+
+  if (q.status === QUOTE_STATUSES.ACCEPTED) {
+    badgeHtml = badge("approved", icoCheck());
+    // Accepted and already an order: the order is the thing to look at. Accepted
+    // without one yet still needs its checkout link.
+    actionButtonsHtml =
+      (q.orderName
+        ? `
+      <a href="${esc(q.orderHref)}" class="hyve-btn hyve-btn--secondary">${icoEye()}<span>View Order ${esc(q.orderName)}</span></a>`
+        : resumeButton) + pdfButton;
+  } else if (q.status === QUOTE_STATUSES.EXPIRED) {
+    // The quote itself is gone, so there is nothing to pay or download — only
+    // a fresh quote to ask for.
+    badgeHtml = badge("rejected", icoClock());
+    actionButtonsHtml = requoteButton;
+  } else if (q.status === QUOTE_STATUSES.DECLINED) {
+    badgeHtml = badge("rejected", icoClock());
+    actionButtonsHtml = requoteButton + pdfButton;
+  } else {
+    // Sent: with the buyer, so they can pay it or read it.
+    badgeHtml = badge("awaiting", icoMail());
+    actionButtonsHtml = resumeButton + pdfButton;
   }
 
   const priceClass =
-    q.status === QUOTE_STATUSES.REJECTED
-      ? "hyve-quote-item__price hyve-quote-item__price--rejected"
+    q.status === QUOTE_STATUSES.EXPIRED
+      ? "hyve-quote-item__price hyve-quote-item__price--expired"
       : "hyve-quote-item__price";
 
   return `
@@ -825,10 +860,8 @@ const QUOTES_STYLES = `
     text-align: right;
     min-width: 90px;
   }
-  .hyve-quote-item__price--rejected {
-    color: #94a3b8;
-    text-decoration: line-through;
-  }
+  /* The requirements ask for an expired quote's original value struck through. */
+  .hyve-quote-item__price--expired { text-decoration: line-through; color: #94a3b8; }
   .hyve-quote-item__actions {
     display: flex;
     align-items: center;
@@ -1008,6 +1041,7 @@ const QUOTES_STYLES = `
     box-sizing: border-box;
   }
   .hyve-modal__backdrop {
+    display: block !important;
     position: absolute;
     top: 0;
     left: 0;
