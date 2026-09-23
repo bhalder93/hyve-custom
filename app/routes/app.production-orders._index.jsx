@@ -19,6 +19,16 @@ const STATUS_OPTIONS = [
   { label: "On Hold", value: "on-hold" },
 ];
 
+/**
+ * Only orders in the production chain. An order with no customisation never
+ * gets a status tag — the order-created webhook skips it — so it has no
+ * production to track. Matched tag by tag, because Shopify's order search can't
+ * match the start of a tag.
+ */
+const PRODUCTION_ORDERS_QUERY = STATUS_OPTIONS.map(
+  (status) => `tag:"hyve-status:${status.value}"`,
+).join(" OR ");
+
 /* -------------------------------------------------------------------------- */
 /*                                  Helpers                                   */
 /* -------------------------------------------------------------------------- */
@@ -186,7 +196,9 @@ export async function loader({ request }) {
           last: goingBackward ? PAGE_SIZE : null,
           after: goingBackward ? null : after,
           before: goingBackward ? before : null,
-          query: search || null,
+          query: search
+            ? `(${search}) AND (${PRODUCTION_ORDERS_QUERY})`
+            : PRODUCTION_ORDERS_QUERY,
         },
       },
     );

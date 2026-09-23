@@ -23,11 +23,11 @@ const ADMIN_TIMEOUT_MS = 4000;
 /**
  * Order fields.
  *
- * The production fields — proof, production photo, on-hold reason, production
- * due date and when the status last changed — are written by the SLA engine and
- * the Production Orders screen under the app's own namespace, so they are read
- * from `$app`. The commercial fields customer service types in by hand (ship
- * date, proof due, PO, incoterm, forwarder) live under `hyve`.
+ * Everything about where an order is in production — its status, proof,
+ * production photo, on-hold reason, production target and when the status last
+ * changed — is written by the SLA engine and the Production Orders screen under
+ * the app's own namespace, declared in shopify.app.toml, so it is read from
+ * `$app` and nowhere else. The PO number is Shopify's own field.
  */
 const PORTAL_ORDER_FIELDS = `#graphql
   fragment PortalOrder on Order {
@@ -40,14 +40,10 @@ const PORTAL_ORDER_FIELDS = `#graphql
           displayFulfillmentStatus
           totalPriceSet { shopMoney { amount currencyCode } }
           paymentTerms { paymentTermsName }
-          poNumberMeta: metafield(namespace: "hyve", key: "po_number") { value }
-          estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
+          productionStatus: metafield(namespace: "$app", key: "production_status") { value }
           productionDueAt: metafield(namespace: "$app", key: "production_due_at") { value }
-          proofDueAt: metafield(namespace: "hyve", key: "proof_due_at") { value }
           proofUrl: metafield(namespace: "$app", key: "proof_url") { value }
           onHoldReason: metafield(namespace: "$app", key: "on_hold_reason") { value }
-          incoterm: metafield(namespace: "hyve", key: "incoterm") { value }
-          forwarder: metafield(namespace: "hyve", key: "forwarder") { value }
           statusChangedAt: metafield(namespace: "$app", key: "status_changed_at") { value }
           productionPhotoUrl: metafield(namespace: "$app", key: "production_photo_url") { value }
           note
@@ -383,12 +379,15 @@ const CHROME_QUERY = `#graphql
           }
 
           # The badge counts have to match the pages, which show the company's
-          # orders and quotes rather than the signed-in person's.
+          # orders and quotes rather than the signed-in person's. The status and
+          # line properties are what tell a proof or artwork is waiting on them.
           orders(first: 50, sortKey: CREATED_AT, reverse: true) {
             nodes {
               tags
               displayFulfillmentStatus
               totalPriceSet { shopMoney { currencyCode } }
+              productionStatus: metafield(namespace: "$app", key: "production_status") { value }
+              lineItems(first: 10) { nodes { customAttributes { key value } } }
             }
           }
           draftOrders(first: 50, sortKey: UPDATED_AT, reverse: true) {
@@ -405,6 +404,8 @@ const CHROME_QUERY = `#graphql
           tags
           displayFulfillmentStatus
           totalPriceSet { shopMoney { currencyCode } }
+          productionStatus: metafield(namespace: "$app", key: "production_status") { value }
+          lineItems(first: 10) { nodes { customAttributes { key value } } }
         }
       }
     }

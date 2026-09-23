@@ -60,10 +60,8 @@ export function orderModal(order, library = []) {
           <a class="hyve-ord__btn hyve-ord__btn--ghost" href="https://wa.me/${WHATSAPP_NUMBER}" target="_blank" rel="noopener">${icoHelp()}<span>WhatsApp Us</span></a>
           <a class="hyve-ord__btn hyve-ord__btn--ghost" href="https://hyve.promo/pages/contact" target="_blank" rel="noopener">${icoMail()}<span>Email Us</span></a>
           ${
-            // Only an order on terms has an invoice, and none is released while
-            // it sits in Credit Under Review — offering the button anyway sent
-            // the buyer to a 404.
-            order.hasInvoice && order.id && order.statusKey !== "credit-under-review"
+            // Only an order on terms has an invoice.
+            order.hasInvoice && order.id
               ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="/apps/account/invoices/download?order=${encodeURIComponent(order.id)}">${icoDownload()}<span>Download Invoice</span></a>`
               : ""
           }
@@ -86,17 +84,14 @@ export function orderModal(order, library = []) {
     </div>`;
 }
 
-/** J2 header: order number, PO number, incoterm, forwarder, payment terms. */
+/** J2 header: status, PO number, payment terms and the production target. */
 function headerFacts(order, status) {
   const facts = [
     ["Status", status.label],
     ["PO Number", order.poNumber],
-    ["Incoterm", order.incoterm],
-    ["Forwarder", order.forwarder],
     ["Payment Terms", order.paymentTerms],
-    // J13: staff enter this against the published lead time; it is never
-    // calculated. The list row shows it too.
-    ["Est. Ship Date", order.estimatedShipDate],
+    // The date the proof-approved email gave the buyer. The list row shows it too.
+    ["Production Target", order.productionTarget],
   ].filter(([, v]) => v);
 
   return `
@@ -198,11 +193,6 @@ function shippingPanel(order) {
     </section>`;
 }
 
-/**
- * Artwork and proof panel (J2/F6). Approve and Request changes are not wired
- * yet — at launch the proof loop runs by email (assumption 7), so this links
- * the customer to the proof and to support rather than faking an action.
- */
 /**
  * J2/F11: the artwork on the order, one slot per decoration position, laid out
  * like the picker on the product page — a drop zone per position, with the

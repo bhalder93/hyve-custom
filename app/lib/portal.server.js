@@ -1,20 +1,19 @@
 /**
  * Shared conventions for the distributor portal.
  *
- * Two specs govern this file:
- *  - "Order Status Notifications and Alerts" v1.1 defines how the production
- *    lifecycle is stored on a Shopify order: one `hyve-status:*` tag at a time,
- *    mirrored into `hyve.production_status`, alongside supporting metafields.
- *  - "Distributor Portal Requirements" v1.6 (newer) defines what the customer
- *    sees: six statuses (J3), no delivery status (J10), and J6 requires the
- *    wording to match J3 exactly.
+ * Two sources govern this file:
+ *  - The production chain the SLA engine and the Production Orders screen run
+ *    on: `$app.production_status`, mirrored by one `hyve-status:*` tag, with
+ *    the values order-placed, artwork-received, proof-sent, proof-approved,
+ *    in-production, production-complete, shipped, delivered and on-hold.
+ *  - "Distributor Portal Requirements" v1.6 defines what the customer sees:
+ *    six statuses (J3), no delivery status (J10), and J6 requires the wording
+ *    to match J3 exactly.
  *
- * So: eight statuses are stored, six are shown. `delivered` is recorded for the
- * internal clocks but displayed as Shipped, per J10.
- *
- * Open with the client: `awaiting-artwork` (F11) and `credit-under-review` (J3)
- * are required states with no tag in the status spec. They are modelled here in
- * the same family so the portal can show them the moment Flow sets them.
+ * So: nine statuses are stored, six are shown, plus two branch states.
+ * `delivered` is recorded for the internal clocks but displayed as Shipped, per
+ * J10. Awaiting Artwork (F11) is not stored at all: it is an Order Placed order
+ * whose buyer chose to send artwork later.
  */
 
 /**
@@ -58,29 +57,33 @@ export const VISIBLE_STATUSES = [
  */
 export const BRANCH_STATUSES = [
   { key: "awaiting-artwork", label: "Awaiting Artwork", tone: "warn" },
-  { key: "credit-under-review", label: "Credit Under Review", tone: "warn" },
   { key: "on-hold", label: "On Hold", tone: "error" },
 ];
 
 const ALL_STATUSES = [...VISIBLE_STATUSES, ...BRANCH_STATUSES];
 const STATUS_BY_KEY = Object.fromEntries(ALL_STATUSES.map((s) => [s.key, s]));
 
-/** Stored tag value -> displayed status key. */
-const TAG_TO_STATUS = {
+/** Stored status -> displayed status key. */
+const STORED_TO_DISPLAY = {
   "order-placed": "order-received",
   "artwork-received": "artwork-received",
-  "awaiting-artwork": "awaiting-artwork",
-  "credit-under-review": "credit-under-review",
   "proof-sent": "proof-sent",
   "proof-approved": "in-production",
   "in-production": "in-production",
   "production-complete": "production-completed",
   shipped: "shipped",
-  // Recorded by Flow on the carrier delivery scan, but never shown as its own
-  // state: under EXW and FOB the last leg is the buyer's freight (J10).
+  // Recorded for the internal clocks, but never shown as its own state: under
+  // EXW and FOB the last leg is the buyer's freight (J10).
   delivered: "shipped",
   "on-hold": "on-hold",
 };
+
+/**
+ * The value the product page writes to a line's `Artwork` property when the
+ * buyer picks Send later (hyve-order.liquid). The order emails and the
+ * order-created webhook read the same property.
+ */
+const ARTWORK_PENDING = "Artwork Pending";
 
 /** Statuses that are waiting on the distributor — drives the Orders badge (H9). */
 export const AWAITING_DISTRIBUTOR = ["proof-sent", "awaiting-artwork"];
@@ -96,25 +99,40 @@ export function statusByKey(key) {
 }
 
 /**
- * Work out an order's displayed status from its `hyve-status:*` tag, falling
- * back to Shopify's own fulfillment state for orders Flow hasn't tagged yet.
+ * Work out an order's displayed status from its production status — the
+ * `$app.production_status` metafield, or the `hyve-status:*` tag where that is
+ * missing, the order the SLA engine reads them in — falling back to Shopify's
+ * own fulfillment state for an order outside the production chain, such as a
+ * blank one.
  *
- * @param {{tags?:string[], displayFulfillmentStatus?:string}} order
+ * @param {{productionStatus?:{value?:string}, tags?:string[], displayFulfillmentStatus?:string,
+ *   lineItems?:{nodes?:Array<{customAttributes?:Array<{key?:string, value?:string}>}>}}} order
  */
 export function orderStatusKey(order) {
-  const tags = normalizeTags(order?.tags);
-  const statusTag = tags.find((t) => t.startsWith(STATUS_TAG_PREFIX));
-  if (statusTag) {
-    const mapped = TAG_TO_STATUS[statusTag.slice(STATUS_TAG_PREFIX.length)];
-    if (mapped) return mapped;
+  let stored = String(order?.productionStatus?.value || "").trim().toLowerCase();
+  if (!stored) {
+    const statusTag = normalizeTags(order?.tags).find((t) => t.startsWith(STATUS_TAG_PREFIX));
+    stored = statusTag ? statusTag.slice(STATUS_TAG_PREFIX.length) : "";
   }
 
-  // Untagged order: Shopify's fulfillment state is the only signal we have.
+  if (stored === "order-placed" && artworkPending(order)) return "awaiting-artwork";
+  if (STORED_TO_DISPLAY[stored]) return STORED_TO_DISPLAY[stored];
+
+  // Outside the production chain: Shopify's fulfillment state is the only signal.
   const fulfillment = String(order?.displayFulfillmentStatus || "").toUpperCase();
   if (["FULFILLED", "PARTIALLY_FULFILLED", "IN_TRANSIT", "OUT_FOR_DELIVERY"].includes(fulfillment)) {
     return "shipped";
   }
   return "order-received";
+}
+
+/** True when any line was ordered with its artwork to follow. */
+function artworkPending(order) {
+  return (order?.lineItems?.nodes || []).some((line) =>
+    (line?.customAttributes || []).some(
+      (attr) => attr?.key === "Artwork" && String(attr.value || "").trim() === ARTWORK_PENDING,
+    ),
+  );
 }
 
 function normalizeTags(tags) {

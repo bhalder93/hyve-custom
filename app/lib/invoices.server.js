@@ -7,7 +7,7 @@
  * all derived from real order data.
  *
  */
-import { formatMoney, formatDate, orderStatusKey } from "./portal.server";
+import { formatMoney, formatDate } from "./portal.server";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -21,7 +21,6 @@ const INVOICES_QUERY = `#graphql
           name
           createdAt
           poNumber
-          tags
           displayFinancialStatus
           displayFulfillmentStatus
           totalPriceSet { shopMoney { amount currencyCode } }
@@ -68,9 +67,6 @@ export async function loadInvoices(admin, locationGids) {
       .flatMap((r) => r.orders)
       // Only orders on terms produce an invoice; a prepaid order is already settled.
       .filter((o) => o.paymentTerms)
-      // K8: no invoice exists until sales has confirmed the order, so an order
-      // still sitting in Credit Under Review is not listed.
-      .filter((o) => orderStatusKey(o) !== "credit-under-review")
       .map(toInvoice)
       .filter((invoice) => {
         if (!invoice || seen.has(invoice.orderId)) return false;

@@ -2,7 +2,6 @@ import { Link, useLoaderData, useRouteError } from "react-router";
 import { authenticate } from "../shopify.server";
 import { getAllDistributorApplications } from "../lib/distributor-metaobject.server";
 import { quoteDecision } from "../lib/account-quotes.server";
-import { ensureOrderDefinitions } from "../lib/order-metafields.server";
 import {
   AdminTheme,
   Metric,
@@ -38,11 +37,6 @@ const QUOTES_QUERY = `#graphql
 
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
-
-  // The order fields customer service fills in only appear on the order page
-  // once they are defined. Checked when staff open the app, which costs one
-  // query and means nobody has to remember to set them up.
-  await ensureOrderDefinitions(admin);
 
   const applications = await getAllDistributorApplications(admin);
 

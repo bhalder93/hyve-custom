@@ -136,7 +136,6 @@ async function getRecipients(admin) {
           metaobjects(
             type: "$app:notification_recipient"
             first: 250
-            sortKey: "display_name"
           ) {
             nodes {
               id
@@ -174,7 +173,28 @@ async function getRecipients(admin) {
 
   const data = await parseGraphQL(response, "NotificationRecipients");
 
-  return (data.data?.metaobjects?.nodes ?? []).map(normalizeRecipient);
+  // Sorted here rather than with sortKey: a sorted metaobjects query is served
+  // from Shopify's search index, which takes a few seconds to pick up a new
+  // entry, so the list read straight after a save came back without it.
+  return (data.data?.metaobjects?.nodes ?? [])
+    .map(normalizeRecipient)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * One person can take alerts for several roles, but the same email twice in the
+ * same role gets every alert twice. `id` is the recipient being edited, which
+ * is allowed to match itself.
+ */
+async function hasDuplicateRecipient(admin, { id, email, role }) {
+  const recipients = await getRecipients(admin);
+
+  return recipients.some(
+    (recipient) =>
+      recipient.id !== id &&
+      recipient.email.toLowerCase() === email.toLowerCase() &&
+      recipient.role === role,
+  );
 }
 
 async function getRecipientById(admin, id) {
@@ -416,15 +436,21 @@ export async function loader({ request }) {
 export async function action({ request }) {
   const { admin } = await authenticate.admin(request);
 
+  // Returned with every result. The page reads it back to close the right
+  // modal and to show field errors against the right form, so a result
+  // without it left the editor open after a save.
+  let intent = "";
+
   try {
     const formData = await request.formData();
 
-    const intent = String(formData.get("intent") || "").trim();
+    intent = String(formData.get("intent") || "").trim();
     if (intent === "delete") {
       const id = String(formData.get("id") || "").trim();
 
       if (!id) {
         return {
+          intent,
           success: false,
           fieldErrors: {},
           formError: "Recipient ID is missing.",
@@ -434,6 +460,7 @@ export async function action({ request }) {
       await deleteRecipient(admin, id);
 
       return {
+        intent,
         success: true,
 
         message: "Notification recipient deleted.",
@@ -447,6 +474,7 @@ export async function action({ request }) {
 
       if (!id) {
         return {
+          intent,
           success: false,
           fieldErrors: {},
           formError: "Recipient ID is missing.",
@@ -462,6 +490,7 @@ export async function action({ request }) {
       });
 
       return {
+        intent,
         success: true,
 
         message: existing.enabled
@@ -475,6 +504,7 @@ export async function action({ request }) {
 
     if (intent !== "create" && intent !== "update") {
       return {
+        intent,
         success: false,
 
         fieldErrors: {},
@@ -501,11 +531,23 @@ export async function action({ request }) {
 
     if (Object.keys(fieldErrors).length) {
       return {
+        intent,
         success: false,
 
         fieldErrors,
 
         formError: "Please correct the highlighted fields.",
+      };
+    }
+
+    if (await hasDuplicateRecipient(admin, { id, email, role })) {
+      return {
+        intent,
+        success: false,
+        fieldErrors: {
+          email: "This email already receives alerts for this role.",
+        },
+        formError: "This recipient already exists.",
       };
     }
 
@@ -518,6 +560,7 @@ export async function action({ request }) {
       });
 
       return {
+        intent,
         success: true,
 
         message: "Notification recipient created.",
@@ -529,6 +572,7 @@ export async function action({ request }) {
 
     if (!id) {
       return {
+        intent,
         success: false,
 
         fieldErrors: {},
@@ -546,6 +590,7 @@ export async function action({ request }) {
     });
 
     return {
+      intent,
       success: true,
 
       message: "Notification recipient updated.",
@@ -557,6 +602,7 @@ export async function action({ request }) {
     console.error("Notification recipient action error:", error);
 
     return {
+      intent,
       success: false,
 
       fieldErrors: {},

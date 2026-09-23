@@ -11,7 +11,7 @@
  * An order without payment terms still gets a document — it was simply paid at
  * checkout rather than on terms, and the buyer may still want the paperwork.
  */
-import { formatMoney, formatDate, orderStatusKey } from "./portal.server";
+import { formatMoney, formatDate } from "./portal.server";
 
 /**
  * The legal entity that issues the invoice, confirmed by Hyve on 22 September.
@@ -51,8 +51,6 @@ const DOCUMENT_QUERY = `#graphql
       currencyCode
       displayFinancialStatus
       displayFulfillmentStatus
-      tags
-      incoterm: metafield(namespace: "hyve", key: "incoterm") { value }
       customer { id }
       billingAddress { company name address1 address2 city province zip country }
       purchasingEntity {
@@ -122,12 +120,6 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
   const ownedByCompany = locations.includes(order.purchasingEntity?.location?.id);
   if (!ownedByCustomer && !ownedByCompany) return null;
 
-  // K8: the invoice is released only once sales has confirmed the order, which
-  // on a terms order means after Credit Under Review clears. Until then there
-  // is no paperwork to hand over, so the download is refused rather than
-  // producing a document the buyer shouldn't have yet.
-  if (orderStatusKey(order) === "credit-under-review") return null;
-
   // Only an order on terms has a schedule; a prepaid one was settled at checkout.
   const schedule = order.paymentTerms?.paymentSchedules?.nodes?.[0] || null;
 
@@ -148,7 +140,6 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
     reference: order.name,
     orderName: order.name,
     poNumber: order.poNumber || "",
-    incoterm: order.incoterm?.value || "",
     currency,
 
     billTo: billingLines(order, order.purchasingEntity),

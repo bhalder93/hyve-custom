@@ -6,7 +6,7 @@
  *        filters are the six J3 words and nothing else; search matches order
  *        number, PO number and product name.
  *  - J3  six customer-visible statuses (see portal.server.js for the mapping
- *        from the stored `hyve-status:*` tags).
+ *        from the stored production status).
  *  - J10 the chain ends at Shipped. There is no Delivered filter or state, so
  *        the mockup's "Delivery Confirmed" row is deliberately absent.
  *  - J9  each row carries the action that fits its status.
@@ -44,8 +44,7 @@ export function mapOrders(nodes = []) {
       // has to carry its ID and not just its name.
       id: node?.id || "",
       name: node?.name || "",
-      // Native B2B field first, metafield for orders captured in the cart.
-      poNumber: node?.poNumber || node?.poNumberMeta?.value || "",
+      poNumber: node?.poNumber || "",
       // Only an order on terms has an invoice — a prepaid one was settled at
       // checkout and there is no paperwork to hand over.
       hasInvoice: Boolean(node?.paymentTerms),
@@ -63,17 +62,13 @@ export function mapOrders(nodes = []) {
       trackHref: tracking?.url || "",
       carrier: tracking?.company || "",
       trackingNumber: tracking?.number || "",
-      // Set by customer service against the published lead time, never worked
-      // out here. Falling back to the production due date computed from the
-      // service levels put a date in front of the buyer that nobody promised.
-      estimatedShipDate: formatDate(node?.estimatedShipDate?.value),
-      proofDueDate: formatDate(node?.proofDueAt?.value),
+      // Set when the proof is approved, and the same date the buyer is sent in
+      // the "Proof approved — production starting" email.
+      productionTarget: formatDate(node?.productionDueAt?.value),
       proofUrl: node?.proofUrl?.value || "",
       onHoldReason: node?.onHoldReason?.value || "",
 
       // Order detail modal (J2)
-      incoterm: node?.incoterm?.value || "",
-      forwarder: node?.forwarder?.value || "",
       // The modal lists payment terms as a header fact. It read a field nobody
       // set, so the line was silently dropped on every order.
       paymentTerms: node?.paymentTerms?.paymentTermsName || "",
@@ -223,9 +218,8 @@ function rowActions(order, statusKey) {
     actions.push(action(order.trackHref, icoTruck(), "Track"));
   }
   // J9: the invoice is downloadable from the order it belongs to, not only
-  // from the Invoices page. Nothing is offered while the order sits in Credit
-  // Under Review, because no invoice has been released yet (K8).
-  if (order.hasInvoice && order.id && statusKey !== "credit-under-review") {
+  // from the Invoices page.
+  if (order.hasInvoice && order.id) {
     actions.push(
       action(
         `/apps/account/invoices/download?order=${encodeURIComponent(order.id)}`,
@@ -251,8 +245,7 @@ function rowActions(order, statusKey) {
 /** J12 action-required line, plus the status-specific detail lines. */
 function metaLine(order, statusKey) {
   if (statusKey === "proof-sent") {
-    const by = order.proofDueDate ? ` by <strong>${esc(order.proofDueDate)}</strong>` : "";
-    return `<p class="hyve-ord__meta is-action">${icoClock()}<span>Action Required: Approve your artwork proof${by} to avoid delays</span></p>`;
+    return `<p class="hyve-ord__meta is-action">${icoClock()}<span>Action Required: Approve your artwork proof to avoid delays</span></p>`;
   }
   if (statusKey === "awaiting-artwork") {
     return `<p class="hyve-ord__meta is-action">${icoUpload()}<span>Action Required: Upload your artwork so production can start</span></p>`;
@@ -265,8 +258,8 @@ function metaLine(order, statusKey) {
     const number = order.trackingNumber ? `Tracking: <strong>${esc(order.trackingNumber)}</strong>` : "";
     return `<p class="hyve-ord__meta">${icoTruck()}<span>${[carrier, number].filter(Boolean).join(" &middot; ")}</span></p>`;
   }
-  if (statusKey === "in-production" && order.estimatedShipDate) {
-    return `<p class="hyve-ord__meta">${icoCalendar()}<span>Estimated Ship Date: <strong>${esc(order.estimatedShipDate)}</strong></span></p>`;
+  if (statusKey === "in-production" && order.productionTarget) {
+    return `<p class="hyve-ord__meta">${icoCalendar()}<span>Production target: <strong>${esc(order.productionTarget)}</strong></span></p>`;
   }
   return "";
 }

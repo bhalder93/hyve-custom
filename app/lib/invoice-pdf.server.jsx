@@ -199,9 +199,6 @@ function InvoiceDoc({ doc }) {
             <Text style={styles.partyLabel}>PAYMENT TERMS</Text>
             <Text style={styles.partyStrong}>{doc.termsName || "Due on receipt"}</Text>
             <Text style={styles.partyLine}>Order {doc.orderName}</Text>
-            {doc.incoterm ? (
-              <Text style={styles.partyLine}>Incoterm {doc.incoterm}</Text>
-            ) : null}
           </View>
         </View>
 

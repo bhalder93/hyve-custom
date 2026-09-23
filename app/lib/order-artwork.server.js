@@ -6,13 +6,10 @@
  * order's line items are fixed once it exists, so `orderUpdate` accepts a note,
  * tags, order-level custom attributes and metafields, and nothing else.
  *
- * So a late file is written to the order two ways, both visible to staff in the
- * Shopify admin without opening this app:
- *
- *   - an order custom attribute per position, under Additional details, which
- *     is where the existing proof and shipping values already sit
- *   - an `hyve.artwork` metafield holding the file URLs, as a single place to
- *     read them all back
+ * So a late file is written to the order as a custom attribute per position,
+ * under Additional details in the Shopify admin, keyed exactly as the line's own
+ * `Artwork: <position>` property would have been. That is where staff and the
+ * portal both read it back.
  *
  * Existing attributes are carried over, because `customAttributes` replaces the
  * whole set rather than merging.
@@ -24,7 +21,6 @@ const ORDER_ATTRIBUTES = `#graphql
     order(id: $id) {
       id
       customAttributes { key value }
-      artwork: metafield(namespace: "hyve", key: "artwork") { value }
     }
   }`;
 
@@ -54,27 +50,10 @@ export async function attachArtworkToOrder(admin, orderGid, supplied = []) {
     attributes.set(file.zone, file.url);
   }
 
-  let known = [];
-  try {
-    known = JSON.parse(order.artwork?.value || "[]");
-    if (!Array.isArray(known)) known = [];
-  } catch {
-    known = [];
-  }
-  const urls = [...new Set([...known, ...files.map((file) => file.url)])];
-
   const result = await gql(admin, ORDER_UPDATE, {
     input: {
       id: orderGid,
       customAttributes: [...attributes].map(([key, value]) => ({ key, value })),
-      metafields: [
-        {
-          namespace: "hyve",
-          key: "artwork",
-          type: "list.url",
-          value: JSON.stringify(urls),
-        },
-      ],
     },
   });
 

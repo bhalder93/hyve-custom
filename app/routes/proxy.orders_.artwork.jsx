@@ -1,7 +1,7 @@
 import { authenticate } from "../shopify.server";
 import { portalChrome } from "../lib/account-data.server";
 import { loadOrderForAction } from "../lib/order-action.server";
-import { setOrderStatusTag, appendOrderNote } from "../lib/order-status.server";
+import { changeProductionStatus, productionStatusOf } from "../lib/order-status.server";
 import { attachArtworkToOrder } from "../lib/order-artwork.server";
 import { uploadArtwork, recordOrderArtwork, artworkOwnerGid } from "../lib/artwork.server";
 
@@ -13,8 +13,9 @@ import { uploadArtwork, recordOrderArtwork, artworkOwnerGid } from "../lib/artwo
  * `zone:<key>:saved` for something already in the buyer's library — the same
  * positions the product page offered when the order was placed.
  *
- * ART-03: an order placed with send-later artwork is held at Awaiting Artwork
- * and blocked from production. Supplying the files releases that hold.
+ * ART-03: an order placed with send-later artwork waits at Order Placed, shown
+ * to the buyer as Awaiting Artwork. Supplying the files moves it to Artwork
+ * Received, the same move staff make on the Production Orders screen.
  */
 export const action = async ({ request }) => {
   const { admin } = await authenticate.public.appProxy(request);
@@ -77,15 +78,18 @@ export const action = async ({ request }) => {
       createdAt: new Date().toISOString(),
     });
 
-    await setOrderStatusTag(admin, order.id, order.tags, "artwork-received");
-    await appendOrderNote(
-      admin,
-      order.id,
-      order.note,
-      `${chrome.customer?.name || "The buyer"} sent artwork from the portal:\n${supplied
-        .map((item) => `• ${item.zone}: ${item.filename}\n  ${item.url}`)
-        .join("\n")}`,
-    );
+    // Only an order still waiting on its artwork moves. One that staff have
+    // already moved on keeps its place; the files are on it either way.
+    if (productionStatusOf(order) === "order-placed") {
+      const moved = await changeProductionStatus(admin, order, {
+        to: "artwork-received",
+        changedBy: chrome.customer?.name || chrome.customer?.email || "Customer",
+        note: `Sent artwork from the portal:\n${supplied
+          .map((item) => `• ${item.zone}: ${item.filename}\n  ${item.url}`)
+          .join("\n")}`,
+      });
+      if (!moved.ok) return backToOrders({ error: moved.error });
+    }
 
     const count = supplied.length;
     return backToOrders({
