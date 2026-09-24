@@ -18,6 +18,8 @@ import {
   sendProofApprovedEmail,
   sendProductionCompleteEmail,
 } from "../utils/email.server";
+import { proofDecisionLinks } from "../lib/proof.server";
+import { artworkPending } from "../lib/portal.server";
 const STATUS_OPTIONS = [
   {
     label: "Order Placed",
@@ -1043,6 +1045,8 @@ async function createHistory(
 }
 
 async function sendCustomerStatusEmail({
+  admin,
+  orderId,
   order,
   status,
   proofUrl,
@@ -1074,12 +1078,15 @@ async function sendCustomerStatusEmail({
       return sendArtworkReceivedEmail(common);
 
     case "proof-sent":
+      // Approve and Request changes work straight from the email (ART-03).
       return sendProofSentEmail({
         ...common,
 
         proofUrl,
 
         proofVersion,
+
+        ...(await proofDecisionLinks(admin, orderId, proofVersion)),
       });
 
     case "proof-approved":
@@ -1134,6 +1141,8 @@ async function sendCurrentCustomerStatusEmail({
   }
 
   const result = await sendCustomerStatusEmail({
+    admin,
+    orderId,
     order,
     status,
     proofUrl,
@@ -1423,6 +1432,25 @@ export async function action({ request, params }) {
         },
 
         formError: "Invalid production status transition.",
+      };
+    }
+
+    // An order placed with its artwork to follow waits at Awaiting Artwork
+    // (ART-03), so it can't skip straight to approval and into production.
+    if (
+      currentStatus === "order-placed" &&
+      nextStatus === "proof-approved" &&
+      artworkPending(order)
+    ) {
+      return {
+        success: false,
+
+        fieldErrors: {
+          nextStatus:
+            "This order is waiting for the buyer's artwork. Set Artwork Received first.",
+        },
+
+        formError: "The order is on hold for artwork.",
       };
     }
 
@@ -2002,8 +2030,9 @@ export default function ProductionOrderDetailsPage() {
 
                       <s-banner tone="info">
                         <s-paragraph>
-                          A production photo URL is required. The customer will
-                          receive this link in the Production Complete email.
+                          A production photo URL is required. Use a direct link
+                          to the image, such as one copied from Content › Files,
+                          so the photo shows in the Production Completed email.
                         </s-paragraph>
                       </s-banner>
 

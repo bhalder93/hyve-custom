@@ -134,13 +134,15 @@ export const action = async ({ request }) => {
       const isTrue = formData.get("value") === "true";
       const valueStr = isTrue ? "true" : "false";
 
-      let metafieldKey = "whatsapp_updates";
-      if (settingKey === "emailNotifications") metafieldKey = "email_notifications";
-      if (settingKey === "marketingEmails") metafieldKey = "marketing_emails";
+      if (settingKey === "marketingEmails") {
+        const saved = await setMarketingConsent(admin, gidCustomerId, isTrue);
+        return Response.json({ success: saved.success, settingKey, value: isTrue, error: saved.error });
+      }
 
-      await setCustomerMetafield(admin, gidCustomerId, metafieldKey, "boolean", valueStr);
+      const metafieldKey = settingKey === "emailNotifications" ? "email_notifications" : "whatsapp_updates";
+      const saved = await setCustomerMetafield(admin, gidCustomerId, metafieldKey, "boolean", valueStr);
 
-      return Response.json({ success: true, settingKey, value: isTrue });
+      return Response.json({ success: !saved?.error, settingKey, value: isTrue, error: saved?.error });
     }
 
     // 2. Full Save Changes form submission
@@ -176,14 +178,8 @@ export const action = async ({ request }) => {
           type: "boolean",
           value: emailNotifications,
         },
-        {
-          ownerId: gidCustomerId,
-          namespace: "custom",
-          key: "marketing_emails",
-          type: "boolean",
-          value: marketingEmails,
-        },
       ];
+      await setMarketingConsent(admin, gidCustomerId, marketingEmails === "true");
 
       if (company) {
         metafields.push({
@@ -245,13 +241,11 @@ async function fetchCustomerSettings(admin, customerId) {
             lastName
             displayName
             tags
-            defaultEmailAddress { emailAddress }
+            defaultEmailAddress { emailAddress marketingState }
             phone
             companyMetafield: metafield(namespace: "custom", key: "company") { value }
             whatsappMetafield: metafield(namespace: "custom", key: "whatsapp_updates") { value }
             emailNotificationsMetafield: metafield(namespace: "custom", key: "email_notifications") { value }
-            marketingEmailsMetafield: metafield(namespace: "custom", key: "marketing_emails") { value }
-            emailMarketingConsent { marketingState }
             defaultAddress {
               company
               phone
@@ -284,7 +278,7 @@ async function fetchCustomerSettings(admin, customerId) {
     return {
       customer: {
         ...c,
-        name: name || "Sarah Mitchell",
+        name: name || c.defaultEmailAddress?.emailAddress || "",
         initials,
         email: c.defaultEmailAddress?.emailAddress || "",
         tags,
@@ -344,6 +338,48 @@ async function updateCustomerProfile(admin, customerId, { firstName, lastName, p
   } catch (err) {
     console.warn("[account] customerUpdate threw (non-fatal)", err?.message || err);
     return { success: false };
+  }
+}
+
+/**
+ * Subscribe or unsubscribe the buyer from Shopify's email marketing — the
+ * consent Shopify's own marketing emails respect.
+ */
+async function setMarketingConsent(admin, customerId, subscribed) {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+        mutation CustomerMarketingConsent($input: CustomerEmailMarketingConsentUpdateInput!) {
+          customerEmailMarketingConsentUpdate(input: $input) {
+            customer { id }
+            userErrors { field message }
+          }
+        }`,
+      {
+        variables: {
+          input: {
+            customerId,
+            emailMarketingConsent: {
+              marketingState: subscribed ? "SUBSCRIBED" : "UNSUBSCRIBED",
+              marketingOptInLevel: "SINGLE_OPT_IN",
+              consentUpdatedAt: new Date().toISOString(),
+            },
+          },
+        },
+      },
+    );
+    const body = await response.json();
+    const error =
+      body?.errors?.[0]?.message ||
+      body?.data?.customerEmailMarketingConsentUpdate?.userErrors?.[0]?.message;
+    if (error) {
+      console.warn("[account] marketing consent update failed", error);
+      return { success: false, error };
+    }
+    return { success: true };
+  } catch (err) {
+    console.error("[account] marketing consent update threw", err);
+    return { success: false, error: err?.message || "Failed to update marketing consent" };
   }
 }
 

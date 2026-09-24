@@ -5,6 +5,7 @@ import { loadAccount } from "../lib/account-data.server";
 import { dashboardPage } from "../lib/account-dashboard.server";
 import { mapOrders, ordersPage, awaitingActionCount } from "../lib/account-orders.server";
 import { signedOutPage } from "../lib/account-signed-out.server";
+import { loadPromotions } from "../lib/promotions.server";
 
 /**
  * Account portal landing page.
@@ -24,7 +25,15 @@ export const loader = async ({ request }) => {
     const customerId = url.searchParams.get("logged_in_customer_id");
     if (!customerId) return liquid(signedOutPage("/apps/account"));
 
-    const { customer, isDistributor, terms, orderNodes, awaitingQuotes, failed } = await loadAccount(admin, customerId);
+    // Promotions are loaded alongside the account; a failure there leaves
+    // the dashboard without them rather than failing the whole page.
+    const [{ customer, isDistributor, terms, orderNodes, awaitingQuotes, failed }, promotions] = await Promise.all([
+      loadAccount(admin, customerId),
+      loadPromotions(admin).catch((error) => {
+        console.error("[portal] promotions failed to load", error);
+        return [];
+      }),
+    ]);
     if (failed) {
       return liquid(accountShell({ active: "dashboard", main: errorState(), customer }));
     }
@@ -48,6 +57,7 @@ export const loader = async ({ request }) => {
           // Invoices are not built yet, so there is no payment banner to show.
           payment: null,
           recentOrders: orders.slice(0, 3),
+          promotions,
         })
       : ordersPage({ orders, showDistributorPromo: true });
 

@@ -10,6 +10,7 @@
  * honest zero or empty state rather than a placeholder figure.
  */
 import { esc } from "./account-shell.server";
+import { formatDate } from "./portal.server";
 import { orderRow, ORDER_ROW_STYLES } from "./account-orders.server";
 import { orderModal, MODAL_STYLES, MODAL_SCRIPT } from "./account-order-modal.server";
 
@@ -18,7 +19,8 @@ const QUICK_ACTIONS = [
   { label: "Track Order", href: "/apps/account/orders?filter=shipped", icon: icoTruck },
   { label: "Upload Artwork", href: "/apps/account/artwork", icon: icoUpload },
   { label: "Get a Quote", href: "/apps/account/quotes", icon: icoQuote },
-  { label: "Contact Support", href: "https://hyve.promo/pages/contact", icon: icoSupport },
+  // Opens the portal's contact panel: WhatsApp, email and the hours (HYV-97).
+  { label: "Contact Support", href: "#hyve-contact", icon: icoSupport },
 ];
 
 /**
@@ -28,15 +30,25 @@ const QUICK_ACTIONS = [
  *          storeCredit:?string}} opts.stats
  * @param {?object} [opts.payment]  outstanding invoice, when one is known
  * @param {Array<object>} [opts.recentOrders]
+ * @param {Array<object>} [opts.promotions]  from loadPromotions
  */
-export function dashboardPage({ customer = null, stats = {}, payment = null, recentOrders = [] } = {}) {
+export function dashboardPage({
+  customer = null,
+  stats = {},
+  payment = null,
+  recentOrders = [],
+  promotions = [],
+} = {}) {
   const firstName = customer?.firstName || customer?.name || "";
 
   return `
     ${DASHBOARD_STYLES}
     <div class="hyve-dash">
       <h1 class="hyve-dash__title">Welcome back${firstName ? `, ${esc(firstName)}` : ""}</h1>
-      <p class="hyve-dash__sub">Here's what's happening with your orders</p>
+      <p class="hyve-dash__sub">
+        Here's what's happening with your orders.
+        <a class="hyve-dash__how" href="/pages/how-to-order">How to Order</a>
+      </p>
 
       <div class="hyve-dash__stats">
         ${statCard(icoBox(), "lime", stats.totalOrders ?? 0, "Total Orders")}
@@ -75,10 +87,75 @@ export function dashboardPage({ customer = null, stats = {}, payment = null, rec
             : `<div class="hyve-dash__empty">Your orders will appear here.</div>`
         }
       </section>
+
+      ${promotionsPanel(promotions)}
+      ${NEW_PRODUCTS_PANEL}
     </div>
     ${recentOrders.map(orderModal).join("")}
     ${MODAL_SCRIPT}`;
 }
+
+/**
+ * Current promotions, then upcoming ones marked with their start date (H3).
+ * Nothing is shown while staff have none published.
+ */
+function promotionsPanel(promotions) {
+  if (!promotions.length) return "";
+
+  return `
+    <section class="hyve-dash__panel hyve-dash__panel--next">
+      <div class="hyve-dash__panel-head">
+        <h2 class="hyve-dash__panel-title">Promotions</h2>
+      </div>
+      <div class="hyve-dash__promos">
+        ${promotions
+          .map(
+            (promo) => `
+          <article class="hyve-dash__promo">
+            <img class="hyve-dash__promo-img" src="${esc(promo.imageUrl)}" alt="${esc(promo.imageAlt || promo.title)}" loading="lazy">
+            <div class="hyve-dash__promo-body">
+              ${promo.upcoming ? `<span class="hyve-dash__promo-badge">Starts ${esc(formatDate(promo.startsOn))}</span>` : ""}
+              <h3 class="hyve-dash__promo-title">${esc(promo.title)}</h3>
+              ${promo.copy ? `<p class="hyve-dash__promo-copy">${esc(promo.copy).replace(/\n/g, "<br>")}</p>` : ""}
+              ${promo.link ? `<a class="hyve-dash__promo-btn" href="${esc(promo.link)}">${esc(promo.linkLabel || "View promotion")}</a>` : ""}
+            </div>
+          </article>`,
+          )
+          .join("")}
+      </div>
+    </section>`;
+}
+
+/**
+ * New Products (H2): the first products of the collection picked in Theme
+ * settings > Hyve: Account dashboard. Liquid, so the theme renders it for the
+ * signed-in buyer: their catalog's prices, their currency, and only products
+ * their company can buy. Hidden until a collection is picked.
+ */
+const NEW_PRODUCTS_PANEL = `
+  {%- assign hyve_new = settings.hyve_new_products_collection -%}
+  {%- if hyve_new != blank and hyve_new.products.size > 0 -%}
+    <section class="hyve-dash__panel hyve-dash__panel--next">
+      <div class="hyve-dash__panel-head">
+        <h2 class="hyve-dash__panel-title">New Products</h2>
+        <a class="hyve-dash__view-all" href="{{ hyve_new.url }}">View All</a>
+      </div>
+      <div class="hyve-dash__products">
+        {%- for product in hyve_new.products limit: 4 -%}
+          {%- assign hyve_alt = product.featured_image.alt | default: product.title -%}
+          <a class="hyve-dash__product" href="{{ product.url }}">
+            <span class="hyve-dash__product-media">
+              {%- if product.featured_image -%}
+                {{ product.featured_image | image_url: width: 480 | image_tag: loading: 'lazy', alt: hyve_alt, class: 'hyve-dash__product-img' }}
+              {%- endif -%}
+            </span>
+            <span class="hyve-dash__product-title">{{ product.title | escape }}</span>
+            <span class="hyve-dash__product-price">{% if product.price_varies %}From {% endif %}{{ product.price | money }}</span>
+          </a>
+        {%- endfor -%}
+      </div>
+    </section>
+  {%- endif -%}`;
 
 function statCard(icon, tone, value, label, note = "") {
   return `
@@ -195,6 +272,27 @@ const DASHBOARD_STYLES = `
   .hyve-dash__view-all { font-size: 12.5px; font-weight: 600; color: var(--hyve-teal-dark); text-decoration: none; }
   .hyve-dash__view-all:hover { text-decoration: underline; }
   .hyve-dash__empty { border: 1px dashed #CBD5E1; border-radius: var(--hyve-radius); padding: 32px 20px; text-align: center; color: var(--hyve-muted); font-size: 13px; }
+  .hyve-dash__panel--next { margin-top: 14px; }
+  .hyve-dash__how { color: var(--hyve-teal-dark); font-weight: 600; text-decoration: none; margin-left: 4px; }
+  .hyve-dash__how:hover { text-decoration: underline; }
+
+  .hyve-dash__promos { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+  .hyve-dash__promo { display: flex; flex-direction: column; border: 1px solid var(--hyve-border-strong); border-radius: var(--hyve-radius); overflow: hidden; background: var(--hyve-white); }
+  .hyve-dash__promo-img { display: block; width: 100%; aspect-ratio: 2 / 1; object-fit: cover; background: #F1F5F9; }
+  .hyve-dash__promo-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 14px; }
+  .hyve-dash__promo-badge { font-size: 11px; font-weight: 700; color: #1D4ED8; background: #DBEAFE; border-radius: 9999px; padding: 3px 9px; }
+  .hyve-dash__promo-title { font-family: var(--hyve-display); font-size: 15px; font-weight: 800; margin: 0; }
+  .hyve-dash__promo-copy { font-size: 13px; line-height: 1.5; color: var(--hyve-700); margin: 0; }
+  .hyve-dash__promo-btn { margin-top: 4px; font-size: 13px; font-weight: 700; color: #0A1414; background: var(--hyve-gradient); border-radius: 10px; padding: 8px 14px; text-decoration: none; }
+  .hyve-dash__promo-btn:hover { filter: brightness(0.96); }
+
+  .hyve-dash__products { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+  .hyve-dash__product { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: var(--hyve-900); }
+  .hyve-dash__product-media { display: block; aspect-ratio: 1; border-radius: var(--hyve-radius); background: #F1F5F9; overflow: hidden; }
+  .hyve-dash__product-img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s ease; }
+  .hyve-dash__product:hover .hyve-dash__product-img { transform: scale(1.03); }
+  .hyve-dash__product-title { font-size: 13px; font-weight: 600; line-height: 1.35; }
+  .hyve-dash__product-price { font-size: 13px; color: var(--hyve-700); }
 
 
   @media (max-width: 1080px) {
@@ -204,6 +302,7 @@ const DASHBOARD_STYLES = `
     .hyve-dash__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .hyve-dash__actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .hyve-dash__payment-amount { margin-left: 0; text-align: left; }
+    .hyve-dash__products { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 
   ${ORDER_ROW_STYLES}

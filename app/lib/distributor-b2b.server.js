@@ -263,13 +263,15 @@ export function parseAddressDetails(addressInput, fallbackCountry = "Singapore")
 }
 
 /**
- * Shopify only accepts a limited character set in `externalId`, and a rejected
- * value fails the whole company creation rather than being ignored.
+ * Shopify only accepts a limited character set in `externalId` — letters,
+ * numbers and !@#$%^&*(){}[]\/?<>_-~,.;:'" — and a rejected value fails the
+ * whole company creation rather than being ignored. A space is the usual
+ * offender: "Shopify Test" as a registration number is refused outright.
  */
 export function cleanExternalId(value) {
   const raw = String(value || "").trim();
   if (!raw || ["—", "-", "n/a", "undefined", "null"].includes(raw.toLowerCase())) return null;
-  const safe = raw.replace(/[^\w!@#$%^&*(){}[\]\\/?<>~,.;:'"`-]/g, "").trim();
+  const safe = raw.replace(/[^\w!@#$%^&*(){}[\]\\/?<>~,.;:'"-]/g, "").trim();
   return safe ? safe.substring(0, 255) : null;
 }
 
@@ -597,6 +599,7 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
   let fullCompany = null;
   let companyContactId = null;
   let companyCreateError = null;
+  let locationError = null;
   // The form captures the address as one block, so it's parsed into the fields
   // Shopify's address input actually wants.
   const shippingAddressInput = parseAddressDetails(addressSource, country);
@@ -670,12 +673,19 @@ Address: ${address || "—"}`;
     // If initial creation failed (e.g. location address format or companyContact issue), retry with base company input
     if (compErrors && compErrors.length > 0) {
       console.warn("[b2b] CompanyCreate initial userErrors:", JSON.stringify(compErrors));
-      companyCreateError = compErrors[0]?.message || null;
+      // Kept for the approval screen: this is the reason the location and
+      // contact were not created, and the retry below would otherwise replace
+      // it with an error of its own.
+      locationError = compErrors[0]?.message || "The company location could not be created.";
+      companyCreateError = locationError;
 
+      // The same cleaned id as the first attempt. The retry used to send the
+      // raw registration number, so a value with a space failed here with
+      // "External Id can only contain numbers, letters…" and hid the real error.
       const fallbackInput = {
         company: {
           name: companyName,
-          ...(registrationNumber ? { externalId: registrationNumber } : {}),
+          ...(safeExternalId ? { externalId: safeExternalId } : {}),
           note: companyNote,
         },
       };
@@ -688,7 +698,9 @@ Address: ${address || "—"}`;
       const retryErrors = compData?.data?.companyCreate?.userErrors || compData?.errors;
       if (retryErrors && retryErrors.length > 0) {
         console.error("[b2b] CompanyCreate retry also failed:", JSON.stringify(retryErrors));
-        companyCreateError = retryErrors[0]?.message || "The B2B company could not be created.";
+        const retryMessage = retryErrors[0]?.message || "The B2B company could not be created.";
+        companyCreateError =
+          retryMessage === locationError ? retryMessage : `${locationError} (then: ${retryMessage})`;
       }
     }
 
@@ -782,5 +794,8 @@ Address: ${address || "—"}`;
     // A customer with tags but no company is not a distributor: the portal and
     // the pricing both key off company membership.
     companyError: companyGid ? null : companyCreateError || "No B2B company was created.",
+    // Set when the company exists but Shopify refused its location and contact,
+    // so the approval screen can say why rather than only that they are missing.
+    locationError: companyGid && locationError ? locationError : null,
   };
 }

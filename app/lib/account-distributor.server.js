@@ -331,16 +331,16 @@ function renderExistingApplicationView(app, customer) {
     customer?.name ||
     customer?.displayName ||
     (customer?.firstName ? `${customer.firstName} ${customer.lastName || ""}`.trim() : "") ||
-    "Sarah Mitchell";
+    "";
 
-  const companyName = app.company_name || customer?.company || "Shopify Test";
+  const companyName = app.company_name || customer?.company || "";
   const website = app.company_website || "";
   let websiteUrl = website;
   if (website && !website.startsWith("http://") && !website.startsWith("https://")) {
     websiteUrl = "https://" + website;
   }
 
-  const operatingRegion = app.country_based || app.markets_sold || "Singapore";
+  const operatingRegion = app.country_based || app.markets_sold || "";
   const termsRequested =
     (app.request_credit === "true" || app.request_credit === true)
       ? "Net 30 terms requested"
@@ -368,7 +368,7 @@ function renderExistingApplicationView(app, customer) {
   let step3Class = "hyve-dist__step--upcoming";
 
   let mainTitle = "We are evaluating your distributor profile!";
-  let mainDescription = `Thanks for applying, <strong>${esc(contactName)}</strong>! Our Head of Customer Service, <strong>Bruce</strong>, manages application vetting. We have committed to a <strong>7 business days Review SLA</strong> and are checking your credentials.`;
+  let mainDescription = `Thanks for applying${contactName ? `, <strong>${esc(contactName)}</strong>` : ""}! Our Head of Customer Service, <strong>Bruce</strong>, manages application vetting. We have committed to a <strong>7 business days Review SLA</strong> and are checking your credentials.`;
 
   if (isApproved) {
     bannerTitle = "Application Approved & Activated";
@@ -388,7 +388,7 @@ function renderExistingApplicationView(app, customer) {
     line2Class = "hyve-dist__step-line--done";
     step3Class = "hyve-dist__step--done";
     mainTitle = "Your distributor profile is officially active!";
-    mainDescription = `Congratulations, <strong>${esc(contactName)}</strong>! You now have full access to wholesale pricing and distributor commercial terms.`;
+    mainDescription = `Congratulations${contactName ? `, <strong>${esc(contactName)}</strong>` : ""}! You now have full access to wholesale pricing and distributor commercial terms.`;
   } else if (isRejected) {
     bannerTitle = "Application Decision: Declined";
     badgeText = "Declined";
@@ -404,7 +404,7 @@ function renderExistingApplicationView(app, customer) {
     line2Class = "";
     step3Class = "hyve-dist__step--upcoming";
     mainTitle = "Distributor Application Status Update";
-    mainDescription = `Thank you for applying, <strong>${esc(contactName)}</strong>. At this time, we are unable to approve your distributor application. If you have questions, please reach out to our team.`;
+    mainDescription = `Thank you for applying${contactName ? `, <strong>${esc(contactName)}</strong>` : ""}. At this time, we are unable to approve your distributor application. If you have questions, please reach out to our team.`;
   }
 
   return `
@@ -500,7 +500,7 @@ function renderExistingApplicationView(app, customer) {
           <div class="hyve-dist__eval-grid">
             <div class="hyve-dist__eval-item">
               <span class="hyve-dist__eval-label">COMPANY NAME</span>
-              <span class="hyve-dist__eval-val">${esc(companyName)}</span>
+              <span class="hyve-dist__eval-val">${esc(companyName || "—")}</span>
             </div>
 
             <div class="hyve-dist__eval-item">
@@ -512,7 +512,7 @@ function renderExistingApplicationView(app, customer) {
 
             <div class="hyve-dist__eval-item">
               <span class="hyve-dist__eval-label">OPERATING REGION</span>
-              <span class="hyve-dist__eval-val">${esc(operatingRegion)}</span>
+              <span class="hyve-dist__eval-val">${esc(operatingRegion || "—")}</span>
             </div>
 
             <div class="hyve-dist__eval-item">

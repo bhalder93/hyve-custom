@@ -16,26 +16,13 @@ export function mapCustomerSettings(customer = null) {
   const firstName = customer?.firstName || "";
   const lastName = customer?.lastName || "";
   const displayName = customer?.displayName || "";
-  const fullName =
-    displayName ||
-    `${firstName} ${lastName}`.trim() ||
-    customer?.name ||
-    "Sarah Mitchell";
+  const fullName = displayName || `${firstName} ${lastName}`.trim() || customer?.name || "";
 
-  const email =
-    customer?.email ||
-    customer?.defaultEmailAddress?.emailAddress ||
-    "sarah@acmecorp.sg";
+  const email = customer?.email || customer?.defaultEmailAddress?.emailAddress || "";
 
-  const company =
-    customer?.companyMetafield?.value ||
-    customer?.defaultAddress?.company ||
-    "Acme Corp Pte. Ltd.";
+  const company = customer?.companyMetafield?.value || customer?.defaultAddress?.company || "";
 
-  const phone =
-    customer?.phone ||
-    customer?.defaultAddress?.phone ||
-    "+65 9123 4567";
+  const phone = customer?.phone || customer?.defaultAddress?.phone || "";
 
   // Notification preferences
   // WhatsApp Updates stored in customer metafield: custom.whatsapp_updates
@@ -49,10 +36,9 @@ export function mapCustomerSettings(customer = null) {
       ? customer.emailNotificationsMetafield.value === "true" || customer.emailNotificationsMetafield.value === true
       : true; // default ON matching screenshot
 
-  const marketingEmails =
-    customer?.marketingEmailsMetafield?.value != null
-      ? customer.marketingEmailsMetafield.value === "true" || customer.marketingEmailsMetafield.value === true
-      : customer?.emailMarketingConsent?.marketingState === "SUBSCRIBED" || true; // default ON matching screenshot
+  // Marketing is Shopify's own email marketing consent, the one Shopify's
+  // marketing emails obey, rather than a separate flag of ours.
+  const marketingEmails = customer?.defaultEmailAddress?.marketingState === "SUBSCRIBED";
 
   return {
     id: customer?.id || "",
@@ -599,13 +585,18 @@ const SETTINGS_SCRIPT = `
           headers: { 'Accept': 'application/json' },
         });
 
-        if (res.ok) {
+        const body = res.ok ? await res.json().catch(() => null) : null;
+        if (body && body.success) {
           showBriefToast(key === 'whatsappUpdates'
             ? (isChecked ? 'WhatsApp updates enabled' : 'WhatsApp updates disabled')
             : 'Notification preference saved');
+        } else {
+          input.checked = !isChecked;
+          showBriefToast("That preference couldn't be saved. Please try again.");
         }
       } catch (err) {
         console.warn('Failed to save toggle async', err);
+        input.checked = !isChecked;
       }
     });
   });

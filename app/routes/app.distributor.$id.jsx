@@ -278,6 +278,16 @@ export const action = async ({ request, params }) => {
 
       updates.company_id = b2bResult.companyId;
 
+      // The company exists but Shopify refused its location, so the steps below
+      // can only report it missing. This says why — usually the address.
+      if (b2bResult.locationError) {
+        onboardingSteps.push({
+          name: "location",
+          ok: false,
+          detail: `Shopify refused the company location: ${b2bResult.locationError}`,
+        });
+      }
+
       // Finish the setup: ordering role, payment terms, tier catalog, sales rep.
       // Each step reports its own outcome so a partial setup is visible.
       const onboarding = await completeB2BOnboarding(admin, b2bResult.companyId, {

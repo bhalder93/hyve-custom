@@ -58,15 +58,25 @@ export function keyForUrl(url) {
   return q === -1 ? raw : raw.slice(0, q);
 }
 
+/**
+ * `syncedOrders` lists the orders already read for artwork (see
+ * syncOrderArtwork). Null on a library that has never been synced.
+ */
 function emptyDoc() {
-  return { version: DOC_VERSION, files: [] };
+  return { version: DOC_VERSION, files: [], syncedOrders: null };
 }
 
 function parseDoc(value) {
   if (!value) return emptyDoc();
   try {
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
-    if (parsed && Array.isArray(parsed.files)) return { version: DOC_VERSION, files: parsed.files };
+    if (parsed && Array.isArray(parsed.files)) {
+      return {
+        version: DOC_VERSION,
+        files: parsed.files,
+        syncedOrders: Array.isArray(parsed.syncedOrders) ? parsed.syncedOrders : null,
+      };
+    }
   } catch {
     /* fall through to an empty library rather than losing the page */
   }
@@ -104,21 +114,6 @@ export function artworkOwnerGid({ companyId, customerId } = {}) {
   return customerId ? `gid://shopify/Customer/${String(customerId).replace(/\D/g, "")}` : "";
 }
 
-/**
- * The company a customer buys for, if any. Used where there is no portal
- * session to read it from, such as a webhook.
- */
-export async function companyGidForCustomer(admin, customerGid) {
-  const data = await gql(admin, `#graphql
-    query ArtworkOwnerCompany($id: ID!) {
-      customer(id: $id) {
-        companyContactProfiles { company { id } }
-      }
-    }`, { id: customerGid });
-
-  return data?.customer?.companyContactProfiles?.[0]?.company?.id || null;
-}
-
 /* ---------------- read ---------------- */
 
 /**
@@ -135,6 +130,8 @@ export async function listArtwork(admin, ownerGid, legacyGid = null) {
     if (legacyGid && legacyGid !== ownerGid) {
       doc = await absorbLegacyLibrary(admin, ownerGid, legacyGid, doc);
     }
+
+    doc = await syncOrderArtwork(admin, ownerGid, doc);
 
     // Shopify processes uploads asynchronously, so a file saved moments ago is
     // still pointing at its temporary staged URL. Swap in the permanent one as
@@ -259,14 +256,15 @@ export async function uploadArtwork(admin, ownerGid, file) {
   }
 }
 
-/* ---------------- record order usage (the PDP -> library link) ---------------- */
+/* ---------------- record order usage ---------------- */
 
 /**
- * Called from the orders/create webhook. Adds any artwork found on the order's
- * line-item properties to the library, and records the order against it.
+ * Records files the buyer supplied for an existing order from the portal, and
+ * the order against them. Artwork the product page attached at checkout comes
+ * in through syncOrderArtwork instead, when the library is read.
  *
  * Idempotent: an order already recorded against an entry is not added twice, so
- * a replayed webhook cannot inflate the count.
+ * a repeated upload cannot inflate the count.
  *
  * @param {Array<{url:string, filename:string}>} artworks
  * @param {{id:string, name:string, createdAt:string}} order
@@ -274,56 +272,97 @@ export async function uploadArtwork(admin, ownerGid, file) {
 export async function recordOrderArtwork(admin, ownerGid, artworks, order) {
   if (!admin || !ownerGid || !artworks?.length) return { ok: true, added: 0 };
 
-  const result = await mutateDoc(admin, ownerGid, (doc) => {
-    for (const art of artworks) {
-      const key = keyForUrl(art.url);
-      if (!key) continue;
-
-      let entry = doc.files.find((f) => f.id === key);
-      if (!entry) {
-        entry = {
-          id: key,
-          url: art.url,
-          filename: art.filename || key.split("/").pop() || "Artwork",
-          uploadedAt: order.createdAt || new Date().toISOString(),
-          source: "order",
-          orders: [],
-        };
-        doc.files.push(entry);
-      }
-
-      if (!Array.isArray(entry.orders)) entry.orders = [];
-      if (!entry.orders.some((o) => o.id === order.id)) {
-        entry.orders.push({ id: order.id, name: order.name, at: order.createdAt });
-      }
-    }
-    return doc;
-  });
+  const result = await mutateDoc(admin, ownerGid, (doc) => addOrderArtwork(doc, artworks, order));
 
   return { ok: result.ok, added: artworks.length };
 }
 
+/** Adds each file to the library if new, and the order to its list. */
+function addOrderArtwork(doc, artworks, order) {
+  for (const art of artworks) {
+    const key = keyForUrl(art.url);
+    if (!key) continue;
+
+    let entry = doc.files.find((f) => f.id === key);
+    if (!entry) {
+      entry = {
+        id: key,
+        url: art.url,
+        filename: art.filename || key.split("/").pop() || "Artwork",
+        uploadedAt: order.createdAt || new Date().toISOString(),
+        source: "order",
+        orders: [],
+      };
+      doc.files.push(entry);
+    }
+
+    if (!Array.isArray(entry.orders)) entry.orders = [];
+    if (!entry.orders.some((o) => o.id === order.id)) {
+      entry.orders.push({ id: order.id, name: order.name, at: order.createdAt });
+    }
+  }
+  return doc;
+}
+
+/** How many recent orders each read looks at, and how many it remembers. */
+const SYNC_ORDERS = 25;
+const SYNCED_ORDERS_KEPT = 250;
+
+const OWNER_ORDERS_QUERY = `#graphql
+  query ArtworkOwnerOrders($id: ID!, $first: Int!) {
+    node(id: $id) {
+      ... on Company {
+        orders(first: $first, sortKey: CREATED_AT, reverse: true) { nodes { ...ArtworkOrder } }
+      }
+      ... on Customer {
+        orders(first: $first, sortKey: CREATED_AT, reverse: true) { nodes { ...ArtworkOrder } }
+      }
+    }
+  }
+  fragment ArtworkOrder on Order {
+    id
+    name
+    createdAt
+    lineItems(first: 20) { nodes { customAttributes { key value } } }
+  }`;
+
 /**
- * Pull artwork out of an order webhook payload.
+ * Brings in the artwork the product page attached to the owner's orders — a
+ * company's orders for a distributor, the customer's own for a retail buyer,
+ * the same orders the portal lists.
  *
- * The product page uploads one file per decoration zone as a line-item
- * property, so the property value is a URL on Shopify's CDN. Underscore-
- * prefixed properties are the theme's own bookkeeping and are skipped.
- *
- * @param {object} payload orders/create webhook body
+ * Each order is read once and remembered in `syncedOrders`, so a file the
+ * buyer later deletes (allowed once its orders have closed) doesn't come back.
+ * The first sync of a library reads the recent orders it has never seen.
  */
-export function artworkFromOrderPayload(payload) {
-  return artworkFromAttributes(
-    (payload?.line_items || []).flatMap((line) =>
-      (line?.properties || []).map((prop) => ({ key: prop?.name, value: prop?.value })),
-    ),
-  );
+async function syncOrderArtwork(admin, ownerGid, doc) {
+  const data = await gql(admin, OWNER_ORDERS_QUERY, { id: ownerGid, first: SYNC_ORDERS });
+  const orders = data?.node?.orders?.nodes || [];
+
+  const seen = new Set(doc.syncedOrders || []);
+  const fresh = orders.filter((order) => order?.id && !seen.has(order.id));
+  if (!fresh.length) return doc;
+
+  const saved = await mutateDoc(admin, ownerGid, (current) => {
+    for (const order of fresh) {
+      const attributes = (order.lineItems?.nodes || []).flatMap((line) => line.customAttributes || []);
+      addOrderArtwork(current, artworkFromAttributes(attributes), order);
+    }
+    current.syncedOrders = [...new Set([...fresh.map((order) => order.id), ...(current.syncedOrders || [])])]
+      .slice(0, SYNCED_ORDERS_KEPT);
+    return current;
+  });
+
+  return saved.ok ? saved.doc : doc;
 }
 
 /**
- * The same rule applied to line-item properties read through the Admin API,
- * where they arrive as `customAttributes` with `key` instead of `name`. Used
- * by the order detail to list the artwork already on an order.
+ * The artwork on an order's line-item properties, read through the Admin API.
+ *
+ * The product page uploads one file per decoration zone as a line-item
+ * property, so the property value is a URL on Shopify's CDN. Underscore-
+ * prefixed properties are the theme's own bookkeeping and are skipped. Used by
+ * the library sync and by the order detail to list the artwork on an order.
  *
  * @param {Array<{key?:string, value?:string}>} attributes
  */
@@ -434,7 +473,7 @@ async function absorbLegacyLibrary(admin, ownerGid, legacyGid, current) {
     existing.orders = orders;
   }
 
-  const merged = { version: DOC_VERSION, files: [...byId.values()] };
+  const merged = { ...current, files: [...byId.values()] };
   const saved = await mutateDoc(admin, ownerGid, () => merged);
   if (!saved.ok) return current;
 
@@ -495,7 +534,7 @@ async function mutateDoc(admin, ownerGid, transform) {
     console.warn("[artwork] library write failed", error);
     return { ok: false, error: "Your library could not be updated." };
   }
-  return { ok: true };
+  return { ok: true, doc: next };
 }
 
 async function gql(admin, query, variables) {

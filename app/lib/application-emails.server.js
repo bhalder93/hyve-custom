@@ -1,14 +1,12 @@
 /**
  * The two emails a distributor application sends: a confirmation to the
- * applicant, and a notification to Hyve.
+ * applicant, and a notification to Hyve. Both use the same branded frame as
+ * the order emails.
  */
 import { internalNotifyTarget } from "./internal-notify.server";
+import { brandedEmail, escapeHtml } from "../utils/email.server";
 
-function row(label, value) {
-  return value
-    ? `<tr><td style="padding:4px 14px 4px 0;color:#64748B;">${label}</td><td style="padding:4px 0;"><strong>${value}</strong></td></tr>`
-    : "";
-}
+const PARAGRAPH = 'style="margin:0 0 14px; line-height:1.7; font-size:15px;"';
 
 /**
  * Tells the applicant we have it, and when to expect an answer (B7).
@@ -20,10 +18,16 @@ export async function sendApplicationEmails(admin, application) {
 
   const company = application.companyName || "your company";
   const applicant = application.contactPerson || "";
+  const submitted = new Date().toLocaleDateString("en-SG", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Singapore",
+  });
 
   const confirmation = sendEmail({
     to: application.customerEmail,
-    subject: `We've received your ${shopName} distributor application`,
+    subject: `Application Received - ${shopName} distributor programme`,
     text: [
       applicant ? `Hi ${applicant},` : "Hi,",
       "",
@@ -34,20 +38,29 @@ export async function sendApplicationEmails(admin, application) {
       "",
       shopName,
     ].join("\n"),
-    html: `
-      <div style="font-family:-apple-system,'Segoe UI',sans-serif;font-size:15px;color:#0F172A;line-height:1.6;">
-        <p>${applicant ? `Hi ${applicant},` : "Hi,"}</p>
-        <p>Thank you for applying to the ${shopName} distributor programme for <strong>${company}</strong>.</p>
-        <p>Your application is under review. We will come back to you <strong>within seven business days</strong>,
-           and if you are approved we will help you get set up.</p>
-        <p style="color:#64748B;font-size:13.5px;">${shopName}</p>
-      </div>`,
+    html: brandedEmail({
+      title: "Application Received",
+      greeting: applicant ? `Hi ${escapeHtml(applicant)},` : "Hi,",
+      body: `
+        <p ${PARAGRAPH}>
+          Thank you for applying to the ${escapeHtml(shopName)} distributor programme for
+          <strong>${escapeHtml(company)}</strong>.
+        </p>
+        <p ${PARAGRAPH}>
+          Your application is under review. We will come back to you
+          <strong>within seven business days</strong>, and if you are approved we will help you get set up.
+        </p>`,
+      details: [
+        ["Company", escapeHtml(company)],
+        ["Submitted", escapeHtml(submitted)],
+      ],
+    }),
   });
 
   const internal = internalTo
     ? sendEmail({
         to: internalTo,
-        subject: `New distributor application — ${company}`,
+        subject: `New Distributor Application - ${company}`,
         text: [
           `${company} has applied to the distributor programme.`,
           "",
@@ -61,21 +74,24 @@ export async function sendApplicationEmails(admin, application) {
           "",
           "Review it in the Hyve app, under Distributors.",
         ].join("\n"),
-        html: `
-          <div style="font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;color:#0F172A;line-height:1.6;">
-            <p><strong>${company}</strong> has applied to the distributor programme.</p>
-            <table style="font-size:13.5px;border-collapse:collapse;">
-              ${row("Contact", `${applicant || "—"} &lt;${application.customerEmail || "no email"}&gt;`)}
-              ${row("Phone", application.contactPhone)}
-              ${row("Based in", application.countryBased)}
-              ${row("Business type", application.businessType)}
-              ${row("Relation", application.relationToBusiness)}
-              ${row("Preferred currency", application.preferredCurrency)}
-              ${row("Markets", application.marketsSold)}
-              ${row("Credit terms requested", application.requestCredit ? "Yes" : "No")}
-            </table>
-            <p style="color:#64748B;font-size:13px;">Review it in the Hyve app, under Distributors.</p>
-          </div>`,
+        html: brandedEmail({
+          title: "New Distributor Application",
+          body: `
+            <p ${PARAGRAPH}>
+              <strong>${escapeHtml(company)}</strong> has applied to the distributor programme.
+              Review it in the Hyve app, under Distributors.
+            </p>`,
+          details: [
+            ["Contact", escapeHtml(`${applicant || "—"} <${application.customerEmail || "no email"}>`)],
+            ["Phone", escapeHtml(application.contactPhone || "—")],
+            ["Based in", escapeHtml(application.countryBased || "—")],
+            ["Business type", escapeHtml(application.businessType || "—")],
+            ["Relation", escapeHtml(application.relationToBusiness || "—")],
+            ["Preferred currency", escapeHtml(application.preferredCurrency || "—")],
+            ["Markets", escapeHtml(application.marketsSold || "—")],
+            ["Credit terms requested", application.requestCredit ? "Yes" : "No"],
+          ],
+        }),
       })
     : Promise.resolve();
 

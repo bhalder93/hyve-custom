@@ -8,8 +8,7 @@
  * so the customer can still find their orders while we're broken.
  */
 import { esc } from "./account-shell.server";
-
-const SUPPORT_EMAIL = "support@hyve.promo";
+import { SUPPORT_EMAIL } from "./customer-service.server";
 
 /** Native Shopify account URL — Liquid resolves this (responses are application/liquid). */
 const NATIVE_ACCOUNT_URL = "{{ routes.account_url }}";

@@ -1,6 +1,7 @@
 import { authenticate } from "../shopify.server";
 import { retrieveQuotePage, retrievedQuotePage, expiredQuotePage } from "../lib/quote-retrieve.server";
 import { findExpiredQuote } from "../lib/expired-quotes.server";
+import { QUOTE_OWNER_FIELDS, quoteEmails } from "../lib/quote-document.server";
 import { formatMoney, formatDate } from "../lib/portal.server";
 
 /**
@@ -24,7 +25,12 @@ const FIND_QUERY = `#graphql
   query FindQuote($after: String) {
     draftOrders(first: 250, after: $after, sortKey: UPDATED_AT, reverse: true) {
       pageInfo { hasNextPage endCursor }
-      nodes { id name email }
+      nodes {
+        id
+        name
+        email
+        ${QUOTE_OWNER_FIELDS}
+      }
     }
   }`;
 
@@ -103,10 +109,10 @@ export const action = async ({ request }) => {
       }
 
       const page_ = body?.data?.draftOrders;
+      // A quote raised from a company account carries the company, not an
+      // email of its own, so the person it was raised for counts too.
       match = (page_?.nodes || []).find(
-        (draft) =>
-          quoteDigits(draft.name) === wantedNumber &&
-          String(draft.email || "").toLowerCase() === wanted,
+        (draft) => quoteDigits(draft.name) === wantedNumber && quoteEmails(draft).includes(wanted),
       );
       if (match || !page_?.pageInfo?.hasNextPage) break;
       after = page_.pageInfo.endCursor;

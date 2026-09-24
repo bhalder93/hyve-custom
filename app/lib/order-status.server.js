@@ -25,8 +25,11 @@ import { sendArtworkReceivedEmail, sendProofApprovedEmail } from "../utils/email
 const STATUS_TAG_PREFIX = "hyve-status:";
 const NOTIFIED_TAG_PREFIX = "hyve-notified:";
 
-/** Recorded on the history entry, next to the webhooks' and the admin screen's. */
-const SOURCE = "CUSTOMER_PORTAL";
+/**
+ * Recorded on the history entry, next to the webhooks' and the admin screen's:
+ * a move made signed in to the portal, or from a link in the proof email.
+ */
+export const SOURCES = { portal: "CUSTOMER_PORTAL", proofEmail: "PROOF_EMAIL" };
 
 /**
  * The only moves a buyer makes, each allowed by the Production Orders screen's
@@ -57,6 +60,7 @@ export const PRODUCTION_ORDER_FRAGMENT = `#graphql
     productionStatus: metafield(namespace: "$app", key: "production_status") { value }
     rush: metafield(namespace: "$app", key: "rush") { value }
     proofVersion: metafield(namespace: "$app", key: "proof_version") { value }
+    proofUrl: metafield(namespace: "$app", key: "proof_url") { value }
     lineItems(first: 100) {
       nodes {
         title
@@ -140,10 +144,14 @@ export function productionStatusOf(order) {
 
 /**
  * @param {object} order loaded with PRODUCTION_ORDER_FRAGMENT
- * @param {{to:string, changedBy:string, note?:string, onHoldReason?:string}} move
+ * @param {{to:string, changedBy:string, note?:string, onHoldReason?:string, source?:string}} move
  * @returns {Promise<{ok:true, from:string, productionDueAt:string|null, emailError?:string}|{ok:false, error:string}>}
  */
-export async function changeProductionStatus(admin, order, { to, changedBy, note = "", onHoldReason = "" }) {
+export async function changeProductionStatus(
+  admin,
+  order,
+  { to, changedBy, note = "", onHoldReason = "", source = SOURCES.portal },
+) {
   const from = productionStatusOf(order);
   if (!(PORTAL_MOVES[from] || []).includes(to)) {
     return { ok: false, error: "This order has already moved on, so that can't be done from here." };
@@ -187,7 +195,7 @@ export async function changeProductionStatus(admin, order, { to, changedBy, note
     { key: "to_status", value: to },
     { key: "changed_at", value: changedAt },
     { key: "changed_by", value: changedBy || "Customer" },
-    { key: "source", value: SOURCE },
+    { key: "source", value: source },
   ];
   if (note.trim()) fields.push({ key: "note", value: note.trim() });
   check(

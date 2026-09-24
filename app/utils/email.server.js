@@ -3,6 +3,7 @@
 // One SMTP connection for the whole app, shared with the quote and team emails
 // so there is a single pooled transport and a single set of settings.
 import { getMailer, getDefaultFrom } from "../lib/email/mailer.server";
+import { customerStatusLabel } from "../lib/portal.server";
 
 
 const BRAND = {
@@ -19,7 +20,7 @@ const BRAND = {
 };
 
 
-function escapeHtml(value) {
+export function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -303,6 +304,10 @@ function lineItemsSection(lineItems = []) {
   `;
 }
 
+/**
+ * An order email: the branded frame with the order's lines and its number and
+ * date underneath.
+ */
 function customerLayout({
   title,
   customerName,
@@ -311,6 +316,40 @@ function customerLayout({
   body,
   lineItems = [],
 }) {
+  return brandedEmail({
+    title,
+    greeting: `Hi ${escapeHtml(customerName || "Customer")},`,
+    body: `${body}
+
+                    ${lineItemsSection(lineItems)}`,
+    details: [
+      ["Order", escapeHtml(orderName)],
+      ["Order date", escapeHtml(formatDate(orderDate))],
+    ],
+  });
+}
+
+/**
+ * The one Hyve email frame: header, title, greeting, body, an optional block of
+ * details under a rule, and the support footer. Every email the app sends to a
+ * customer or to Hyve staff uses it, so they all look the same.
+ *
+ * @param {object} opts
+ * @param {string} opts.title plain text, escaped here
+ * @param {?string} [opts.greeting] HTML, already escaped; omitted when null
+ * @param {string} opts.body HTML
+ * @param {Array<[string, string]>} [opts.details] label and HTML value rows
+ */
+export function brandedEmail({ title, greeting = null, body, details = [] }) {
+  const detailRows = details
+    .map(
+      ([label, value]) => `
+                          <strong style="color:${BRAND.primaryText};">${escapeHtml(label)}:</strong>
+                          ${value}`,
+    )
+    .join(`
+                          <br />`);
+
   return `
     <!doctype html>
     <html>
@@ -396,15 +435,13 @@ function customerLayout({
                       ${escapeHtml(title)}
                     </div>
 
-                    <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
-                      Hi ${escapeHtml(customerName || "Customer")},
-                    </p>
+                    ${greeting ? `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+                      ${greeting}
+                    </p>` : ""}
 
                     ${body}
 
-                    ${lineItemsSection(lineItems)}
-
-                    <table
+                    ${detailRows ? `<table
                       width="100%"
                       cellspacing="0"
                       cellpadding="0"
@@ -422,15 +459,10 @@ function customerLayout({
                             color:${BRAND.secondaryText};
                             padding-top:18px;
                           "
-                        >
-                          <strong style="color:${BRAND.primaryText};">Order:</strong>
-                          ${escapeHtml(orderName)}
-                          <br />
-                          <strong style="color:${BRAND.primaryText};">Order date:</strong>
-                          ${escapeHtml(formatDate(orderDate))}
+                        >${detailRows}
                         </td>
                       </tr>
-                    </table>
+                    </table>` : ""}
                   </td>
                 </tr>
 
@@ -490,6 +522,7 @@ export async function sendEmail({
   html,
   text,
   replyTo,
+  attachments,
 }) {
   if (!to) {
     throw new Error("Email recipient is required.");
@@ -503,6 +536,7 @@ export async function sendEmail({
     subject,
     html,
     text,
+    attachments,
     replyTo:
       replyTo ||
       process.env.EMAIL_REPLY_TO ||
@@ -532,7 +566,7 @@ export async function sendArtworkReceivedEmail({
   lineItems = [],
 }) {
   const html = customerLayout({
-    title: "Artwork received",
+    title: customerStatusLabel("artwork-received"),
     customerName,
     orderName,
     orderDate,
@@ -554,7 +588,7 @@ export async function sendArtworkReceivedEmail({
 
   return sendEmail({
     to: customerEmail,
-    subject: `Artwork received - ${orderName}`,
+    subject: `${customerStatusLabel("artwork-received")} - ${orderName}`,
     html,
     text: `Artwork received for ${orderName}. Our team will now prepare your proof.`,
   });
@@ -571,14 +605,19 @@ export async function sendProofSentEmail({
   orderDate,
   proofUrl,
   proofVersion,
+  approveUrl,
+  changesUrl,
   lineItems = [],
 }) {
   if (!proofUrl) {
     throw new Error("Proof URL is required.");
   }
+  if (!approveUrl || !changesUrl) {
+    throw new Error("Approve and Request changes links are required.");
+  }
 
   const html = customerLayout({
-    title: "Your proof is ready for approval",
+    title: customerStatusLabel("proof-sent"),
     customerName,
     orderName,
     orderDate,
@@ -595,7 +634,8 @@ export async function sendProofSentEmail({
       >
         <div style="font-size:15px; line-height:1.6; color:${BRAND.primaryText};">
           <strong>Action required:</strong>
-          Please review your proof and reply to this email to approve it or request changes.
+          Please review your proof, then approve it or request changes with the buttons below.
+          No sign-in needed.
         </div>
       </div>
 
@@ -617,6 +657,43 @@ export async function sendProofSentEmail({
         </a>
       </div>
 
+      <div style="margin:0 0 22px;">
+        <a
+          href="${escapeHtml(approveUrl)}"
+          style="
+            display:inline-block;
+            margin:0 8px 8px 0;
+            padding:14px 22px;
+            background:${BRAND.gradient};
+            background-color:#A3EA6E;
+            color:#0A1414;
+            text-decoration:none;
+            border-radius:10px;
+            font-size:14px;
+            font-weight:700;
+          "
+        >
+          Approve Proof
+        </a>
+        <a
+          href="${escapeHtml(changesUrl)}"
+          style="
+            display:inline-block;
+            margin:0 0 8px;
+            padding:13px 21px;
+            background:#ffffff;
+            color:#0f172a;
+            text-decoration:none;
+            border:1px solid #0f172a;
+            border-radius:10px;
+            font-size:14px;
+            font-weight:700;
+          "
+        >
+          Request Changes
+        </a>
+      </div>
+
       <p style="margin:0; line-height:1.7; font-size:15px;">
         <strong>Proof version:</strong>
         ${escapeHtml(proofVersion)}
@@ -626,9 +703,9 @@ export async function sendProofSentEmail({
 
   return sendEmail({
     to: customerEmail,
-    subject: `Proof ready for approval - ${orderName}`,
+    subject: `${customerStatusLabel("proof-sent")} - ${orderName}`,
     html,
-    text: `Your proof for ${orderName} is ready. View: ${proofUrl}. Reply to approve or request changes.`,
+    text: `Your proof for ${orderName} is ready. View: ${proofUrl}\nApprove: ${approveUrl}\nRequest changes: ${changesUrl}`,
     replyTo: process.env.EMAIL_REPLY_TO,
   });
 }
@@ -714,7 +791,7 @@ export async function sendProofApprovedEmail({
   }
 
   const html = customerLayout({
-    title: "Proof approved and production starting",
+    title: customerStatusLabel("proof-approved"),
     customerName,
     orderName,
     orderDate,
@@ -768,7 +845,7 @@ export async function sendProofApprovedEmail({
 
   return sendEmail({
     to: customerEmail,
-    subject: `Proof approved - production starting - ${orderName}`,
+    subject: `${customerStatusLabel("proof-approved")} - ${orderName}`,
     html,
     text: `Your proof for ${orderName} has been approved. Production target: ${formatDate(productionDueAt)}.`,
   });
@@ -777,6 +854,33 @@ export async function sendProofApprovedEmail({
 /* -------------------------------------------------------------------------- */
 /* MSG-07 Production Complete                                                 */
 /* -------------------------------------------------------------------------- */
+
+const PHOTO_CID = "production-photo@hyve";
+const PHOTO_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * The production photo as an inline attachment, when the link staff saved is
+ * the image itself (a Shopify Files link, for one). A link to a page that
+ * shows the image, such as a Drive share, can't be embedded, so that email
+ * carries the link alone.
+ */
+async function productionPhotoAttachment(url) {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const type = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    if (!response.ok || !type.startsWith("image/")) return null;
+    if (Number(response.headers.get("content-length") || 0) > PHOTO_MAX_BYTES) return null;
+
+    const content = Buffer.from(await response.arrayBuffer());
+    if (content.length > PHOTO_MAX_BYTES) return null;
+
+    const extension = type.split("/")[1].split("+")[0].replace("jpeg", "jpg");
+    return { filename: `production-photo.${extension}`, content, contentType: type, cid: PHOTO_CID };
+  } catch (error) {
+    console.error("[email] production photo could not be fetched:", error?.message || error);
+    return null;
+  }
+}
 
 export async function sendProductionCompleteEmail({
   customerEmail,
@@ -790,8 +894,10 @@ export async function sendProductionCompleteEmail({
     throw new Error("Production photo URL is required.");
   }
 
+  const photo = await productionPhotoAttachment(productionPhotoUrl);
+
   const html = customerLayout({
-    title: "Production complete",
+    title: customerStatusLabel("production-complete"),
     customerName,
     orderName,
     orderDate,
@@ -804,7 +910,14 @@ export async function sendProductionCompleteEmail({
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
         Your order is now being prepared for shipment.
       </p>
-
+${photo ? `
+      <img
+        src="cid:${PHOTO_CID}"
+        alt="Production photo for ${escapeHtml(orderName)}"
+        width="520"
+        style="display:block; width:100%; max-width:520px; height:auto; margin:22px 0 0; border-radius:12px; border:1px solid ${BRAND.border};"
+      />
+` : ""}
       <div style="margin:22px 0;">
         <a
           href="${escapeHtml(productionPhotoUrl)}"
@@ -827,9 +940,10 @@ export async function sendProductionCompleteEmail({
 
   return sendEmail({
     to: customerEmail,
-    subject: `Production complete - ${orderName}`,
+    subject: `${customerStatusLabel("production-complete")} - ${orderName}`,
     html,
     text: `Production for ${orderName} is complete. Production photo: ${productionPhotoUrl}`,
+    attachments: photo ? [photo] : undefined,
   });
 }
 

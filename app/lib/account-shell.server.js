@@ -18,12 +18,12 @@
  * large on the live store.
  */
 
-const WHATSAPP_NUMBER = "6569322855";
-
-// The advertised opening hours are deliberately absent: the storefront carries
-// two different sets (9am–5pm in the cart, 9am–6pm in the footer), and M6 asks
-// for one set everywhere. Quoting either here would add a third voice.
-const CONTACT_PAGE = "https://hyve.promo/pages/contact";
+import {
+  WHATSAPP_URL,
+  WHATSAPP_DISPLAY,
+  SUPPORT_EMAIL,
+  SERVICE_HOURS,
+} from "./customer-service.server";
 
 /** Shared group (H6). Dashboard is distributor-only; B2C lands on Orders. */
 const NAV_SHARED = [
@@ -118,13 +118,12 @@ export function accountShell({
   </div>
 
   <div class="hyve-acct__contact">
-    <a class="hyve-acct__contact-btn hyve-acct__contact-btn--mail" href="${CONTACT_PAGE}" target="_blank" rel="noopener" aria-label="Email customer service">
-      ${icoMail()}
-    </a>
-    <a class="hyve-acct__whatsapp" href="https://wa.me/${WHATSAPP_NUMBER}" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">
+    ${contactPanel()}
+    <a class="hyve-acct__whatsapp" href="${WHATSAPP_URL}" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">
       ${icoWhatsApp()}
     </a>
   </div>
+  ${CONTACT_SCRIPT}
   `;
 }
 
@@ -200,6 +199,53 @@ function icoLogout() { return svg('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-
 function icoAward() { return svg('<circle cx="12" cy="8" r="6"/><path d="M15.5 13.5 17 22l-5-3-5 3 1.5-8.5"/>'); }
 function icoShield() { return svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'); }
 function icoUser() { return svg('<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>'); }
+/**
+ * HYV-97: both channels and the one set of hours, on every page. A native
+ * disclosure, so it opens without any script; the script below only lets the
+ * dashboard's Contact Support tile open it too, and closes it on Escape or a
+ * click elsewhere.
+ */
+function contactPanel() {
+  return `
+    <details class="hyve-acct__contact-panel" id="hyve-contact">
+      <summary class="hyve-acct__contact-btn" aria-label="Contact customer service">${icoMail()}</summary>
+      <div class="hyve-acct__contact-card">
+        <strong class="hyve-acct__contact-title">Contact customer service</strong>
+        <a class="hyve-acct__contact-row" href="${WHATSAPP_URL}" target="_blank" rel="noopener">
+          <span class="hyve-acct__contact-icon hyve-acct__contact-icon--wa">${icoWhatsApp()}</span>
+          <span><span class="hyve-acct__contact-label">WhatsApp</span><span class="hyve-acct__contact-value">${WHATSAPP_DISPLAY}</span></span>
+        </a>
+        <a class="hyve-acct__contact-row" href="mailto:${SUPPORT_EMAIL}">
+          <span class="hyve-acct__contact-icon">${icoMail()}</span>
+          <span><span class="hyve-acct__contact-label">Email</span><span class="hyve-acct__contact-value">${SUPPORT_EMAIL}</span></span>
+        </a>
+        <p class="hyve-acct__contact-hours">${SERVICE_HOURS}</p>
+      </div>
+    </details>`;
+}
+
+const CONTACT_SCRIPT = `
+<script>
+(function () {
+  var panel = document.getElementById('hyve-contact');
+  if (!panel) return;
+  document.addEventListener('click', function (event) {
+    var opener = event.target.closest && event.target.closest('a[href="#hyve-contact"]');
+    if (opener) {
+      event.preventDefault();
+      panel.open = true;
+      var first = panel.querySelector('.hyve-acct__contact-row');
+      if (first) first.focus();
+      return;
+    }
+    if (panel.open && !panel.contains(event.target)) panel.open = false;
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && panel.open) panel.open = false;
+  });
+})();
+</script>`;
+
 function icoMail() { return svg('<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>'); }
 function icoWhatsApp() {
   return `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" width="27" height="27"><path d="M17.47 14.38c-.3-.15-1.75-.86-2.02-.96-.27-.1-.47-.15-.67.15-.2.3-.77.96-.94 1.16-.17.2-.35.22-.64.07-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.47-1.75-1.65-2.05-.17-.3-.02-.46.13-.6.13-.14.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.6-.92-2.2-.24-.58-.49-.5-.67-.5h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.01-1.04 2.47s1.06 2.86 1.21 3.06c.15.2 2.1 3.2 5.08 4.49.71.3 1.26.49 1.69.63.71.22 1.36.19 1.87.12.57-.09 1.75-.72 2-1.41.25-.69.25-1.28.17-1.41-.07-.13-.27-.2-.57-.35z"/><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.87 9.87 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2zm0 18.13h-.01a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.17 8.17 0 0 1-1.26-4.36c0-4.53 3.7-8.22 8.25-8.22a8.22 8.22 0 0 1 8.24 8.23c0 4.53-3.7 8.21-8.24 8.21z"/></svg>`;
@@ -338,7 +384,12 @@ const SHELL_STYLES = `
   .hyve-acct__main { min-width: 0; padding: 24px 24px 80px; height: calc(100dvh - 71px); overflow: auto; }
 
   /* M6: both channels, on every page of the portal. */
-  .hyve-acct__contact { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  /* Fixed outside .hyve-acct, so it carries the portal's tokens and type itself. */
+  .hyve-acct__contact {
+    ${PORTAL_TOKENS}
+    position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; flex-direction: column; align-items: center; gap: 10px;
+    font-family: var(--hyve-body); font-size: 14px; color: var(--hyve-900);
+  }
   .hyve-acct__contact-btn {
     width: 44px; height: 44px; border-radius: 9999px; background: var(--hyve-white); color: var(--hyve-700);
     display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
@@ -347,6 +398,31 @@ const SHELL_STYLES = `
   }
   .hyve-acct__contact-btn svg { width: 21px; height: 21px; }
   .hyve-acct__contact-btn:hover { color: var(--hyve-900); border-color: var(--hyve-900); }
+
+  .hyve-acct__contact-panel { position: relative; }
+  .hyve-acct__contact-panel > summary { list-style: none; cursor: pointer; }
+  .hyve-acct__contact-panel > summary::-webkit-details-marker { display: none; }
+  .hyve-acct__contact-card {
+    position: absolute; right: calc(100% + 12px); bottom: 0; width: 264px;
+    background: var(--hyve-white); border: 1px solid var(--hyve-border); border-radius: 14px;
+    box-shadow: 0 20px 25px -5px rgba(15,23,42,0.12); padding: 14px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .hyve-acct__contact-title { font-size: 14px; font-weight: 700; color: var(--hyve-900); }
+  .hyve-acct__contact-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px;
+    text-decoration: none; color: var(--hyve-900);
+  }
+  .hyve-acct__contact-row:hover, .hyve-acct__contact-row:focus-visible { background: #F1F5F9; }
+  .hyve-acct__contact-icon {
+    width: 34px; height: 34px; border-radius: 9999px; flex: none; display: inline-flex;
+    align-items: center; justify-content: center; background: #F1F5F9; color: var(--hyve-700);
+  }
+  .hyve-acct__contact-icon svg { width: 18px; height: 18px; }
+  .hyve-acct__contact-icon--wa { background: #25D366; color: #fff; }
+  .hyve-acct__contact-label { display: block; font-size: 12px; color: var(--hyve-muted); }
+  .hyve-acct__contact-value { display: block; font-size: 14px; font-weight: 600; }
+  .hyve-acct__contact-hours { margin: 2px 0 0; font-size: 12px; color: var(--hyve-muted); }
 
   .hyve-acct__whatsapp {
     z-index: 40;

@@ -180,12 +180,13 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
  *
  * Keys beginning with an underscore are Shopify's convention for a hidden
  * property — ours carry plumbing like `_hyve_setup`, which means nothing to a
- * buyer reading an invoice.
+ * buyer reading an invoice. An uploaded artwork file is recorded as its link,
+ * which reads as noise on paper, so the invoice says the file was supplied.
  */
 function decorationOptions(attributes) {
   return (attributes || [])
     .filter((attr) => attr?.key && !attr.key.startsWith("_") && attr.value)
-    .map((attr) => `${attr.key}: ${attr.value}`);
+    .map((attr) => `${attr.key}: ${/^https?:\/\//i.test(attr.value) ? "file supplied" : attr.value}`);
 }
 
 /** Who the invoice is addressed to: the company first, then the postal address. */
@@ -196,8 +197,9 @@ function billingLines(order, entity) {
 
   return [
     company,
-    // The location name is only worth showing when it isn't just the company again.
-    location && location !== company ? location : "",
+    // The location name is only worth showing when it isn't just the company
+    // or the street again — locations are often named after their address.
+    location && location !== company && location !== address.address1 ? location : "",
     address.name || "",
     address.address1 || "",
     address.address2 || "",

@@ -99,6 +99,14 @@ export function statusByKey(key) {
 }
 
 /**
+ * The portal's wording for a stored production status. The status emails use
+ * it so they say exactly what the portal, and customer service, say.
+ */
+export function customerStatusLabel(stored) {
+  return STATUS_BY_KEY[STORED_TO_DISPLAY[stored]]?.label || null;
+}
+
+/**
  * Work out an order's displayed status from its production status — the
  * `$app.production_status` metafield, or the `hyve-status:*` tag where that is
  * missing, the order the SLA engine reads them in — falling back to Shopify's
@@ -126,8 +134,12 @@ export function orderStatusKey(order) {
   return "order-received";
 }
 
-/** True when any line was ordered with its artwork to follow. */
-function artworkPending(order) {
+/**
+ * True when any line was ordered with its artwork to follow. Such an order is
+ * held at Awaiting Artwork until the artwork arrives, here and on the
+ * Production Orders screen.
+ */
+export function artworkPending(order) {
   return (order?.lineItems?.nodes || []).some((line) =>
     (line?.customAttributes || []).some(
       (attr) => attr?.key === "Artwork" && String(attr.value || "").trim() === ARTWORK_PENDING,

@@ -13,6 +13,40 @@
  *  same figure — change both together. */
 export const QUOTE_VALID_DAYS = 14;
 
+/**
+ * Who a quote belongs to. A quote raised by someone buying for a company is
+ * created against the company alone — Shopify refuses a customer and a
+ * purchasing company on the same draft — so it can carry no customer and no
+ * email of its own, only the company and the contact it was raised for.
+ */
+export const QUOTE_OWNER_FIELDS = `
+      customer { id defaultEmailAddress { emailAddress } }
+      purchasingEntity {
+        ... on PurchasingCompany {
+          company { id }
+          contact { customer { defaultEmailAddress { emailAddress } } }
+        }
+      }`;
+
+/**
+ * The addresses that prove a quote is someone's without an account: the one
+ * it was sent to, and the person it was raised for. The quotes list shows a
+ * company quote to its buyer by company, so checking only the draft's own email
+ * turned "Q-26" into "not found" for the person who could see it in the portal.
+ *
+ * @param {object} draft read with QUOTE_OWNER_FIELDS
+ * @returns {string[]} lower-cased, without blanks
+ */
+export function quoteEmails(draft) {
+  return [
+    draft?.email,
+    draft?.customer?.defaultEmailAddress?.emailAddress,
+    draft?.purchasingEntity?.contact?.customer?.defaultEmailAddress?.emailAddress,
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
 const QUOTE_QUERY = `#graphql
   query QuoteDocument($id: ID!) {
     shop { name }
@@ -20,8 +54,8 @@ const QUOTE_QUERY = `#graphql
       id
       name
       createdAt
-      customer { id }
       email
+      ${QUOTE_OWNER_FIELDS}
       totalPriceSet { shopMoney { amount currencyCode } }
       subtotalPriceSet { shopMoney { amount currencyCode } }
       lineItems(first: 100) {
@@ -41,15 +75,16 @@ const QUOTE_QUERY = `#graphql
 
 /**
  * @param {string} draftGid the quote's draft order
- * @param {{customerGid?:string, email?:string}} proof who is asking. A signed-in
- *   buyer proves it with their customer id; the end client retrieving a quote
- *   without an account proves it with the email the quote was sent to, which
- *   the retrieve page has just checked.
+ * @param {{customerGid?:string, companyGid?:string, email?:string}} proof who is
+ *   asking. A signed-in buyer proves it with their customer id, or with their
+ *   company for a quote raised by a colleague; the end client retrieving a quote
+ *   without an account proves it with an email the quote belongs to, which the
+ *   retrieve page has just checked.
  * @returns {Promise<?object>} null when missing or owned by someone else
  */
 export async function loadQuoteDocument(admin, draftGid, proof = {}) {
-  const { customerGid, email } = proof;
-  if (!admin || !draftGid || (!customerGid && !email)) return null;
+  const { customerGid, companyGid, email } = proof;
+  if (!admin || !draftGid || (!customerGid && !companyGid && !email)) return null;
 
   const response = await admin.graphql(QUOTE_QUERY, { variables: { id: draftGid } });
   const body = await response.json();
@@ -61,9 +96,11 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
   const draft = body?.data?.draftOrder;
   if (!draft) return null;
   const ownedByCustomer = customerGid && draft.customer?.id === customerGid;
-  const ownedByEmail =
-    email && String(draft.email || "").toLowerCase() === String(email).toLowerCase();
-  if (!ownedByCustomer && !ownedByEmail) return null;
+  // The same rule the portal's Quotes list uses: every quote the company
+  // bought belongs to everyone buying for it.
+  const ownedByCompany = companyGid && draft.purchasingEntity?.company?.id === companyGid;
+  const ownedByEmail = email && quoteEmails(draft).includes(String(email).trim().toLowerCase());
+  if (!ownedByCustomer && !ownedByCompany && !ownedByEmail) return null;
 
   const currency = draft.totalPriceSet?.shopMoney?.currencyCode || "USD";
   // The renderer works in cents, the way the cart payload does.

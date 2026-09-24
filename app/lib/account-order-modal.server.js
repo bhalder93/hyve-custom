@@ -15,8 +15,7 @@
 import { esc } from "./account-shell.server";
 import { ACCEPTED_EXTENSIONS, MAX_FILE_LABEL, isPreviewable } from "./artwork.server";
 import { VISIBLE_STATUSES, statusByKey } from "./portal.server";
-
-const WHATSAPP_NUMBER = "6569322855";
+import { WHATSAPP_URL, SUPPORT_EMAIL } from "./customer-service.server";
 
 // F5 asks for the format and size limits to be stated before upload, so the
 // panel reads them from the same list the upload itself enforces.
@@ -57,8 +56,8 @@ export function orderModal(order, library = []) {
         </div>
 
         <footer class="hyve-modal__foot">
-          <a class="hyve-ord__btn hyve-ord__btn--ghost" href="https://wa.me/${WHATSAPP_NUMBER}" target="_blank" rel="noopener">${icoHelp()}<span>WhatsApp Us</span></a>
-          <a class="hyve-ord__btn hyve-ord__btn--ghost" href="https://hyve.promo/pages/contact" target="_blank" rel="noopener">${icoMail()}<span>Email Us</span></a>
+          <a class="hyve-ord__btn hyve-ord__btn--ghost" href="${WHATSAPP_URL}" target="_blank" rel="noopener">${icoHelp()}<span>WhatsApp Us</span></a>
+          <a class="hyve-ord__btn hyve-ord__btn--ghost" href="mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`Order ${order.name}`)}">${icoMail()}<span>Email Us</span></a>
           ${
             // Only an order on terms has an invoice.
             order.hasInvoice && order.id

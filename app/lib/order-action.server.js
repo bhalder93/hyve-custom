@@ -25,11 +25,21 @@ const ORDER_QUERY = `#graphql
   ${PRODUCTION_ORDER_FRAGMENT}`;
 
 /**
+/**
+ * The order with everything a production move needs, for a caller that has
+ * already established the right to act on it, such as a signed proof link.
+ */
+export async function loadOrder(admin, orderGid) {
+  const { order } = await gql(admin, ORDER_QUERY, { id: orderGid });
+  return order || null;
+}
+
+/**
  * @param {{customerGid?:string, locationGids?:string[]}} by who is asking
  * @returns {Promise<{ok:true, order:object}|{ok:false, error:string}>}
  */
 export async function loadOrderForAction(admin, orderGid, by = {}) {
-  const { order } = await gql(admin, ORDER_QUERY, { id: orderGid });
+  const order = await loadOrder(admin, orderGid);
   if (!order) return { ok: false, error: "We couldn't find that order." };
 
   const locations = (by.locationGids || []).filter(Boolean);

@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 # application_url = "https://hyve-custom-app.onrender.com"
-application_url = "https://hyve-custom-vuui.onrender.com"
+application_url = "https://hyve-custom.onrender.com"
 
 client_id = "767ec15914737650a3eccf2ba70921d7"
 embedded = true
@@ -10,7 +10,6 @@ name = "Hyve Custom"
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_fulfillments,write_customers,write_companies,read_orders,read_payment_terms,read_store_credit_accounts,read_store_credit_account_transactions,write_orders,write_files,write_products,write_metaobjects,write_metaobject_definitions,write_draft_orders"
-
 [metaobjects.app.distributor_application]
 name = "Distributor Application"
 description = "Distributor portal application and commercial credit requests"
@@ -513,6 +512,61 @@ type = "date"
 [metaobjects.app.business_holiday.fields.enabled]
 name = "Enabled"
 type = "boolean"
+
+
+# HYV-96: promotions Hyve staff publish to the distributor dashboard.
+# Draft/Active is Shopify's own publish switch; the dates decide when an
+# active one shows.
+[metaobjects.app.promotion]
+name = "Promotion"
+description = "Promotion artwork and copy shown on the distributor dashboard between its start and end dates"
+display_name_field = "title"
+
+[metaobjects.app.promotion.access]
+admin = "merchant_read_write"
+
+[metaobjects.app.promotion.capabilities]
+publishable = true
+
+[metaobjects.app.promotion.fields.title]
+name = "Title"
+required = true
+type = "single_line_text_field"
+validations.max = 80
+
+[metaobjects.app.promotion.fields.artwork]
+name = "Artwork"
+description = "The promotion image. Landscape works best, about 1200 x 600."
+required = true
+type = "file_reference"
+validations.file_type_options = ["Image"]
+
+[metaobjects.app.promotion.fields.copy]
+name = "Copy"
+type = "multi_line_text_field"
+validations.max = 400
+
+[metaobjects.app.promotion.fields.link]
+name = "Button link"
+description = "Optional. Where the button goes, such as a collection or product."
+type = "url"
+
+[metaobjects.app.promotion.fields.link_label]
+name = "Button text"
+description = "Shown on the button when there is a link. Leave blank for View promotion."
+type = "single_line_text_field"
+validations.max = 30
+
+[metaobjects.app.promotion.fields.starts_on]
+name = "Starts on"
+required = true
+type = "date"
+
+[metaobjects.app.promotion.fields.ends_on]
+name = "Ends on"
+description = "Optional. Leave blank to keep showing it until you set it to Draft."
+type = "date"
+
 
 [webhooks]
 api_version = "2026-10"

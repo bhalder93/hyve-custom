@@ -26,8 +26,11 @@ export const loader = async ({ request }) => {
     const chrome = await portalChrome(admin, customerId);
     if (!chrome.isDistributor) return redirectToQuotes();
 
+    // The Quotes page lists the whole company's quotes, so any of them can be
+    // downloaded by anyone buying for that company.
     const doc = await loadQuoteDocument(admin, draftGid, {
       customerGid: `gid://shopify/Customer/${customerId}`,
+      companyGid: chrome.terms?.companyId || null,
     });
     if (!doc) return new Response("Quote not found.", { status: 404 });
 
