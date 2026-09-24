@@ -96,6 +96,70 @@ const VALID_STATUSES = new Set(STATUS_OPTIONS.map((status) => status.value));
 const PRODUCTION_MARKET = "CN";
 
 const RUSH_DAYS = 4;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const PROOF_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const PHOTO_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function validateUpload(file, kind) {
+  if (!(file instanceof File) || file.size === 0) return `Select a ${kind === "proof" ? "proof" : "production photo"} file.`;
+  if (file.size > MAX_UPLOAD_BYTES) return "The file must be 20 MB or smaller.";
+  if (!(kind === "proof" ? PROOF_MIME_TYPES : PHOTO_MIME_TYPES).has(file.type)) {
+    return kind === "proof" ? "Upload a PDF, JPG, PNG, or WebP file." : "Upload a JPG, PNG, or WebP image.";
+  }
+  return null;
+}
+
+async function uploadShopifyFile(admin, file, kind) {
+  const staged = await parseGraphQL(await admin.graphql(`#graphql
+    mutation StageProductionFile($input: [StagedUploadInput!]!) {
+      stagedUploadsCreate(input: $input) {
+        stagedTargets { url resourceUrl parameters { name value } }
+        userErrors { field message }
+      }
+    }`, { variables: { input: [{ filename: file.name, mimeType: file.type,
+      resource: "FILE", httpMethod: "POST", fileSize: String(file.size) }] } }), "Stage production file");
+  const stageResult = staged.data?.stagedUploadsCreate;
+  if (stageResult?.userErrors?.length) throw new Error(stageResult.userErrors.map(e => e.message).join("; "));
+  const target = stageResult?.stagedTargets?.[0];
+  if (!target?.url || !target?.resourceUrl) throw new Error("Shopify did not return a file upload target.");
+
+  const body = new FormData();
+  for (const parameter of target.parameters || []) body.append(parameter.name, parameter.value);
+  body.append("file", file, file.name);
+  const uploadResponse = await fetch(target.url, { method: "POST", body });
+  if (!uploadResponse.ok) throw new Error(`File upload failed (${uploadResponse.status}).`);
+
+  const created = await parseGraphQL(await admin.graphql(`#graphql
+    mutation CreateProductionFile($files: [FileCreateInput!]!) {
+      fileCreate(files: $files) {
+        files { id fileStatus ... on MediaImage { image { url } } ... on GenericFile { url } }
+        userErrors { field message }
+      }
+    }`, { variables: { files: [{ originalSource: target.resourceUrl,
+      contentType: file.type.startsWith("image/") ? "IMAGE" : "FILE",
+      alt: `${kind === "proof" ? "Production proof" : "Production photo"}: ${file.name}` }] } }), "Create production file");
+  const createResult = created.data?.fileCreate;
+  if (createResult?.userErrors?.length) throw new Error(createResult.userErrors.map(e => e.message).join("; "));
+  const fileId = createResult?.files?.[0]?.id;
+  if (!fileId) throw new Error("Shopify did not create the file.");
+
+  // Shopify processes Files asynchronously. Persist only the final CDN URL.
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const result = await parseGraphQL(await admin.graphql(`#graphql
+      query ProductionFileStatus($id: ID!) {
+        node(id: $id) {
+          ... on MediaImage { fileStatus image { url } }
+          ... on GenericFile { fileStatus url }
+        }
+      }`, { variables: { id: fileId } }), "Check production file");
+    const node = result.data?.node;
+    if (node?.fileStatus === "FAILED") throw new Error("Shopify could not process the uploaded file.");
+    const url = node?.image?.url || node?.url;
+    if (node?.fileStatus === "READY" && validateHttpUrl(url)) return url;
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  throw new Error("The file is still processing in Shopify Files. Please try again shortly.");
+}
 
 function getStatusLabel(value) {
   return (
@@ -250,26 +314,11 @@ function validateStatusChange(payload) {
   }
 
   if (payload.nextStatus === "proof-sent") {
-    const proofUrl = payload.proofUrl?.trim();
-
-    if (!proofUrl) {
-      errors.proofUrl =
-        "Proof URL is required when setting status to Proof Sent.";
-    } else if (!validateHttpUrl(proofUrl)) {
-      errors.proofUrl = "Enter a valid http or https proof URL.";
-    }
+    if (!payload.proofFile) errors.proofFile = "Upload a proof before setting Proof Sent.";
   }
 
   if (payload.nextStatus === "production-complete") {
-    const productionPhotoUrl = payload.productionPhotoUrl?.trim();
-
-    if (!productionPhotoUrl) {
-      errors.productionPhotoUrl =
-        "Production photo URL is required before setting Production Complete.";
-    } else if (!validateHttpUrl(productionPhotoUrl)) {
-      errors.productionPhotoUrl =
-        "Enter a valid http or https production photo URL.";
-    }
+    if (!payload.productionPhotoFile) errors.productionPhotoFile = "Upload a photo before setting Production Complete.";
   }
 
   return errors;
@@ -1373,18 +1422,22 @@ export async function action({ request, params }) {
 
     const onHoldReason = String(formData.get("onHoldReason") || "").trim();
 
-    const proofUrl = String(formData.get("proofUrl") || "").trim();
-
-    const productionPhotoUrl = String(
-      formData.get("productionPhotoUrl") || "",
-    ).trim();
+    const proofFile = formData.get("proofFile");
+    const productionPhotoFile = formData.get("productionPhotoFile");
 
     const fieldErrors = validateStatusChange({
       nextStatus,
       onHoldReason,
-      proofUrl,
-      productionPhotoUrl,
+      proofFile: proofFile instanceof File && proofFile.size ? proofFile : null,
+      productionPhotoFile: productionPhotoFile instanceof File && productionPhotoFile.size ? productionPhotoFile : null,
     });
+    if (nextStatus === "proof-sent" && proofFile instanceof File && proofFile.size) {
+      fieldErrors.proofFile = validateUpload(proofFile, "proof") || undefined;
+    }
+    if (nextStatus === "production-complete" && productionPhotoFile instanceof File && productionPhotoFile.size) {
+      fieldErrors.productionPhotoFile = validateUpload(productionPhotoFile, "photo") || undefined;
+    }
+    for (const key of Object.keys(fieldErrors)) if (!fieldErrors[key]) delete fieldErrors[key];
 
     if (Object.keys(fieldErrors).length > 0) {
       return {
@@ -1479,6 +1532,12 @@ export async function action({ request, params }) {
         holidays,
       ).toISOString();
     }
+
+    let proofUrl = "";
+    let productionPhotoUrl = "";
+    // Upload after all transition checks, before changing order status.
+    if (nextStatus === "proof-sent") proofUrl = await uploadShopifyFile(admin, proofFile, "proof");
+    if (nextStatus === "production-complete") productionPhotoUrl = await uploadShopifyFile(admin, productionPhotoFile, "photo");
 
     await removeTags(admin, orderId, productionTags);
 
@@ -1718,21 +1777,10 @@ export default function ProductionOrderDetailsPage() {
 
   const [onHoldReason, setOnHoldReason] = useState("");
 
-  const [proofUrl, setProofUrl] = useState(order?.proofUrl || "");
-
-  const [productionPhotoUrl, setProductionPhotoUrl] = useState(
-    order?.productionPhotoUrl || "",
-  );
+  const [proofFile, setProofFile] = useState(null);
+  const [productionPhotoFile, setProductionPhotoFile] = useState(null);
 
   const [clientErrors, setClientErrors] = useState({});
-  useEffect(() => {
-    setProofUrl(order?.proofUrl || "");
-  }, [order?.proofUrl]);
-
-  useEffect(() => {
-    setProductionPhotoUrl(order?.productionPhotoUrl || "");
-  }, [order?.productionPhotoUrl]);
-
   useEffect(() => {
     if (actionData?.success && actionData?.message) {
       shopify.toast.show(actionData.message);
@@ -1740,6 +1788,8 @@ export default function ProductionOrderDetailsPage() {
       setNextStatus("");
       setNote("");
       setOnHoldReason("");
+      setProofFile(null);
+      setProductionPhotoFile(null);
     }
   }, [actionData]);
 
@@ -1772,9 +1822,12 @@ export default function ProductionOrderDetailsPage() {
     const errors = validateStatusChange({
       nextStatus,
       onHoldReason,
-      proofUrl,
-      productionPhotoUrl,
+      proofFile,
+      productionPhotoFile,
     });
+    if (nextStatus === "proof-sent" && proofFile) errors.proofFile = validateUpload(proofFile, "proof") || undefined;
+    if (nextStatus === "production-complete" && productionPhotoFile) errors.productionPhotoFile = validateUpload(productionPhotoFile, "photo") || undefined;
+    for (const key of Object.keys(errors)) if (!errors[key]) delete errors[key];
 
     if (nextStatus && !canTransition(order.productionStatus, nextStatus)) {
       errors.nextStatus = "This production status transition is not allowed.";
@@ -1798,15 +1851,12 @@ export default function ProductionOrderDetailsPage() {
 
     formData.set("onHoldReason", onHoldReason);
 
-    formData.set("proofUrl", nextStatus === "proof-sent" ? proofUrl : "");
-
-    formData.set(
-      "productionPhotoUrl",
-      nextStatus === "production-complete" ? productionPhotoUrl : "",
-    );
+    if (nextStatus === "proof-sent") formData.set("proofFile", proofFile);
+    if (nextStatus === "production-complete") formData.set("productionPhotoFile", productionPhotoFile);
 
     submit(formData, {
       method: "post",
+      encType: "multipart/form-data",
     });
   }
 
@@ -1983,22 +2033,18 @@ export default function ProductionOrderDetailsPage() {
                         </s-paragraph>
                       </s-banner>
 
-                      <s-text-field
-                        label="Proof URL"
-                        type="url"
-                        placeholder="https://..."
-                        value={proofUrl}
-                        error={
-                          clientErrors.proofUrl ||
-                          actionData?.fieldErrors?.proofUrl ||
-                          undefined
-                        }
-                        onInput={(event) => {
-                          setProofUrl(event.currentTarget.value);
-
-                          clearFieldError("proofUrl");
+                      <s-drop-zone
+                        label="Upload proof (PDF or image, up to 20 MB)"
+                        accept=".pdf,.jpg,.jpeg,.png,.webp"
+                        disabled={busy}
+                        error={clientErrors.proofFile || actionData?.fieldErrors?.proofFile || undefined}
+                        onChange={(event) => {
+                          setProofFile(event.currentTarget.files?.[0] || null);
+                          clearFieldError("proofFile");
                         }}
+                        onDropRejected={() => setClientErrors(current => ({...current, proofFile: "Upload a PDF, JPG, PNG, or WebP file."}))}
                       />
+                      {proofFile && <s-text>Selected: {proofFile.name}</s-text>}
 
                       <s-grid gridTemplateColumns="1fr 1fr" gap="base">
                         <s-box>
@@ -2014,10 +2060,8 @@ export default function ProductionOrderDetailsPage() {
                         </s-box>
                       </s-grid>
 
-                      {proofUrl && validateHttpUrl(proofUrl) && (
-                        <s-button href={proofUrl} target="_blank">
-                          Preview proof
-                        </s-button>
+                      {order.proofUrl && (
+                        <s-button href={order.proofUrl} target="_blank">View current proof</s-button>
                       )}
                     </s-stack>
                   </s-box>
@@ -2028,37 +2072,21 @@ export default function ProductionOrderDetailsPage() {
                     <s-stack direction="block" gap="base">
                       <s-heading>Production photo</s-heading>
 
-                      <s-banner tone="info">
-                        <s-paragraph>
-                          A production photo URL is required. Use a direct link
-                          to the image, such as one copied from Content › Files,
-                          so the photo shows in the Production Completed email.
-                        </s-paragraph>
-                      </s-banner>
-
-                      <s-text-field
-                        label="Production photo URL"
-                        type="url"
-                        placeholder="https://..."
-                        value={productionPhotoUrl}
-                        error={
-                          clientErrors.productionPhotoUrl ||
-                          actionData?.fieldErrors?.productionPhotoUrl ||
-                          undefined
-                        }
-                        onInput={(event) => {
-                          setProductionPhotoUrl(event.currentTarget.value);
-
-                          clearFieldError("productionPhotoUrl");
+                      <s-drop-zone
+                        label="Upload production photo (JPG, PNG, or WebP, up to 20 MB)"
+                        accept=".jpg,.jpeg,.png,.webp"
+                        disabled={busy}
+                        error={clientErrors.productionPhotoFile || actionData?.fieldErrors?.productionPhotoFile || undefined}
+                        onChange={(event) => {
+                          setProductionPhotoFile(event.currentTarget.files?.[0] || null);
+                          clearFieldError("productionPhotoFile");
                         }}
+                        onDropRejected={() => setClientErrors(current => ({...current, productionPhotoFile: "Upload a JPG, PNG, or WebP image."}))}
                       />
-
-                      {productionPhotoUrl &&
-                        validateHttpUrl(productionPhotoUrl) && (
-                          <s-button href={productionPhotoUrl} target="_blank">
-                            Preview production photo
-                          </s-button>
-                        )}
+                      {productionPhotoFile && <s-text>Selected: {productionPhotoFile.name}</s-text>}
+                      {order.productionPhotoUrl && (
+                        <s-button href={order.productionPhotoUrl} target="_blank">View current photo</s-button>
+                      )}
                     </s-stack>
                   </s-box>
                 )}
