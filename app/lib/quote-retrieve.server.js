@@ -36,6 +36,7 @@ const STYLES = `
   .hyve-rq__lines { border-top: 1px solid #E2E8F0; margin-bottom: 16px; }
   .hyve-rq__line { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #F1F5F9; font-size: 13px; }
   .hyve-rq__line-qty { color: #64748B; }
+  .hyve-rq__line-detail { display: block; margin-top: 3px; color: #64748B; font-size: 12px; }
   .hyve-rq__actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .hyve-rq__secondary { display: inline-block; border: 1px solid #CBD5E1; border-radius: 10px; padding: 10px 18px;
     text-decoration: none; color: #334155; font-weight: 600; font-size: 14px; font-family: inherit;
@@ -84,7 +85,10 @@ export function retrievedQuotePage(quote) {
     .map(
       (line) => `
       <div class="hyve-rq__line">
-        <span>${esc(line.title)} <span class="hyve-rq__line-qty">&times; ${esc(line.quantity)}</span></span>
+        <span>
+          ${esc(line.title)} <span class="hyve-rq__line-qty">&times; ${esc(line.quantity)}</span>
+          ${line.detail ? `<span class="hyve-rq__line-detail">${esc(line.detail)}</span>` : ""}
+        </span>
         <strong>${esc(line.total)}</strong>
       </div>`,
     )
@@ -101,7 +105,7 @@ export function retrievedQuotePage(quote) {
           <span class="hyve-rq__ref">${esc(quote.reference)}</span>
           <span class="hyve-rq__total">${esc(quote.total)}</span>
         </div>
-        <p class="hyve-rq__meta">Issued ${esc(quote.createdAt)}${quote.status ? ` &middot; ${esc(quote.status)}` : ""}</p>
+        <p class="hyve-rq__meta">Issued ${esc(quote.createdAt)}${quote.validUntil ? ` &middot; Valid until ${esc(quote.validUntil)}` : ""}${quote.leadTime ? ` &middot; Lead time ${esc(quote.leadTime)}` : ""}${quote.status ? ` &middot; ${esc(quote.status)}` : ""}</p>
 
         <div class="hyve-rq__lines">${lines}</div>
 

@@ -58,6 +58,9 @@ export const VISIBLE_STATUSES = [
 export const BRANCH_STATUSES = [
   { key: "awaiting-artwork", label: "Awaiting Artwork", tone: "warn" },
   { key: "on-hold", label: "On Hold", tone: "error" },
+  // A terms order submitted for review at checkout, until sales releases it
+  // (G6, HYV-99). Shopify holds it as a draft, so it has no production status.
+  { key: "credit-review", label: "Credit Under Review", tone: "warn" },
 ];
 
 const ALL_STATUSES = [...VISIBLE_STATUSES, ...BRANCH_STATUSES];
@@ -83,7 +86,7 @@ const STORED_TO_DISPLAY = {
  * buyer picks Send later (hyve-order.liquid). The order emails and the
  * order-created webhook read the same property.
  */
-const ARTWORK_PENDING = "Artwork Pending";
+export const ARTWORK_PENDING = "Artwork Pending";
 
 /** Statuses that are waiting on the distributor — drives the Orders badge (H9). */
 export const AWAITING_DISTRIBUTOR = ["proof-sent", "awaiting-artwork"];
@@ -152,13 +155,17 @@ function normalizeTags(tags) {
 }
 
 /** Format money the way the portal shows it: "SGD 4,850". */
+/**
+ * "USD 1,234.50": always two decimals, as an invoice or a quote states money.
+ * Dropping them on round amounts printed "USD 0" and "USD 750" beside
+ * "USD 216.40" (HYV-99, HYV-103).
+ */
 export function formatMoney(amount, currency) {
   const value = Number(amount);
   if (!Number.isFinite(value)) return "";
-  const digits = Number.isInteger(value) ? 0 : 2;
   const formatted = value.toLocaleString("en-US", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
   return currency ? `${currency} ${formatted}` : formatted;
 }
@@ -174,7 +181,16 @@ export function formatMoneyCompact(amount, currency) {
   return currency ? `${currency} ${compact}` : compact;
 }
 
-/** "Jan 15, 2026" — UTC so the server's zone can't shift the date. */
+/**
+ * The time zone every date the buyer sees is given in: Hyve's own, which the
+ * emails and the staff screens already use. The server runs on UTC, so a date
+ * formatted without it was a day behind for anything that happened in the
+ * Singapore morning: an invoice due on the 26th read the 25th (HYV-100,
+ * HYV-103, HYV-104).
+ */
+export const BUSINESS_TIME_ZONE = "Asia/Singapore";
+
+/** "Jan 15, 2026", as the day falls in Singapore. */
 export function formatDate(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -183,6 +199,6 @@ export function formatDate(value) {
     month: "short",
     day: "numeric",
     year: "numeric",
-    timeZone: "UTC",
+    timeZone: BUSINESS_TIME_ZONE,
   });
 }

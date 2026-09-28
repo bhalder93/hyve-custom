@@ -246,15 +246,21 @@ function companyCard(company) {
             ${hint ? `<p class="hyve-settings__hint">${hint}</p>` : ""}
           </div>`;
 
-  const current = esc(company.preferredCurrency);
-  // The store's own currencies, from the theme's localization, so the list
-  // always matches the markets Hyve sells in.
-  const currencyOptions = `
-              <option value="">Choose a currency</option>
-              {%- assign hyve_currencies = localization.available_countries | map: 'currency' | map: 'iso_code' | uniq | sort -%}
-              {%- for hyve_currency in hyve_currencies -%}
-                <option value="{{ hyve_currency }}"{% if hyve_currency == '${current}' %} selected{% endif %}>{{ hyve_currency }}</option>
-              {%- endfor -%}`;
+  // The currencies the store sells in (store-currencies.server.js), the same
+  // list the distributor application offered. A saved currency no longer on
+  // that list is kept as an option, so saving other details never clears it.
+  const currencies = [...(company.currencies || [])];
+  if (company.preferredCurrency && !currencies.includes(company.preferredCurrency)) {
+    currencies.push(company.preferredCurrency);
+  }
+  const currencyOptions = ['<option value="">Choose a currency</option>']
+    .concat(
+      currencies.map(
+        (code) =>
+          `<option value="${esc(code)}"${company.preferredCurrency === code ? " selected" : ""}>${esc(code)}</option>`,
+      ),
+    )
+    .join("");
   const shippingOptions = ['<option value="">Choose a method</option>']
     .concat(
       SHIPPING_METHODS.map(

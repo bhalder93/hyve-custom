@@ -118,25 +118,25 @@ export const loader = async ({ request, params }) => {
           invoiceUrl
           tags
           totalPriceSet {
-            shopMoney {
+            presentmentMoney {
               amount
               currencyCode
             }
           }
           subtotalPriceSet {
-            shopMoney {
+            presentmentMoney {
               amount
               currencyCode
             }
           }
           totalTaxSet {
-            shopMoney {
+            presentmentMoney {
               amount
               currencyCode
             }
           }
           totalShippingPriceSet {
-            shopMoney {
+            presentmentMoney {
               amount
               currencyCode
             }
@@ -175,13 +175,13 @@ export const loader = async ({ request, params }) => {
               quantity
               sku
               originalUnitPriceSet {
-                shopMoney {
+                presentmentMoney {
                   amount
                   currencyCode
                 }
               }
               discountedUnitPriceSet {
-                shopMoney {
+                presentmentMoney {
                   amount
                   currencyCode
                 }
@@ -451,7 +451,7 @@ export default function QuoteDetailPage() {
   const isRejected = quote.quoteStatus.key === STATUS_KEYS.REJECTED;
   const decided = isAccepted || isRejected;
 
-  const currency = quote.totalPriceSet?.shopMoney?.currencyCode || "USD";
+  const currency = quote.totalPriceSet?.presentmentMoney?.currencyCode || "USD";
   const lines = quote.lineItems?.nodes || [];
   const customerName = quote.customer?.displayName || quote.customer?.email || "Guest";
 
@@ -508,7 +508,7 @@ export default function QuoteDetailPage() {
                     Total
                   </div>
                   <div className="hyv-hero__value">
-                    {formatMoney(quote.totalPriceSet?.shopMoney?.amount, currency)}
+                    {formatMoney(quote.totalPriceSet?.presentmentMoney?.amount, currency)}
                   </div>
                 </div>
               </div>
@@ -549,8 +549,8 @@ export default function QuoteDetailPage() {
                       <tbody>
                         {lines.map((line) => {
                           const unit = Number(
-                            line.discountedUnitPriceSet?.shopMoney?.amount ??
-                              line.originalUnitPriceSet?.shopMoney?.amount ??
+                            line.discountedUnitPriceSet?.presentmentMoney?.amount ??
+                              line.originalUnitPriceSet?.presentmentMoney?.amount ??
                               0,
                           );
                           return (
@@ -583,25 +583,25 @@ export default function QuoteDetailPage() {
                 <div className="hyv-total">
                   <span className="hyv-total__key">Subtotal</span>
                   <span className="hyv-total__val">
-                    {formatMoney(quote.subtotalPriceSet?.shopMoney?.amount, currency)}
+                    {formatMoney(quote.subtotalPriceSet?.presentmentMoney?.amount, currency)}
                   </span>
                 </div>
                 <div className="hyv-total">
                   <span className="hyv-total__key">Shipping</span>
                   <span className="hyv-total__val">
-                    {formatMoney(quote.totalShippingPriceSet?.shopMoney?.amount, currency)}
+                    {formatMoney(quote.totalShippingPriceSet?.presentmentMoney?.amount, currency)}
                   </span>
                 </div>
                 <div className="hyv-total">
                   <span className="hyv-total__key">Tax</span>
                   <span className="hyv-total__val">
-                    {formatMoney(quote.totalTaxSet?.shopMoney?.amount, currency)}
+                    {formatMoney(quote.totalTaxSet?.presentmentMoney?.amount, currency)}
                   </span>
                 </div>
                 <div className="hyv-total hyv-total--grand">
                   <span className="hyv-total__key">Total</span>
                   <span className="hyv-total__val">
-                    {formatMoney(quote.totalPriceSet?.shopMoney?.amount, currency)}
+                    {formatMoney(quote.totalPriceSet?.presentmentMoney?.amount, currency)}
                   </span>
                 </div>
               </div>

@@ -12,12 +12,11 @@
  * a portal request still waiting for staff to price it.
  */
 import { QUOTE_VALID_DAYS, quoteEmails, QUOTE_OWNER_FIELDS, quoteReference, quoteValidUntil } from "./quote-document.server";
-import { quoteDecision } from "./account-quotes.server";
+import { DRAFT_ORIGIN_FIELDS, QUOTE_STATUSES, quoteStatus, submittedForReview } from "./account-quotes.server";
 
 const REMINDER_DAYS_BEFORE = 3;
 const REMINDED_TAG = "hyve-notified:quote-expiry";
 /** Set on a portal quote request until staff price and approve it (proxy.quotes). */
-const AWAITING_REVIEW_TAG = "awaiting_review";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const QUOTES_QUERY = `#graphql
@@ -29,12 +28,14 @@ const QUOTES_QUERY = `#graphql
         createdAt
         status
         tags
+        invoiceSentAt
         invoiceUrl
         email
         hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
         ${QUOTE_OWNER_FIELDS}
+        ${DRAFT_ORIGIN_FIELDS}
         customer { firstName }
-        totalPriceSet { shopMoney { amount currencyCode } }
+        totalPriceSet { presentmentMoney { amount currencyCode } }
       }
     }
   }`;
@@ -70,9 +71,10 @@ export async function sendQuoteExpiryReminders(admin, { now = new Date(), dryRun
     if (draft.status !== "OPEN" || daysLeft <= 0 || daysLeft > REMINDER_DAYS_BEFORE) continue;
     const tags = draft.tags || [];
     if (tags.includes(REMINDED_TAG)) continue;
-    const decision = quoteDecision(draft);
-    if (decision === false) continue;
-    if (tags.includes(AWAITING_REVIEW_TAG) && decision !== true) continue;
+    // Only a quote that is with the buyer: not one declined, one sales hasn't
+    // sent, a request Hyve is still pricing, or a terms order waiting on its
+    // credit review, which is an order and has no expiry (HYV-99).
+    if (quoteStatus(draft) !== QUOTE_STATUSES.SENT || submittedForReview(draft)) continue;
 
     const to = quoteEmails(draft)[0];
     if (!to || !draft.invoiceUrl) continue;
@@ -82,7 +84,7 @@ export async function sendQuoteExpiryReminders(admin, { now = new Date(), dryRun
     if (dryRun) continue;
 
     try {
-      const money = draft.totalPriceSet?.shopMoney;
+      const money = draft.totalPriceSet?.presentmentMoney;
       const total = money ? `${money.currencyCode} ${Number(money.amount).toFixed(2)}` : "";
       const firstName = draft.customer?.firstName || "";
       await sendEmail({

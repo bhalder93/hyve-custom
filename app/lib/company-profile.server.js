@@ -12,6 +12,7 @@
  * Shown in Settings. Only a company admin changes it; buyers see it read-only.
  */
 import { canManageTeam } from "./account-team.server";
+import { supportedCurrencies } from "./store-currencies.server";
 
 export const SHIPPING_METHODS = ["EXW", "FOB Ningbo", "DDP"];
 
@@ -74,7 +75,12 @@ export async function loadCompanyProfile(admin, numericCustomerId) {
 
   const profile = { companyId: company.id, name: company.name || "" };
   for (const { form } of FIELDS) profile[form] = company[form]?.value || "";
-  profile.canManage = await canManageTeam(admin, numericCustomerId);
+  const [canManage, currencies] = await Promise.all([
+    canManageTeam(admin, numericCustomerId),
+    supportedCurrencies(admin),
+  ]);
+  profile.canManage = canManage;
+  profile.currencies = currencies;
   return profile;
 }
 

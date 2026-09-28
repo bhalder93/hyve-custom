@@ -52,6 +52,7 @@ mutation CompanyCreate($input: CompanyCreateInput!) {
               zip
               country
             }
+            buyerExperienceConfiguration { paymentTermsTemplate { name } }
           }
         }
       }
@@ -111,6 +112,7 @@ const COMPANY_FIELDS_FRAGMENT = `#graphql
           zip
           country
         }
+        buyerExperienceConfiguration { paymentTermsTemplate { name } }
       }
     }
   }
@@ -154,16 +156,23 @@ export async function getCompanyDetails(admin, companyId, fallbackName = null) {
       const searchRes = await admin.graphql(
         `#graphql
         query FindCompanyByName($query: String!) {
-          companies(first: 1, query: $query) {
+          companies(first: 10, query: $query) {
             nodes {
               ${COMPANY_FIELDS_FRAGMENT}
             }
           }
         }`,
-        { variables: { query: `name:${fallbackName.trim()}` } },
+        { variables: { query: `name:"${fallbackName.trim().replace(/"/g, '\\"')}"` } },
       );
       const searchData = await searchRes.json();
-      const node = searchData?.data?.companies?.nodes?.[0];
+      // Shopify's search matches loosely, so "ABC Trading Two" can come back
+      // for "ABC Trading". Only the company with exactly this name is the
+      // same business; anything else would put a new distributor inside
+      // someone else's company.
+      const wanted = fallbackName.trim().toLowerCase();
+      const node = (searchData?.data?.companies?.nodes || []).find(
+        (company) => String(company?.name || "").trim().toLowerCase() === wanted,
+      );
       if (node?.id) {
         return node;
       }
@@ -190,20 +199,21 @@ mutation SetMainContact($companyId: ID!, $companyContactId: ID!) {
  * input only accepts a two-letter code. This used to be hardcoded to SG, so
  * every distributor's address landed in Singapore whatever they typed.
  */
+const COUNTRY_NAMES = [
+  ["singapore", "SG"], ["malaysia", "MY"], ["hong kong", "HK"],
+  ["philippines", "PH"], ["thailand", "TH"], ["indonesia", "ID"],
+  ["vietnam", "VN"], ["australia", "AU"], ["new zealand", "NZ"],
+  ["united states", "US"], ["united kingdom", "GB"], ["china", "CN"],
+  ["taiwan", "TW"], ["japan", "JP"], ["korea", "KR"], ["india", "IN"],
+];
+
 export function toCountryCode(country) {
   const raw = String(country || "").trim();
   if (!raw) return "SG";
   if (/^[a-zA-Z]{2}$/.test(raw)) return raw.toUpperCase();
 
   const c = raw.toLowerCase();
-  const map = [
-    ["singapore", "SG"], ["malaysia", "MY"], ["hong kong", "HK"],
-    ["philippines", "PH"], ["thailand", "TH"], ["indonesia", "ID"],
-    ["vietnam", "VN"], ["australia", "AU"], ["new zealand", "NZ"],
-    ["united states", "US"], ["united kingdom", "GB"], ["china", "CN"],
-    ["taiwan", "TW"], ["japan", "JP"], ["korea", "KR"], ["india", "IN"],
-  ];
-  const hit = map.find(([name]) => c.includes(name));
+  const hit = COUNTRY_NAMES.find(([name]) => c.includes(name));
   return hit ? hit[1] : "SG";
 }
 
@@ -252,11 +262,25 @@ export function parseAddressDetails(addressInput, fallbackCountry = "Singapore")
   const parts = raw.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
   if (!parts.length) return null;
 
+  // The city is read from the end, skipping a part that is only the postcode
+  // or the country code: "…, Singapore, 608526, SG" used to read "SG" as the
+  // city. A country name is skipped too, except in Singapore and Hong Kong,
+  // where the country is the city.
+  const CITY_STATES = ["SG", "HK"];
+  const isCountryName = (part) => COUNTRY_NAMES.some(([name]) => part.toLowerCase() === name);
+  let city = "";
+  for (const part of parts.slice(1).reverse()) {
+    const text = part.replace(/\b\d{5,6}\b/, "").trim();
+    if (!text || text.toUpperCase() === countryCode) continue;
+    if (isCountryName(text) && !CITY_STATES.includes(countryCode)) continue;
+    city = text;
+    break;
+  }
+  city = city || "Singapore";
+
   return {
     address1: (parts[0] || raw).substring(0, 250),
-    city: parts.length > 1
-      ? parts[parts.length - 1].replace(/\b\d{5,6}\b/, "").trim() || "Singapore"
-      : "Singapore",
+    city,
     countryCode,
     ...(zip ? { zip: zip[0] } : {}),
   };
@@ -339,6 +363,34 @@ async function findCompanyContact(admin, companyGid, customerGid) {
 /**
  * Main service to create B2B Company & Customer upon distributor approval.
  */
+const LOCATION_ADDRESS_ASSIGN = `#graphql
+  mutation CompanyLocationAddress($locationId: ID!, $address: CompanyAddressInput!, $addressTypes: [CompanyAddressType!]!) {
+    companyLocationAssignAddress(locationId: $locationId, address: $address, addressTypes: $addressTypes) {
+      addresses { id }
+      userErrors { field message }
+    }
+  }`;
+
+/**
+ * Saves an address on a company location as both its shipping and billing
+ * address. Used at approval, and from the approval screen for a company that
+ * was created without one.
+ *
+ * @returns {Promise<{ok:true}|{ok:false, error:string}>}
+ */
+export async function assignLocationAddress(admin, locationId, address) {
+  try {
+    const response = await admin.graphql(LOCATION_ADDRESS_ASSIGN, {
+      variables: { locationId, address, addressTypes: ["SHIPPING", "BILLING"] },
+    });
+    const body = await response.json();
+    const error = body?.errors?.[0]?.message || body?.data?.companyLocationAssignAddress?.userErrors?.[0]?.message;
+    return error ? { ok: false, error } : { ok: true };
+  } catch (error) {
+    return { ok: false, error: error?.message || "Shopify didn't save the address." };
+  }
+}
+
 export async function approveAndCreateB2BCustomer(admin, application, options = {}) {
   if (!admin || !application) {
     return { error: "Missing admin client or application data" };
@@ -445,18 +497,9 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
         tags: mergedTags,
         note: `Approved B2B Distributor. Company: ${companyName}. UEN: ${registrationNumber || "—"}. Credit: ${requestCredit ? "Net 30/60" : "Prepayment"}. Volume: ${expectedVolume || "—"}`,
       };
-
-      if (address || companyName) {
-        updateInput.addresses = [
-          {
-            address1: (address || "Business Address").substring(0, 250),
-            company: companyName,
-            country: country || "Singapore",
-            firstName,
-            lastName,
-          },
-        ];
-      }
+      // Their own address book is left alone: a distributor's orders take their
+      // address from the company location, and this used to write the whole
+      // address into one line with no postcode.
 
       const updateRes = await admin.graphql(
         `#graphql
@@ -600,6 +643,9 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
   let companyContactId = null;
   let companyCreateError = null;
   let locationError = null;
+  // Why the applicant couldn't be added to the company, when they weren't.
+  let contactError = null;
+  let assignRefusal = null;
   // The form captures the address as one block, so it's parsed into the fields
   // Shopify's address input actually wants.
   const shippingAddressInput = parseAddressDetails(addressSource, country);
@@ -650,8 +696,12 @@ Address: ${address || "—"}`;
       };
     }
 
-    // Include company contact if email is provided
-    if (email) {
+    // Only when there is no customer to add as the contact afterwards. The
+    // applicant already has an account by now (they sign in to apply, and step
+    // 1 creates one otherwise), and asking for a new contact with that email is
+    // refused ("Email address has already been taken"). The retry after that
+    // refusal created the company with a blank location and no address.
+    if (email && !customerGid) {
       companyCreateInput.companyContact = {
         email,
         firstName: firstName || companyName,
@@ -742,6 +792,7 @@ Address: ${address || "—"}`;
           const assignErrors =
             assignData?.data?.companyAssignCustomerAsContact?.userErrors;
           if (assignErrors && assignErrors.length > 0) {
+            assignRefusal = assignErrors[0]?.message || null;
             console.warn("[b2b] companyAssignCustomerAsContact note:", assignErrors);
           } else {
             console.log("[b2b] Successfully assigned customer as company contact!");
@@ -757,6 +808,11 @@ Address: ${address || "—"}`;
       // company with no main contact has nobody to address anything to.
       if (!companyContactId && customerGid) {
         companyContactId = await findCompanyContact(admin, companyGid, customerGid);
+      }
+      // Without a contact the distributor can't sign in to the company, so the
+      // approval reports it rather than looking complete.
+      if (!companyContactId) {
+        contactError = assignRefusal || "Shopify didn't add the applicant to the company.";
       }
 
       if (companyContactId) {
@@ -786,6 +842,26 @@ Address: ${address || "—"}`;
     fullCompany = await getCompanyDetails(admin, companyGid, companyName);
   }
 
+  // A location that came back without an address (the retry above, or a
+  // company reused from before) gets it now. If Shopify refuses it, the
+  // approval says so rather than carrying on with a location nothing can ship to.
+  const location = fullCompany?.locations?.edges?.[0]?.node;
+  if (companyGid && location?.id && !location.shippingAddress && shippingAddressInput) {
+    const saved = await assignLocationAddress(admin, location.id, {
+      ...shippingAddressInput,
+      recipient: companyName,
+      ...(firstName ? { firstName } : {}),
+      ...(lastName ? { lastName } : {}),
+      ...(cleanPhone.length >= 7 ? { phone: cleanPhone } : {}),
+    });
+    if (saved.ok) {
+      locationError = null;
+      fullCompany = await getCompanyDetails(admin, companyGid, companyName);
+    } else {
+      locationError = saved.error;
+    }
+  }
+
   return {
     success: true,
     customerId: customerGid,
@@ -797,5 +873,6 @@ Address: ${address || "—"}`;
     // Set when the company exists but Shopify refused its location and contact,
     // so the approval screen can say why rather than only that they are missing.
     locationError: companyGid && locationError ? locationError : null,
+    contactError: companyGid && contactError ? contactError : null,
   };
 }

@@ -1,6 +1,8 @@
 import { useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
-import { customerStatusLabel } from "../lib/portal.server";
+import { customerStatusLabel, statusByKey } from "../lib/portal.server";
+import { OPTIONAL_STATUS_EMAILS } from "../lib/notification-preferences.server";
+import { PROOF_HOLD_DAY } from "../utils/sla-engine.server";
 import {
   CUSTOMER_EMAIL_STATUSES,
   STATUS_OPTIONS,
@@ -11,30 +13,57 @@ import {
  * Order statuses (HYV-135): the full list staff choose from on an order, in
  * the order they run, with what the buyer sees for each, whether it emails
  * them, and where it can move next. Read-only, and built from the same lists
- * the order page uses, so it can't drift from what the dropdown offers.
+ * the order page, the portal and the emails use, so it can't drift from them.
  */
+
+/** What the buyer sees, where one status can show two ways in the portal. */
+const BUYER_SEES_TOO = {
+  "order-placed": `, or ${statusByKey("awaiting-artwork")?.label} while their artwork is still to come`,
+};
+
+/** Emails that aren't the app's own status emails. */
+const OTHER_EMAIL = {
+  "order-placed": "No. Shopify's order confirmation goes when the order is placed",
+  shipped: "Only Shopify's shipping email, when you fulfil the order in Shopify",
+};
+
+/** Moves the dropdown offers but the order page refuses until something is done. */
+const HELD_UNTIL = {
+  "proof-approved": "In Production only once a paid Physical Sample is approved",
+};
+
 export const loader = async ({ request }) => {
   await authenticate.admin(request);
 
   const labelOf = (value) => STATUS_OPTIONS.find((status) => status.value === value)?.label || value;
+  const emailFor = (value) => {
+    if (OTHER_EMAIL[value]) return OTHER_EMAIL[value];
+    if (!CUSTOMER_EMAIL_STATUSES.has(value)) return "No";
+    return OPTIONAL_STATUS_EMAILS.has(value) ? "Yes, unless the buyer has switched status emails off" : "Yes, always";
+  };
 
   return {
     statuses: STATUS_OPTIONS.map(({ label, value }) => ({
       label,
       value,
-      customerLabel: customerStatusLabel(value) || "—",
-      email: CUSTOMER_EMAIL_STATUSES.has(value)
-        ? "Yes"
-        : value === "shipped"
-          ? "Shopify's shipping email, when the order is fulfilled"
-          : "No",
+      customerLabel: (customerStatusLabel(value) || "—") + (BUYER_SEES_TOO[value] || ""),
+      email: emailFor(value),
       next: (STATUS_TRANSITIONS[value] || []).map(labelOf),
+      heldUntil: HELD_UNTIL[value] || "",
     })),
+    // The moves made for staff, outside the dropdown.
+    automatic: [
+      ["The buyer sends their artwork from their account", "Order Received → Artwork Received"],
+      ["The buyer approves the Artwork Proof, from the email or their account", "Proof Sent → Proof Approved"],
+      ["The buyer requests changes", "Proof Sent → On Hold"],
+      [`No decision ${PROOF_HOLD_DAY} days after the Artwork Proof was sent`, "Proof Sent → On Hold"],
+      ["The whole order is fulfilled in Shopify", "Any status except Delivered → Shipped"],
+    ],
   };
 };
 
 export default function OrderStatuses() {
-  const { statuses } = useLoaderData();
+  const { statuses, automatic } = useLoaderData();
 
   return (
     <s-page heading="Order Statuses">
@@ -58,7 +87,31 @@ export default function OrderStatuses() {
                   <s-table-cell>{status.label}</s-table-cell>
                   <s-table-cell>{status.customerLabel}</s-table-cell>
                   <s-table-cell>{status.email}</s-table-cell>
-                  <s-table-cell>{status.next.length ? status.next.join(", ") : "Nothing (final)"}</s-table-cell>
+                  <s-table-cell>
+                    {status.next.length ? status.next.join(", ") : "Nothing (final)"}
+                    {status.heldUntil ? ` (${status.heldUntil})` : ""}
+                  </s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
+        </s-stack>
+      </s-section>
+
+      <s-section heading="Moves that happen by themselves">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>These change the status without anyone using the dropdown.</s-paragraph>
+
+          <s-table variant="auto">
+            <s-table-header-row>
+              <s-table-header listSlot="primary">When</s-table-header>
+              <s-table-header listSlot="labeled">Status change</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {automatic.map(([when, change]) => (
+                <s-table-row key={when}>
+                  <s-table-cell>{when}</s-table-cell>
+                  <s-table-cell>{change}</s-table-cell>
                 </s-table-row>
               ))}
             </s-table-body>

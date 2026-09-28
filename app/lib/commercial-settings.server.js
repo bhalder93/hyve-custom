@@ -1,14 +1,25 @@
 /**
- * The two commercial thresholds Hyve staff set for themselves (HYV-81).
+ * The commercial settings Hyve staff set for themselves.
  *
- *   setup_waiver_threshold  order value at or above which the setup charge is
- *                           waived, for every buyer
- *   minimum_order_value     the smallest order a distributor can check out
+ *   setup_waiver_threshold    order value at or above which the setup charge
+ *                             is waived, for every buyer (HYV-81)
+ *   minimum_order_value       the smallest order a distributor can check out
+ *                             (HYV-81)
+ *   production_days_standard  business days from Artwork Proof approval to
+ *   production_days_rush      production complete, without and with rush
+ *                             (HYV-133)
+ *   artwork_due_days          business days after an order is placed that
+ *                             artwork sent later is due, shown to the buyer as
+ *                             the "by" date on an order waiting for it
+ *                             (HYV-102); blank for no deadline
  *
- * Both are stored once, on the store, in shop currency (USD), and read from
- * there by everything that acts on them — the cart page, the checkout charges
- * block and the checkout rule that blocks a distributor order under the
- * minimum. Keeping one copy is what stops the cart and checkout disagreeing.
+ * Each is stored once, on the store, and read from there by everything that
+ * acts on it. The two amounts are in shop currency (USD), read by the cart
+ * page, the checkout charges block and the checkout rule that blocks a
+ * distributor order under the minimum. The production times are read by the
+ * product page, the cart and the quote, which promise them, and by every
+ * production due date, which is counted from them. Keeping one copy is what
+ * stops two screens quoting different numbers.
  *
  * The namespace is Hyve's own rather than this app's, because the checkout
  * block and the checkout rule belong to a different app and can only read a
@@ -20,28 +31,64 @@
 
 const NAMESPACE = "hyve";
 
+/**
+ * `kind` sets how a setting is stored and entered: an amount in shop currency,
+ * or a whole number of business days. `section` is where the settings page
+ * lists it. `placeholder` is the value a store that has never saved the
+ * setting starts with; an `optional` one starts blank and may be left blank.
+ */
 export const COMMERCIAL_SETTINGS = [
   {
     key: "setup_waiver_threshold",
+    section: "thresholds",
+    kind: "money",
     name: "Setup charge waiver threshold",
     description: "Order value in USD at or above which the setup charge is waived. Converted to the buyer's currency at the market rate.",
     placeholder: "500",
   },
   {
     key: "minimum_order_value",
+    section: "thresholds",
+    kind: "money",
     name: "Distributor minimum order value",
     description: "The smallest order value in USD a distributor can check out. Converted to the buyer's currency at the market rate.",
     placeholder: "500",
   },
+  {
+    key: "production_days_standard",
+    section: "production",
+    kind: "days",
+    name: "Standard production",
+    description: "Business days from Artwork Proof approval, weekends and China holidays excluded. The product page, cart and quote show it, and each order's production due date is counted from it.",
+    placeholder: "5",
+  },
+  {
+    key: "production_days_rush",
+    section: "production",
+    kind: "days",
+    name: "Rush production",
+    description: "The same for an order with Rush Production.",
+    placeholder: "3",
+  },
+  {
+    key: "artwork_due_days",
+    section: "artwork",
+    kind: "days",
+    optional: true,
+    name: "Artwork deadline",
+    description: "Business days after an order is placed that artwork sent later is due, weekends and China holidays excluded. The buyer sees the date on an order waiting for artwork. Leave blank for no deadline.",
+    placeholder: "",
+  },
 ];
+
+const METAFIELD_TYPES = { money: "number_decimal", days: "number_integer" };
 
 const READ_QUERY = `#graphql
   query CommercialSettings {
     shop {
       id
       currencyCode
-      setupWaiver: metafield(namespace: "hyve", key: "setup_waiver_threshold") { value }
-      minimumOrder: metafield(namespace: "hyve", key: "minimum_order_value") { value }
+      ${COMMERCIAL_SETTINGS.map(({ key }) => `${key}: metafield(namespace: "${NAMESPACE}", key: "${key}") { value }`).join("\n      ")}
     }
     metafieldDefinitions(first: 20, ownerType: SHOP, namespace: "hyve") {
       nodes { key }
@@ -61,6 +108,13 @@ const SHOP_ID = `#graphql
     shop { id }
   }`;
 
+const CLEAR = `#graphql
+  mutation ClearCommercialSettings($metafields: [MetafieldIdentifierInput!]!) {
+    metafieldsDelete(metafields: $metafields) {
+      userErrors { field message }
+    }
+  }`;
+
 const SAVE = `#graphql
   mutation SaveCommercialSettings($metafields: [MetafieldsSetInput!]!) {
     metafieldsSet(metafields: $metafields) {
@@ -77,9 +131,10 @@ async function gql(admin, query, variables) {
 }
 
 /**
- * Reads the two values, first creating whatever is missing: the definitions,
- * and the placeholder amounts on a store that has never had them. Called when
- * staff open the settings page, so the thresholds exist from the first visit.
+ * Reads the values, first creating whatever is missing: the definitions, and
+ * the placeholder values on a store that has never had them. Called when staff
+ * open the settings page, and by the production due date, so the settings
+ * exist from the first visit or the first proof approved, whichever is first.
  *
  * @returns {Promise<{currency:string, values:Record<string,string>}>}
  */
@@ -96,7 +151,7 @@ export async function loadCommercialSettings(admin) {
         key: setting.key,
         name: setting.name,
         description: setting.description,
-        type: "number_decimal",
+        type: METAFIELD_TYPES[setting.kind],
         access: { storefront: "PUBLIC_READ" },
       },
     });
@@ -104,11 +159,9 @@ export async function loadCommercialSettings(admin) {
     if (error && error.code !== "TAKEN") throw new Error(`${setting.name}: ${error.message}`);
   }
 
-  const current = {
-    setup_waiver_threshold: data.shop.setupWaiver?.value ?? "",
-    minimum_order_value: data.shop.minimumOrder?.value ?? "",
-  };
-  const unset = COMMERCIAL_SETTINGS.filter((setting) => current[setting.key] === "");
+  const valuesOf = (shop) =>
+    Object.fromEntries(COMMERCIAL_SETTINGS.map(({ key }) => [key, shop[key]?.value ?? ""]));
+  const unset = COMMERCIAL_SETTINGS.filter((setting) => !setting.optional && valuesOf(data.shop)[setting.key] === "");
   if (unset.length) {
     await saveCommercialSettings(
       admin,
@@ -118,36 +171,46 @@ export async function loadCommercialSettings(admin) {
     data = await gql(admin, READ_QUERY);
   }
 
-  return {
-    currency: data.shop.currencyCode,
-    values: {
-      setup_waiver_threshold: data.shop.setupWaiver?.value ?? "",
-      minimum_order_value: data.shop.minimumOrder?.value ?? "",
-    },
-  };
+  return { currency: data.shop.currencyCode, values: valuesOf(data.shop) };
 }
 
 /**
- * @param {Record<string,string>} values amounts in shop currency, by key
+ * @param {Record<string,string>} values by key: amounts in shop currency, and
+ *   whole business days
  * @returns {Promise<{ok:true}|{ok:false, error:string}>}
  */
 export async function saveCommercialSettings(admin, values, shopId) {
   const id = shopId || (await gql(admin, SHOP_ID)).shop.id;
 
   const metafields = [];
+  const cleared = [];
   for (const setting of COMMERCIAL_SETTINGS) {
     if (!(setting.key in values)) continue;
-    const amount = Number(String(values[setting.key]).trim());
-    if (!Number.isFinite(amount) || amount < 0) {
+    const raw = String(values[setting.key]).trim();
+    if (setting.optional && raw === "") {
+      cleared.push({ ownerId: id, namespace: NAMESPACE, key: setting.key });
+      continue;
+    }
+    const amount = Number(raw);
+    if (setting.kind === "days") {
+      if (!Number.isInteger(amount) || amount < 1) {
+        return { ok: false, error: `${setting.name} must be a whole number of business days, 1 or more.` };
+      }
+    } else if (!Number.isFinite(amount) || amount < 0) {
       return { ok: false, error: `${setting.name} must be a number of zero or more.` };
     }
     metafields.push({
       ownerId: id,
       namespace: NAMESPACE,
       key: setting.key,
-      type: "number_decimal",
-      value: amount.toFixed(2),
+      type: METAFIELD_TYPES[setting.kind],
+      value: setting.kind === "days" ? String(amount) : amount.toFixed(2),
     });
+  }
+  if (cleared.length) {
+    const result = await gql(admin, CLEAR, { metafields: cleared });
+    const error = result.metafieldsDelete?.userErrors?.[0];
+    if (error) return { ok: false, error: error.message };
   }
   if (!metafields.length) return { ok: true };
 

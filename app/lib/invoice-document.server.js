@@ -11,7 +11,8 @@
  * An order without payment terms still gets a document — it was simply paid at
  * checkout rather than on terms, and the buyer may still want the paperwork.
  */
-import { formatMoney, formatDate } from "./portal.server";
+import { ARTWORK_PENDING, formatMoney, formatDate } from "./portal.server";
+import { artworkSupplied } from "./artwork-zones.server";
 
 /**
  * The legal entity that issues the invoice, confirmed by Hyve on 22 September.
@@ -48,6 +49,7 @@ const DOCUMENT_QUERY = `#graphql
       name
       createdAt
       poNumber
+      customAttributes { key value }
       currencyCode
       displayFinancialStatus
       displayFulfillmentStatus
@@ -70,17 +72,17 @@ const DOCUMENT_QUERY = `#graphql
           sku
           quantity
           customAttributes { key value }
-          originalUnitPriceSet { shopMoney { amount currencyCode } }
-          discountedTotalSet { shopMoney { amount currencyCode } }
+          originalUnitPriceSet { presentmentMoney { amount currencyCode } }
+          discountedTotalSet { presentmentMoney { amount currencyCode } }
         }
       }
       shippingLine { title }
-      subtotalPriceSet { shopMoney { amount currencyCode } }
-      totalShippingPriceSet { shopMoney { amount currencyCode } }
-      totalTaxSet { shopMoney { amount currencyCode } }
-      totalPriceSet { shopMoney { amount currencyCode } }
-      totalReceivedSet { shopMoney { amount currencyCode } }
-      totalOutstandingSet { shopMoney { amount currencyCode } }
+      subtotalPriceSet { presentmentMoney { amount currencyCode } }
+      totalShippingPriceSet { presentmentMoney { amount currencyCode } }
+      totalTaxSet { presentmentMoney { amount currencyCode } }
+      totalPriceSet { presentmentMoney { amount currencyCode } }
+      totalReceivedSet { presentmentMoney { amount currencyCode } }
+      totalOutstandingSet { presentmentMoney { amount currencyCode } }
       paymentTerms {
         paymentTermsName
         paymentSchedules(first: 1) {
@@ -123,8 +125,8 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
   // Only an order on terms has a schedule; a prepaid one was settled at checkout.
   const schedule = order.paymentTerms?.paymentSchedules?.nodes?.[0] || null;
 
-  const currency = order.currencyCode || order.totalPriceSet?.shopMoney?.currencyCode || "";
-  const amount = (set) => Number(set?.shopMoney?.amount ?? 0);
+  const currency = order.currencyCode || order.totalPriceSet?.presentmentMoney?.currencyCode || "";
+  const amount = (set) => Number(set?.presentmentMoney?.amount ?? 0);
   const outstanding = amount(order.totalOutstandingSet);
   const paid = Boolean(schedule?.completedAt) || outstanding <= 0;
 
@@ -158,7 +160,7 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
       quantity: li.quantity,
       // K3: the decoration the buyer chose is part of what they are being
       // billed for, so it belongs on the invoice next to the item.
-      options: decorationOptions(li.customAttributes),
+      options: decorationOptions(li.customAttributes, order.customAttributes),
       unitLabel: formatMoney(amount(li.originalUnitPriceSet), currency),
       totalLabel: formatMoney(amount(li.discountedTotalSet), currency),
     })),
@@ -183,10 +185,17 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
  * buyer reading an invoice. An uploaded artwork file is recorded as its link,
  * which reads as noise on paper, so the invoice says the file was supplied.
  */
-function decorationOptions(attributes) {
+function decorationOptions(attributes, orderAttributes) {
+  // Artwork sent after the order is saved on the order, not the line, so a
+  // line placed as "Artwork Pending" reads as supplied once it has arrived.
+  const supplied = artworkSupplied(attributes, orderAttributes);
   return (attributes || [])
     .filter((attr) => attr?.key && !attr.key.startsWith("_") && attr.value)
-    .map((attr) => `${attr.key}: ${/^https?:\/\//i.test(attr.value) ? "file supplied" : attr.value}`);
+    .map((attr) =>
+      attr.key === "Artwork" && attr.value === ARTWORK_PENDING && supplied
+        ? "Artwork: file supplied"
+        : `${attr.key}: ${/^https?:\/\//i.test(attr.value) ? "file supplied" : attr.value}`,
+    );
 }
 
 /** Who the invoice is addressed to: the company first, then the postal address. */

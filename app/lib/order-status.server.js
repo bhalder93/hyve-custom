@@ -9,9 +9,9 @@
  *   - `$app.production_status`, the status itself, which everything reads first
  *   - one `hyve-status:*` tag mirroring it
  *   - `$app.status_changed_at`, which every SLA clock runs from
- *   - `$app.production_due_at` on Proof Approved: the in-production service
- *     level (a fixed 4 business days on a rush order), skipping weekends and
- *     CN holidays
+ *   - `$app.production_due_at` on Proof Approved: the standard or rush
+ *     production time from Commercial Settings, in business days that skip
+ *     weekends and CN holidays
  *   - `$app.on_hold_reason` while On Hold, deleted on any other move
  *   - an `order_status_history` entry, which is the audit trail staff see
  *   - the customer email for the new status, sent once and marked with a
@@ -22,6 +22,7 @@
  */
 import { sendArtworkReceivedEmail, sendProofApprovedEmail } from "../utils/email.server";
 import { statusEmailWanted } from "./notification-preferences.server";
+import { loadCommercialSettings } from "./commercial-settings.server";
 
 const STATUS_TAG_PREFIX = "hyve-status:";
 const NOTIFIED_TAG_PREFIX = "hyve-notified:";
@@ -41,8 +42,6 @@ const PORTAL_MOVES = {
   "proof-sent": ["proof-approved", "on-hold"],
 };
 
-const RUSH_PRODUCTION_DAYS = 4;
-const DEFAULT_PRODUCTION_DAYS = 7;
 const PRODUCTION_MARKET = "CN";
 
 /**
@@ -76,15 +75,8 @@ export const PRODUCTION_ORDER_FRAGMENT = `#graphql
     }
   }`;
 
-const SERVICE_LEVELS = `#graphql
-  query ProductionServiceLevels {
-    rules: metaobjects(type: "$app:sla_rule", first: 100) {
-      nodes {
-        status: field(key: "status") { value }
-        duration: field(key: "duration") { value }
-        enabled: field(key: "enabled") { value }
-      }
-    }
+const PRODUCTION_HOLIDAYS = `#graphql
+  query ProductionHolidays {
     holidays: metaobjects(type: "$app:business_holiday", first: 250) {
       nodes {
         market: field(key: "market") { value }
@@ -242,25 +234,25 @@ async function notifyCustomer(admin, order, status, productionDueAt) {
 }
 
 /**
- * Production due date for an approval made now: the enabled in-production
- * service level, or a fixed 4 days on a rush order, counted in business days
- * that skip weekends and the production market's holidays.
+ * Production due date for an approval made now: the production time from
+ * Commercial Settings, in business days that skip weekends and the production
+ * market's holidays.
  */
 async function productionDueFrom(admin, changedAt, rush) {
   return productionDueDate(await productionCalendar(admin), changedAt, rush);
 }
 
 /**
- * What a production due date is counted from: the in-production service
- * level and the production market's enabled holidays. Read once and reused
- * when many orders are worked out together (production-reschedule.server.js).
+ * What a production due date is counted from: the standard and rush
+ * production times in Commercial Settings (HYV-133), the same ones the product
+ * page, cart and quote promise, and the production market's enabled holidays.
+ * Every due date comes through here: an approval on the Production Orders
+ * screen, one the buyer makes from the email or the portal, and the recount
+ * when holidays change. Read once and reused when many orders are worked out
+ * together (production-reschedule.server.js).
  */
 export async function productionCalendar(admin) {
-  const data = await gql(admin, SERVICE_LEVELS);
-
-  const rule = (data.rules?.nodes || []).find(
-    (node) => node.status?.value === "in-production" && node.enabled?.value !== "false",
-  );
+  const [data, { values }] = await Promise.all([gql(admin, PRODUCTION_HOLIDAYS), loadCommercialSettings(admin)]);
 
   const holidays = new Set(
     (data.holidays?.nodes || [])
@@ -271,18 +263,50 @@ export async function productionCalendar(admin) {
       .map((node) => String(node.date.value).slice(0, 10)),
   );
 
-  return { days: Number(rule?.duration?.value) || DEFAULT_PRODUCTION_DAYS, holidays };
+  return {
+    standardDays: Number(values.production_days_standard),
+    rushDays: Number(values.production_days_rush),
+    // Blank means Hyve has set no artwork deadline (HYV-102).
+    artworkDueDays: values.artwork_due_days ? Number(values.artwork_due_days) : null,
+    holidays,
+  };
 }
 
-/** The due date for a proof approved at `approvedAt`, on a given calendar. */
-export function productionDueDate(calendar, approvedAt, rush) {
-  const days = rush ? RUSH_PRODUCTION_DAYS : calendar.days;
-  const date = new Date(approvedAt);
+/**
+ * China, where production runs, is UTC+8 all year, as Singapore is. Business
+ * days are counted as they fall there: counted in UTC, a proof approved early
+ * on a Saturday in Singapore was still Friday, so the count started a day
+ * early and the due date came out a day late (HYV-100, #1064).
+ */
+const PRODUCTION_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+/** `days` business days after `from`, skipping weekends and the calendar's holidays. */
+function addBusinessDays(calendar, from, days) {
+  // Shifted to China time, so the UTC calendar methods read China's days.
+  const date = new Date(new Date(from).getTime() + PRODUCTION_UTC_OFFSET_MS);
   let added = 0;
   while (added < days) {
     date.setUTCDate(date.getUTCDate() + 1);
     const weekday = date.getUTCDay();
     if (weekday !== 0 && weekday !== 6 && !calendar.holidays.has(date.toISOString().slice(0, 10))) added += 1;
   }
-  return date.toISOString();
+  return new Date(date.getTime() - PRODUCTION_UTC_OFFSET_MS).toISOString();
+}
+
+/** The due date for a proof approved at `approvedAt`, on a given calendar. */
+export function productionDueDate(calendar, approvedAt, rush) {
+  const days = rush ? calendar.rushDays : calendar.standardDays;
+  if (!Number.isInteger(days) || days < 1) throw new Error("Production times are missing from Commercial Settings.");
+  return addBusinessDays(calendar, approvedAt, days);
+}
+
+/**
+ * When artwork sent later is due on an order placed at `placedAt`: the
+ * artwork deadline in Commercial Settings (HYV-102), on the same business-day
+ * calendar as production. Null while Hyve has set no deadline.
+ */
+export function artworkDueDate(calendar, placedAt) {
+  const days = calendar.artworkDueDays;
+  if (!Number.isInteger(days) || days < 1 || !placedAt) return null;
+  return addBusinessDays(calendar, placedAt, days);
 }

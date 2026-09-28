@@ -7,7 +7,7 @@
  * scopes, GraphQL errors or a timeout — so the caller shows the error panel
  * instead of an empty portal.
  */
-import { mergeQuoteNodes, quoteDecision } from "./account-quotes.server";
+import { DRAFT_ORIGIN_FIELDS, mergeQuoteNodes, QUOTE_STATUSES, quoteStatus, submittedForReview } from "./account-quotes.server";
 import {
   isDistributor,
   orderStatusKey,
@@ -38,7 +38,7 @@ const PORTAL_ORDER_FIELDS = `#graphql
           poNumber
           statusPageUrl
           displayFulfillmentStatus
-          totalPriceSet { shopMoney { amount currencyCode } }
+          totalPriceSet { presentmentMoney { amount currencyCode } }
           paymentTerms { paymentTermsName }
           productionStatus: metafield(namespace: "$app", key: "production_status") { value }
           productionDueAt: metafield(namespace: "$app", key: "production_due_at") { value }
@@ -59,8 +59,8 @@ const PORTAL_ORDER_FIELDS = `#graphql
               sku
               customAttributes { key value }
               variant { id }
-              originalUnitPriceSet { shopMoney { amount currencyCode } }
-              discountedTotalSet { shopMoney { amount currencyCode } }
+              originalUnitPriceSet { presentmentMoney { amount currencyCode } }
+              discountedTotalSet { presentmentMoney { amount currencyCode } }
             }
           }
           fulfillments(first: 1) {
@@ -105,7 +105,11 @@ const ACCOUNT_QUERY = `#graphql
           draftOrders(first: 50, sortKey: UPDATED_AT, reverse: true) {
             nodes {
               id
+              status
+              invoiceSentAt
+              tags
               order { id }
+              ${DRAFT_ORIGIN_FIELDS}
               hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
             }
           }
@@ -122,7 +126,11 @@ const ACCOUNT_QUERY = `#graphql
     draftOrders(first: 50, query: $draftQuery) {
       nodes {
         id
+        status
+        invoiceSentAt
+        tags
         order { id }
+        ${DRAFT_ORIGIN_FIELDS}
         hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
       }
     }
@@ -135,6 +143,7 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
     isDistributor: false,
     terms: null,
     orderNodes: [],
+    reviewDraftIds: [],
     awaitingQuotes: 0,
     failed: true,
   };
@@ -172,9 +181,16 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
     // records the order it became — so the pairing is read from that side and
     // hung on the order for the detail view to offer the quote PDF.
     const quotes = mergeQuoteNodes(companyQuotes(c) || [], body?.data?.draftOrders?.nodes || []);
+    // A terms order released after its credit review came from a draft too,
+    // but that draft was the order, not a quote, so it offers no quote PDF.
     const quoteByOrder = new Map(
-      quotes.filter((q) => q.order?.id).map((q) => [q.order.id, q.id]),
+      quotes.filter((q) => q.order?.id && !submittedForReview(q)).map((q) => [q.order.id, q.id]),
     );
+    // Terms orders still waiting on their credit review. Shopify holds them as
+    // drafts until sales releases them, and Orders shows them (HYV-99).
+    const reviewDraftIds = distributor
+      ? quotes.filter((q) => submittedForReview(q) && q.status !== "COMPLETED" && !q.order?.id).map((q) => q.id)
+      : [];
     for (const order of orderNodes) {
       order.quoteDraftId = quoteByOrder.get(order.id) || null;
     }
@@ -190,8 +206,10 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
       isDistributor: distributor,
       terms: distributor ? buildTerms(c) : null,
       orderNodes,
-      // Quotes awaiting the buyer's decision, for the nav badge.
-      awaitingQuotes: distributor ? quotes.filter((n) => quoteDecision(n) == null).length : 0,
+      reviewDraftIds,
+      // Quotes with the buyer and waiting on them, for the nav badge: the same
+      // rule as the Quote Sent status on the Quotes page.
+      awaitingQuotes: distributor ? quotes.filter((n) => quoteStatus(n) === QUOTE_STATUSES.SENT && !submittedForReview(n)).length : 0,
       failed: false,
     };
   } catch (error) {
@@ -285,7 +303,7 @@ const CHROME_QUERY = `#graphql
             nodes {
               tags
               displayFulfillmentStatus
-              totalPriceSet { shopMoney { currencyCode } }
+              totalPriceSet { presentmentMoney { currencyCode } }
               productionStatus: metafield(namespace: "$app", key: "production_status") { value }
               lineItems(first: 10) { nodes { customAttributes { key value } } }
             }
@@ -293,7 +311,11 @@ const CHROME_QUERY = `#graphql
           draftOrders(first: 50, sortKey: UPDATED_AT, reverse: true) {
             nodes {
               id
+              status
+              invoiceSentAt
+              tags
               order { id }
+              ${DRAFT_ORIGIN_FIELDS}
               hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
             }
           }
@@ -303,7 +325,7 @@ const CHROME_QUERY = `#graphql
         nodes {
           tags
           displayFulfillmentStatus
-          totalPriceSet { shopMoney { currencyCode } }
+          totalPriceSet { presentmentMoney { currencyCode } }
           productionStatus: metafield(namespace: "$app", key: "production_status") { value }
           lineItems(first: 10) { nodes { customAttributes { key value } } }
         }
@@ -315,7 +337,11 @@ const CHROME_QUERY = `#graphql
     draftOrders(first: 50, query: $draftQuery) {
       nodes {
         id
+        status
+        invoiceSentAt
+        tags
         order { id }
+        ${DRAFT_ORIGIN_FIELDS}
         hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
       }
     }
@@ -365,7 +391,7 @@ export async function portalChrome(admin, customerId) {
     // A quote needs the buyer's attention until staff mark it approved or
     // rejected, which they do with the hyve_status metafield on the draft order.
     const awaitingQuotes = mergeQuoteNodes(companyQuotes(c) || [], body?.data?.draftOrders?.nodes || []).filter(
-      (node) => quoteDecision(node) == null,
+      (node) => quoteStatus(node) === QUOTE_STATUSES.SENT && !submittedForReview(node),
     ).length;
 
     return {

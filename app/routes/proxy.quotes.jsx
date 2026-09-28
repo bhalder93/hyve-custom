@@ -4,6 +4,7 @@ import { accountShell } from "../lib/account-shell.server";
 import { distributorOnly } from "../lib/account-error.server";
 import { portalChrome } from "../lib/account-data.server";
 import {
+  DRAFT_ORIGIN_FIELDS,
   mapDraftOrdersToQuotes,
   mergeQuoteNodes,
   expiredQuoteToRow,
@@ -25,17 +26,18 @@ const QUOTE_FIELDS = `#graphql
     invoiceUrl
     invoiceSentAt
     hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
-    totalPriceSet { shopMoney { amount currencyCode } }
+    totalPriceSet { presentmentMoney { amount currencyCode } }
     lineItems(first: 20) {
       nodes {
         title
         quantity
-        originalUnitPriceSet { shopMoney { amount currencyCode } }
+        originalUnitPriceSet { presentmentMoney { amount currencyCode } }
       }
     }
     order { id name }
     tags
     customAttributes { key value }
+    ${DRAFT_ORIGIN_FIELDS}
   }`;
 
 /** The company's quotes — what everyone on the account sees. */

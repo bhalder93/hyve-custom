@@ -9,6 +9,7 @@ import {
 } from "../lib/distributor-metaobject.server";
 import { uploadToShopifyFiles } from "../lib/shopify-files.server";
 import { sendApplicationEmails } from "../lib/application-emails.server";
+import { supportedCurrencies } from "../lib/store-currencies.server";
 
 /**
  * Customer Account Portal — Apply for Distributor Portal Route.
@@ -22,35 +23,6 @@ import { sendApplicationEmails } from "../lib/application-emails.server";
  */
 
 const ADMIN_TIMEOUT_MS = 5000;
-
-/**
- * The currencies the applicant may choose from (B6).
- *
- * Read from the store's own market settings rather than hard-coded, so the list
- * follows whatever markets are switched on. The launch market set is still
- * being settled, and this way settling it needs no code change.
- */
-async function supportedCurrencies(admin) {
-  try {
-    const response = await admin.graphql(
-      `#graphql
-      query SupportedCurrencies {
-        shop {
-          currencyCode
-          enabledPresentmentCurrencies
-        }
-      }`,
-    );
-    const body = await response.json();
-    const shop = body?.data?.shop;
-    const list = shop?.enabledPresentmentCurrencies || [];
-    if (list.length) return list;
-    return shop?.currencyCode ? [shop.currencyCode] : [];
-  } catch (error) {
-    console.warn("[account] could not read supported currencies", error?.message || error);
-    return [];
-  }
-}
 
 export const loader = async ({ request }) => {
   const { liquid, admin } = await authenticate.public.appProxy(request);

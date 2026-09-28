@@ -126,7 +126,7 @@ export const loader = async ({ request }) => {
             invoiceUrl
             tags
             totalPriceSet {
-              shopMoney {
+              presentmentMoney {
                 amount
                 currencyCode
               }
@@ -403,8 +403,8 @@ export default function AdminQuotesListPage() {
                     <s-table-cell>{formatDate(quote.createdAt)}</s-table-cell>
                     <s-table-cell>
                       {formatMoney(
-                        quote.totalPriceSet?.shopMoney?.amount,
-                        quote.totalPriceSet?.shopMoney?.currencyCode,
+                        quote.totalPriceSet?.presentmentMoney?.amount,
+                        quote.totalPriceSet?.presentmentMoney?.currencyCode,
                       )}
                     </s-table-cell>
                     <s-table-cell>

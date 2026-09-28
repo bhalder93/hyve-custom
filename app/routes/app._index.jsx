@@ -28,7 +28,7 @@ const QUOTES_QUERY = `#graphql
         id
         name
         createdAt
-        totalPriceSet { shopMoney { amount currencyCode } }
+        totalPriceSet { presentmentMoney { amount currencyCode } }
         customer { displayName }
         hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
       }
@@ -81,7 +81,7 @@ export const loader = async ({ request }) => {
         numericId: String(q.id).replace("gid://shopify/DraftOrder/", ""),
         name: quoteReference(q.name),
         customer: q.customer?.displayName || "—",
-        total: money(q.totalPriceSet?.shopMoney),
+        total: money(q.totalPriceSet?.presentmentMoney),
         decision: decision(q) === true ? "approved" : decision(q) === false ? "rejected" : "awaiting",
       })),
     },
@@ -95,10 +95,10 @@ function quoteReference(name) {
   return raw || "Quote";
 }
 
-function money(shopMoney) {
-  if (!shopMoney) return "—";
-  const amount = Number(shopMoney.amount) || 0;
-  return `${shopMoney.currencyCode} ${amount.toLocaleString(undefined, {
+function money(presentmentMoney) {
+  if (!presentmentMoney) return "—";
+  const amount = Number(presentmentMoney.amount) || 0;
+  return `${presentmentMoney.currencyCode} ${amount.toLocaleString(undefined, {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   })}`;

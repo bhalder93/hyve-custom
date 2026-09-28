@@ -24,7 +24,9 @@ export const STATUS_OPTIONS = [
 ];
 
 export const STATUS_TRANSITIONS = {
-  "order-placed": ["artwork-received", "proof-approved", "on-hold"],
+  // Every order goes through its Artwork Proof: there is no skipping from
+  // Order Received straight to Proof Approved (HYV-100, Michael).
+  "order-placed": ["artwork-received", "on-hold"],
 
   "artwork-received": ["proof-sent", "on-hold"],
 

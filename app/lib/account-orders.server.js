@@ -16,10 +16,12 @@
  * so switching a filter costs no round trip.
  */
 import { esc } from "./account-shell.server";
+import { artworkDueDate, productionCalendar } from "./order-status.server";
 import { PROOF_HOLD_DAY } from "../utils/sla-engine.server";
-import { zonesFromAttributes } from "./artwork-zones.server";
+import { artworkSupplied, zonesFromAttributes } from "./artwork-zones.server";
 import { orderModal, MODAL_STYLES, MODAL_SCRIPT } from "./account-order-modal.server";
 import {
+  ARTWORK_PENDING,
   VISIBLE_STATUSES,
   AWAITING_DISTRIBUTOR,
   orderStatusKey,
@@ -38,7 +40,7 @@ export function mapOrders(nodes = []) {
     const fulfillment = (node?.fulfillments || [])[0] || null;
     const tracking = (fulfillment?.trackingInfo || [])[0] || null;
     const statusKey = orderStatusKey(node);
-    const money = node?.totalPriceSet?.shopMoney || {};
+    const money = node?.totalPriceSet?.presentmentMoney || {};
 
     return {
       // Reorder and the invoice PDF both act on the order itself, so the row
@@ -56,6 +58,7 @@ export function mapOrders(nodes = []) {
         : "",
       statusKey,
       items: itemsSummary(lineItems),
+      placedAt: node?.createdAt || "",
       date: formatDate(node?.createdAt),
       total: formatMoney(money.amount, money.currencyCode),
       icon: iconFor(lineItems[0]?.title || ""),
@@ -100,21 +103,115 @@ export function mapOrders(nodes = []) {
             (attr) =>
               attr?.key && !attr.key.startsWith("_") && !attr.key.startsWith("Artwork:") && attr.value,
           )
-          .map((attr) => `${attr.key}: ${attr.value}`),
+          // Artwork sent after the order reads as received, not as the
+          // "Artwork Pending" the line was placed with (HYV-89).
+          .map((attr) =>
+            attr.key === "Artwork" &&
+            attr.value === ARTWORK_PENDING &&
+            artworkSupplied(li.customAttributes, node?.customAttributes)
+              ? "Artwork: Received"
+              : `${attr.key}: ${attr.value}`,
+          ),
         // F11: where this line is decorated, so a send-later order can be
         // completed against the same positions the buyer chose.
         zones: zonesFromAttributes(li.customAttributes, node?.customAttributes),
         unitPrice: formatMoney(
-          li.originalUnitPriceSet?.shopMoney?.amount,
-          li.originalUnitPriceSet?.shopMoney?.currencyCode,
+          li.originalUnitPriceSet?.presentmentMoney?.amount,
+          li.originalUnitPriceSet?.presentmentMoney?.currencyCode,
         ),
         lineTotal: formatMoney(
-          li.discountedTotalSet?.shopMoney?.amount,
-          li.discountedTotalSet?.shopMoney?.currencyCode,
+          li.discountedTotalSet?.presentmentMoney?.amount,
+          li.discountedTotalSet?.presentmentMoney?.currencyCode,
         ),
       })),
     };
   });
+}
+
+/**
+ * Terms orders waiting on their credit review (HYV-99). A company that
+ * submits orders for review gets a draft order at checkout, not an order, and
+ * sales releases it as the order once credit is checked. Until then it is
+ * still the buyer's order, so it is listed here as Credit Under Review, read
+ * with the same fields an order row uses.
+ */
+const REVIEW_ORDERS_QUERY = `#graphql
+  query ReviewOrders($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on DraftOrder {
+        id
+        name
+        createdAt
+        tags
+        poNumber
+        totalPriceSet { presentmentMoney { amount currencyCode } }
+        paymentTerms { paymentTermsName }
+        note: note2
+        customAttributes { key value }
+        shippingAddress { name company address1 address2 city provinceCode zip countryCodeV2 }
+        shippingLine { title }
+        lineItems(first: 10) {
+          nodes {
+            title
+            quantity
+            variantTitle
+            sku
+            customAttributes { key value }
+            variant { id }
+            originalUnitPriceSet { presentmentMoney { amount currencyCode } }
+            discountedTotalSet { presentmentMoney { amount currencyCode } }
+          }
+        }
+      }
+    }
+  }`;
+
+/**
+ * @param {string[]} ids from loadAccount's reviewDraftIds
+ * @returns {Promise<object[]>} order rows, newest first; none when the read fails
+ */
+export async function loadReviewOrders(admin, ids = []) {
+  if (!admin || !ids.length) return [];
+  try {
+    const response = await admin.graphql(REVIEW_ORDERS_QUERY, { variables: { ids } });
+    const body = await response.json();
+    if (body?.errors?.length) {
+      console.warn("[portal] review orders query failed", JSON.stringify(body.errors));
+      return [];
+    }
+    const drafts = (body?.data?.nodes || []).filter(Boolean);
+    return mapOrders(drafts).map((row) => ({
+      ...row,
+      statusKey: "credit-review",
+      // Not an order yet: nothing to reorder, invoice, track or send artwork
+      // against until sales releases it, and those all key off the id.
+      id: "",
+      hasInvoice: false,
+      viewHref: "",
+    }));
+  } catch (error) {
+    console.warn("[portal] review orders threw", error?.message || error);
+    return [];
+  }
+}
+
+/**
+ * Adds the artwork "by" date to every order waiting for artwork (HYV-102),
+ * from the deadline in Commercial Settings. The calendar is only read when an
+ * order needs it. Changes the rows in place and returns them.
+ *
+ * @param {object[]} orders rows from mapOrders
+ */
+export async function withArtworkDeadlines(admin, orders = []) {
+  const waiting = orders.filter((order) => order.statusKey === "awaiting-artwork" && order.id);
+  if (!waiting.length) return orders;
+  try {
+    const calendar = await productionCalendar(admin);
+    for (const order of waiting) order.artworkDueBy = formatDate(artworkDueDate(calendar, order.placedAt));
+  } catch (error) {
+    console.warn("[portal] artwork deadline unavailable", error?.message || error);
+  }
+  return orders;
 }
 
 /** Orders waiting on the distributor — the H9 badge: Proof Sent or Awaiting Artwork. */
@@ -182,7 +279,7 @@ export function orderRow(order) {
   const meta = metaLine(order, status.key);
 
   return `
-    <article class="hyve-ord__row" data-status="${esc(order.statusKey)}" data-search="${esc(haystack)}">
+    <article class="hyve-ord__row" data-modal-row="order-${esc(order.name)}" data-status="${esc(order.statusKey)}" data-search="${esc(haystack)}">
       <span class="hyve-ord__icon">${order.icon}</span>
 
       <div class="hyve-ord__body">
@@ -260,7 +357,11 @@ function metaLine(order, statusKey) {
     return `<p class="hyve-ord__meta is-action">${icoClock()}<span>Action Required: Approve your Artwork Proof or request changes${by} to avoid delays</span></p>`;
   }
   if (statusKey === "awaiting-artwork") {
-    return `<p class="hyve-ord__meta is-action">${icoUpload()}<span>Action Required: Upload your artwork so production can start</span></p>`;
+    const by = order.artworkDueBy ? ` by <strong>${esc(order.artworkDueBy)}</strong>` : "";
+    return `<p class="hyve-ord__meta is-action">${icoUpload()}<span>Action Required: Upload your artwork${by} so production can start</span></p>`;
+  }
+  if (statusKey === "credit-review") {
+    return `<p class="hyve-ord__meta">${icoClock()}<span>Submitted for review: Hyve checks your credit terms, then confirms the order</span></p>`;
   }
   if (statusKey === "on-hold" && order.onHoldReason) {
     return `<p class="hyve-ord__meta is-action">${icoClock()}<span>On Hold: ${esc(order.onHoldReason)}</span></p>`;
@@ -354,7 +455,8 @@ function icoBoxSmall() { return svg('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2
 /* ---------- styles ---------- */
 export const ORDER_ROW_STYLES = `
   .hyve-ord__list { display: flex; flex-direction: column; padding: 16px; }
-  .hyve-ord__row { display: flex; align-items: flex-start; gap: 14px; padding: 16px 4px; border-top: 1px solid var(--hyve-border); }
+  .hyve-ord__row { display: flex; align-items: flex-start; gap: 14px; padding: 16px 4px; border-top: 1px solid var(--hyve-border); cursor: pointer; }
+  .hyve-ord__row:hover { background: var(--hyve-border); }
   .hyve-ord__row[hidden] { display: none; }
   .hyve-ord__row:first-child { border-top: 0; }
   .hyve-ord__icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; background: #F1F5F9; color: #475569; flex-shrink: 0; }

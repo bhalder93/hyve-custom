@@ -23,8 +23,8 @@ const INVOICES_QUERY = `#graphql
           poNumber
           displayFinancialStatus
           displayFulfillmentStatus
-          totalPriceSet { shopMoney { amount currencyCode } }
-          totalOutstandingSet { shopMoney { amount currencyCode } }
+          totalPriceSet { presentmentMoney { amount currencyCode } }
+          totalOutstandingSet { presentmentMoney { amount currencyCode } }
           lineItems(first: 3) { nodes { title quantity } }
           paymentTerms {
             paymentTermsName
@@ -99,14 +99,14 @@ function toInvoice(order) {
   if (!schedule) return null;
 
   const currency =
-    order.totalPriceSet?.shopMoney?.currencyCode ||
+    order.totalPriceSet?.presentmentMoney?.currencyCode ||
     schedule.totalBalance?.currencyCode ||
     "";
-  const outstanding = Number(order.totalOutstandingSet?.shopMoney?.amount ?? 0);
+  const outstanding = Number(order.totalOutstandingSet?.presentmentMoney?.amount ?? 0);
   // The amount billed, which is the order's total. A schedule's `totalBalance`
   // drops to zero the moment it is settled, so reading the invoice amount from
   // it made every paid invoice display as nil.
-  const total = Number(order.totalPriceSet?.shopMoney?.amount ?? schedule.totalBalance?.amount ?? 0);
+  const total = Number(order.totalPriceSet?.presentmentMoney?.amount ?? schedule.totalBalance?.amount ?? 0);
   const paid = Boolean(schedule.completedAt) || outstanding <= 0;
   const dueAt = schedule.dueAt ? new Date(schedule.dueAt) : null;
   const days = dueAt ? Math.ceil((dueAt.getTime() - Date.now()) / DAY_MS) : null;
@@ -137,5 +137,38 @@ function toInvoice(order) {
     downloadHref: order.id
       ? `/apps/account/invoices/download?order=${encodeURIComponent(order.id)}`
       : "",
+  };
+}
+
+/**
+ * The dashboard's payment due banner (H1): the unpaid invoice to pay first,
+ * which is the most overdue, else the next one due, with its amount and due
+ * date. Null when nothing is outstanding, so there is no banner. The bank
+ * transfer details join it once they are supplied (K11, HYV-105); until then
+ * it carries none, and there is never a Pay Now button (K5).
+ *
+ * @param {ReturnType<typeof toInvoice>[]} invoices from loadInvoices
+ */
+export function paymentDue(invoices) {
+  const unpaid = invoices.filter((invoice) => invoice.outstanding > 0);
+  if (!unpaid.length) return null;
+
+  // No due date sorts last: nothing to be late on yet.
+  const [next] = unpaid
+    .slice()
+    .sort((a, b) => (a.daysUntilDue ?? Infinity) - (b.daysUntilDue ?? Infinity));
+  const overdue = next.status === "overdue";
+  const due = next.dueLabel
+    ? `Invoice ${next.reference} ${overdue ? "was" : "is"} due ${next.dueLabel}.`
+    : `Invoice ${next.reference} is unpaid.`;
+  const more = unpaid.length - 1;
+
+  return {
+    headline: overdue ? "Payment overdue" : "Payment due",
+    detail: more
+      ? `${due} ${more} more unpaid ${more === 1 ? "invoice is" : "invoices are"} on the Invoices page.`
+      : due,
+    amount: next.outstandingLabel,
+    remittance: null,
   };
 }

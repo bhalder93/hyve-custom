@@ -19,7 +19,8 @@ import {
   sendProductionCompleteEmail,
 } from "../utils/email.server";
 import { proofDecisionLinks } from "../lib/proof.server";
-import { artworkPending } from "../lib/portal.server";
+import { productionCalendar, productionDueDate } from "../lib/order-status.server";
+import { staffMemberLabel } from "../lib/staff-member.server";
 import { NOTIFICATIONS_PAUSED_TAG } from "../utils/sla-engine.server";
 import { statusEmailWanted } from "../lib/notification-preferences.server";
 import {
@@ -41,10 +42,6 @@ function hasPhysicalSample(order) {
   );
 }
 const VALID_STATUSES = new Set(STATUS_OPTIONS.map((status) => status.value));
-
-const PRODUCTION_MARKET = "CN";
-
-const RUSH_DAYS = 4;
 
 function getStatusLabel(value) {
   return (
@@ -128,44 +125,6 @@ function canTransition(currentStatus, nextStatus) {
   }
 
   return Boolean(STATUS_TRANSITIONS[currentStatus]?.includes(nextStatus));
-}
-
-function addBusinessDays(start, days, holidays = []) {
-  const date = new Date(start);
-
-  if (Number.isNaN(date.getTime())) {
-    throw new Error("Invalid production SLA start date.");
-  }
-
-  const totalDays = Number(days);
-
-  if (!Number.isInteger(totalDays) || totalDays <= 0) {
-    throw new Error("Production SLA duration must be greater than zero.");
-  }
-
-  const holidaySet = new Set(
-    holidays.map((value) => String(value).slice(0, 10)),
-  );
-
-  let added = 0;
-
-  while (added < totalDays) {
-    date.setUTCDate(date.getUTCDate() + 1);
-
-    const weekday = date.getUTCDay();
-
-    const dateKey = date.toISOString().slice(0, 10);
-
-    const weekend = weekday === 0 || weekday === 6;
-
-    const holiday = holidaySet.has(dateKey);
-
-    if (!weekend && !holiday) {
-      added += 1;
-    }
-  }
-
-  return date;
 }
 
 function getCustomerEmail(order) {
@@ -265,21 +224,21 @@ async function getOrder(admin, orderId) {
             displayFulfillmentStatus
 
             totalPriceSet {
-              shopMoney {
+              presentmentMoney {
                 amount
                 currencyCode
               }
             }
 
             subtotalPriceSet {
-              shopMoney {
+              presentmentMoney {
                 amount
                 currencyCode
               }
             }
 
             totalShippingPriceSet {
-              shopMoney {
+              presentmentMoney {
                 amount
                 currencyCode
               }
@@ -321,7 +280,7 @@ async function getOrder(admin, orderId) {
     }
 
     originalUnitPriceSet {
-      shopMoney {
+      presentmentMoney {
         amount
         currencyCode
       }
@@ -617,92 +576,6 @@ async function hasOrderTag(admin, orderId, tag) {
   const data = await parseGraphQL(response, "CheckOrderTag");
 
   return Boolean(data.data?.order?.tags?.includes(tag));
-}
-
-async function getProductionSlaDays(admin) {
-  const response = await admin.graphql(
-    `#graphql
-        query ProductionSla {
-          metaobjects(
-            type: "$app:sla_rule"
-            first: 100
-          ) {
-            nodes {
-              status: field(
-                key: "status"
-              ) {
-                value
-              }
-
-              duration: field(
-                key: "duration"
-              ) {
-                value
-              }
-
-              enabled: field(
-                key: "enabled"
-              ) {
-                value
-              }
-            }
-          }
-        }
-      `,
-  );
-
-  const data = await parseGraphQL(response, "ProductionSla");
-
-  const rule = (data.data?.metaobjects?.nodes ?? []).find(
-    (item) =>
-      item.status?.value === "in-production" && item.enabled?.value !== "false",
-  );
-
-  return Number(rule?.duration?.value) || 7;
-}
-
-async function getHolidays(admin) {
-  const response = await admin.graphql(
-    `#graphql
-        query ProductionHolidays {
-          metaobjects(
-            type: "$app:business_holiday"
-            first: 250
-          ) {
-            nodes {
-              market: field(
-                key: "market"
-              ) {
-                value
-              }
-
-              date: field(
-                key: "date"
-              ) {
-                value
-              }
-
-              enabled: field(
-                key: "enabled"
-              ) {
-                value
-              }
-            }
-          }
-        }
-      `,
-  );
-
-  const data = await parseGraphQL(response, "ProductionHolidays");
-
-  return (data.data?.metaobjects?.nodes ?? [])
-    .filter(
-      (item) =>
-        item.enabled?.value !== "false" &&
-        item.market?.value === PRODUCTION_MARKET &&
-        item.date?.value,
-    )
-    .map((item) => item.date.value);
 }
 
 async function deleteOnHoldReason(admin, orderId) {
@@ -1225,7 +1098,7 @@ export async function loader({ request, params }) {
 }
 
 export async function action({ request, params }) {
-  const { admin, session } = await authenticate.admin(request);
+  const { admin, sessionToken } = await authenticate.admin(request);
 
   try {
     if (!params.orderId) {
@@ -1464,25 +1337,6 @@ export async function action({ request, params }) {
       };
     }
 
-    // An order placed with its artwork to follow waits at Awaiting Artwork
-    // (ART-03), so it can't skip straight to approval and into production.
-    if (
-      currentStatus === "order-placed" &&
-      nextStatus === "proof-approved" &&
-      artworkPending(order)
-    ) {
-      return {
-        success: false,
-
-        fieldErrors: {
-          nextStatus:
-            "This order is waiting for the buyer's artwork. Set Artwork Received first.",
-        },
-
-        formError: "The order is on hold for artwork.",
-      };
-    }
-
     // A paid physical sample ships and is approved before the full run
     // (ORS-03).
     if (
@@ -1513,19 +1367,14 @@ export async function action({ request, params }) {
       nextProofVersion = currentVersion + 1;
     }
     if (nextStatus === "proof-approved") {
-      const isRush = order.rush?.value === "true";
-
-      const productionDays = isRush
-        ? RUSH_DAYS
-        : await getProductionSlaDays(admin);
-
-      const holidays = await getHolidays(admin);
-
-      productionDueAt = addBusinessDays(
+      // The same production time and holiday calendar as a proof the buyer
+      // approves from the email or the portal: the standard or rush time in
+      // Commercial Settings (HYV-133).
+      productionDueAt = productionDueDate(
+        await productionCalendar(admin),
         changedAt,
-        productionDays,
-        holidays,
-      ).toISOString();
+        order.rush?.value === "true",
+      );
     }
 
     await removeTags(admin, orderId, productionTags);
@@ -1551,12 +1400,9 @@ export async function action({ request, params }) {
         nextStatus === "production-complete" ? productionPhotoUrl : null,
     });
 
-    const user = session?.onlineAccessInfo?.associated_user;
-
-    const changedBy =
-      user?.email ||
-      [user?.first_name, user?.last_name].filter(Boolean).join(" ") ||
-      "Shopify Admin";
+    // The staff member making the move (HYV-100). "Shopify Admin" only when
+    // Shopify can't say who.
+    const changedBy = (await staffMemberLabel(request, sessionToken)) || "Shopify Admin";
 
     let historyNote = note;
 
@@ -1905,7 +1751,7 @@ export default function ProductionOrderDetailsPage() {
     return null;
   }
 
-  const money = order.totalPriceSet?.shopMoney;
+  const money = order.totalPriceSet?.presentmentMoney;
 
   const shipping = order.shippingAddress;
 
@@ -2194,7 +2040,7 @@ export default function ProductionOrderDetailsPage() {
               <s-stack direction="block" gap="base">
                 {order.lineItems?.nodes?.length ? (
                   order.lineItems.nodes.map((item) => {
-                    const price = item.originalUnitPriceSet?.shopMoney;
+                    const price = item.originalUnitPriceSet?.presentmentMoney;
 
                     const imprint = item.customAttributes?.find(
                       (attribute) => attribute.key === "Imprint Locations",

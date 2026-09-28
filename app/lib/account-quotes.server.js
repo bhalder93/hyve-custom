@@ -4,7 +4,7 @@
  *
  * Renders the Quotes management screen matching the user mockup:
  *   - Page header: "Quotes" + subtitle + "+ Request Quote" CTA button
- *   - Main card with live client-side search input & filter tabs (All, Awaiting Action, Approved, Rejected)
+ *   - Main card with live client-side search input & filter tabs, one per status
  *   - Quote cards with Quote #, status badge, items summary, validity / converted metadata, price, and actions
  *   - Actions: "Confirm Order" (the draft order's checkout link), "View Order", "Requote", and "PDF"
  *   - Interactive "+ Request Quote" modal to submit custom wholesale quote requests
@@ -12,6 +12,7 @@
 
 import { esc } from "./account-shell.server";
 import { quoteValidUntil } from "./quote-document.server";
+import { formatDate, formatMoney } from "./portal.server";
 
 /**
  * Quote statuses.
@@ -22,16 +23,16 @@ import { quoteValidUntil } from "./quote-document.server";
  * dates — the metafield is the only source.
  */
 /**
- * Four states, each one something that has actually happened.
+ * The states the requirements name (I9), plus Declined, each one something
+ * that has actually happened.
  *
+ *   Created  — the quote exists but hasn't gone to the buyer: sales has made
+ *              it and not sent it yet, or the buyer asked for one and Hyve has
+ *              still to price it (HYV-99)
  *   Sent     — the quote is with the buyer and they have not acted on it
  *   Accepted — they accepted it and it became an order
  *   Declined — Hyve turned the request down
  *   Expired  — it passed its validity and was withdrawn
- *
- * The requirements list "Quote Created" and "Quote Sent" separately, but a
- * distributor only ever sees a quote that has already been given to them, so
- * the two read identically from their side. They are one state here.
  *
  * Expired is real rather than cosmetic: a Shopify draft order has no expiry and
  * its payment link never stops working, so a scheduled job deletes the quote —
@@ -39,6 +40,7 @@ import { quoteValidUntil } from "./quote-document.server";
  * from that archive, not from a label on a quote that would still take money.
  */
 export const QUOTE_STATUSES = {
+  CREATED: "created",
   SENT: "sent",
   ACCEPTED: "accepted",
   DECLINED: "declined",
@@ -46,6 +48,7 @@ export const QUOTE_STATUSES = {
 };
 
 export const QUOTE_STATUS_LABELS = {
+  created: "Quote Created",
   sent: "Quote Sent",
   accepted: "Quote Accepted",
   declined: "Quote Declined",
@@ -98,6 +101,65 @@ export function quoteDecision(node) {
 }
 
 /**
+ * Who made a draft order, from its "created" event. Shopify has no created-by
+ * field on a draft, but the event says: a staff member's name when sales made
+ * it in admin, the app when an app did, and neither when checkout made it (a
+ * company that submits orders for review). Include in every draft order query
+ * the quotes and orders read.
+ */
+export const DRAFT_ORIGIN_FIELDS = `
+  createdEvent: events(first: 1, query: "action:create") {
+    nodes { ... on BasicEvent { author attributeToUser attributeToApp } }
+  }`;
+
+function createdEvent(node) {
+  return node?.createdEvent?.nodes?.[0] || null;
+}
+
+/**
+ * A distributor's own order placed on terms and submitted for review at
+ * checkout. Shopify holds it as a draft until sales releases it, but it is an
+ * order, not a quote: it shows in Orders as Credit Under Review, and never in
+ * Quotes, where Confirm Order would let the buyer skip the review (HYV-99).
+ */
+export function submittedForReview(node) {
+  const event = createdEvent(node);
+  return Boolean(event) && !event.attributeToUser && !event.attributeToApp;
+}
+
+/** The staff member who made a sales-issued quote, or "" when no one did. */
+export function issuedBy(node) {
+  const event = createdEvent(node);
+  return event?.attributeToUser ? String(event.author || "").trim() : "";
+}
+
+/**
+ * Where a live quote stands, from its draft order. Needs `status`, `order`,
+ * `hyveStatus`, `invoiceSentAt` and `tags` on the node.
+ *
+ * Accepted means the buyer acted on it and it became an order. A staff
+ * approval in Hyve Custom is Hyve agreeing the quote, not the buyer accepting
+ * it, so it leaves the quote with the buyer.
+ *
+ * A quote has gone to the buyer when Shopify sent it (sales pressing Send on
+ * the draft), when the buyer made it themselves from their cart, or when staff
+ * approved a request. A request from the Quotes page is tagged awaiting_review
+ * until Hyve prices it.
+ *
+ * @returns {"created"|"sent"|"accepted"|"declined"}
+ */
+export function quoteStatus(node) {
+  if (node?.status === "COMPLETED" || node?.order?.id || node?.order?.name) return QUOTE_STATUSES.ACCEPTED;
+
+  const decision = quoteDecision(node);
+  if (decision === false) return QUOTE_STATUSES.DECLINED;
+
+  const tags = node?.tags || [];
+  const fromCart = tags.includes("storefront-quote") && !tags.includes("awaiting_review");
+  return node?.invoiceSentAt || fromCart || decision === true ? QUOTE_STATUSES.SENT : QUOTE_STATUSES.CREATED;
+}
+
+/**
  * Map Shopify Admin API DraftOrder nodes to Quote objects.
  * Uses ONLY real data from Shopify — no dummy/sample data fallback.
  */
@@ -120,7 +182,7 @@ export function mapDraftOrdersToQuotes(draftOrderNodes = []) {
     return [];
   }
 
-  return draftOrderNodes.map((node, index) => {
+  return draftOrderNodes.filter((node) => !submittedForReview(node)).map((node, index) => {
     // Format quote name: e.g. #D1055 -> Q-1055, #1055 -> Q-1055
     let name = node.name || `Q-${index + 1}`;
     if (name.startsWith("#D")) {
@@ -136,38 +198,39 @@ export function mapDraftOrdersToQuotes(draftOrderNodes = []) {
       ? lineItems.map((li) => `${li.title}${li.quantity > 1 ? ` x${li.quantity}` : ""}`).join(" + ")
       : "Custom Wholesale Quote";
 
-    const money = node.totalPriceSet?.shopMoney || {};
-    const currency = money.currencyCode || "SGD";
+    // In the currency the quote was raised in, which is what the buyer pays
+    // (HYV-98). The shop's own currency made an SGD quote read as USD.
+    const money = node.totalPriceSet?.presentmentMoney || {};
     const amount = Number(money.amount) || 0;
-    const formattedPrice = `${currency} ${amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+    const formattedPrice = formatMoney(amount, money.currencyCode);
 
-    let status = QUOTE_STATUSES.SENT;
+    const status = quoteStatus(node);
     let metaText = "";
     const createdDate = formatDate(node.createdAt);
 
-    // Check custom attributes for the sales rep
-    const customAttrs = node.customAttributes || [];
-    const repAttr = customAttrs.find((a) => a.key === "Sales Rep" || a.key === "Sent By" || a.key === "Representative");
-    const repName = repAttr?.value || "Sales Team";
+    // Who the quote came from (HYV-99): the rep who made it in admin by name,
+    // the buyer's own cart, or a request Hyve is pricing.
+    const tags = node.tags || [];
+    const requested = tags.includes("awaiting_review");
+    const fromCart = tags.includes("storefront-quote") && !requested;
+    const rep = issuedBy(node);
     // The same day the quote's PDF prints and its expiry reminder counts down to.
     const validUntil = ` · Valid until ${quoteValidUntil(node.createdAt).label}`;
 
-    const decision = quoteDecision(node);
-    // A draft Shopify marks COMPLETED has become a real order, which is the
-    // buyer accepting it.
-    const converted = node.status === "COMPLETED" || Boolean(node.order?.name);
-
-    if (converted) {
-      status = QUOTE_STATUSES.ACCEPTED;
+    if (status === QUOTE_STATUSES.ACCEPTED) {
       metaText = node.order?.name
         ? `${createdDate} · Accepted · Order ${node.order.name}`
         : `${createdDate} · Accepted`;
-    } else if (decision === false) {
-      status = QUOTE_STATUSES.DECLINED;
+    } else if (status === QUOTE_STATUSES.DECLINED) {
       metaText = `${createdDate} · Declined`;
+    } else if (fromCart) {
+      metaText = `${createdDate} · Raised from the cart${validUntil}`;
+    } else if (status === QUOTE_STATUSES.CREATED) {
+      metaText = requested
+        ? `${createdDate} · Requested · Hyve is preparing it`
+        : `${createdDate} · Being prepared${rep ? ` by ${rep}` : ""}`;
     } else {
-      status = QUOTE_STATUSES.SENT;
-      metaText = `${createdDate} · Sent by ${repName}${validUntil}`;
+      metaText = `${createdDate} · Sent${rep ? ` by ${rep}` : ""}${validUntil}`;
     }
 
     return {
@@ -233,6 +296,7 @@ export function quotesPage({ quotes = [], notice = null, error = null }) {
 
         <div class="hyve-quotes__tabs" role="tablist">
           <button type="button" class="hyve-quotes__tab is-active" data-filter="all">All</button>
+          <button type="button" class="hyve-quotes__tab" data-filter="created">Quote Created</button>
           <button type="button" class="hyve-quotes__tab" data-filter="sent">Quote Sent</button>
           <button type="button" class="hyve-quotes__tab" data-filter="accepted">Quote Accepted</button>
           <button type="button" class="hyve-quotes__tab" data-filter="declined">Quote Declined</button>
@@ -395,6 +459,10 @@ function renderQuoteRow(q) {
   } else if (q.status === QUOTE_STATUSES.DECLINED) {
     badgeHtml = badge("rejected", icoClock());
     actionButtonsHtml = requoteButton + pdfButton;
+  } else if (q.status === QUOTE_STATUSES.CREATED) {
+    // Not sent yet: readable, but sales is still preparing it.
+    badgeHtml = badge("awaiting", icoClock());
+    actionButtonsHtml = pdfButton;
   } else {
     // Sent: with the buyer, so they can pay it or read it.
     badgeHtml = badge("awaiting", icoMail());
@@ -629,15 +697,7 @@ function icoSearchEmpty() {
   return `<svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
 }
 
-function formatDate(dateVal) {
-  if (!dateVal) return "Recent";
-  try {
-    const d = new Date(dateVal);
-    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(d);
-  } catch (e) {
-    return String(dateVal);
-  }
-}
+
 
 /* -------------------------------------------------------------------------- */
 /* Styles                                                                     */

@@ -9,7 +9,7 @@ import {
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { ensureCommercialDefinitions } from "../lib/commercial-metafields.server";
-import { completeB2BOnboarding } from "../lib/b2b-onboarding.server";
+import { completeB2BOnboarding, listTierCatalogs } from "../lib/b2b-onboarding.server";
 import { sendApplicationDecisionEmail } from "../lib/application-emails.server";
 import {
   getDistributorApplicationById,
@@ -18,6 +18,7 @@ import {
 } from "../lib/distributor-metaobject.server";
 import {
   approveAndCreateB2BCustomer,
+  assignLocationAddress,
   getCompanyDetails,
   getPaymentTermsTemplates,
   parseAddressDetails,
@@ -66,7 +67,10 @@ export const loader = async ({ request, params }) => {
     company = await getCompanyDetails(admin, companyId, companyName);
   }
 
-  const paymentTermsTemplates = await getPaymentTermsTemplates(admin);
+  const [paymentTermsTemplates, tierCatalogs] = await Promise.all([
+    getPaymentTermsTemplates(admin),
+    listTierCatalogs(admin),
+  ]);
 
   const addressDetails = parseAddressDetails(
     application?.registered_address,
@@ -77,6 +81,7 @@ export const loader = async ({ request, params }) => {
     application,
     company,
     paymentTermsTemplates,
+    tierCatalogs,
     addressDetails,
     shop,
   };
@@ -117,6 +122,30 @@ export const action = async ({ request, params }) => {
     }
 
     const targetGid = application.id || metaobjectId;
+
+    /* ----------------------------------------------------------------------
+       Save the application's address to a company location that has none.
+       Approvals used to create the location blank when the applicant already
+       had an account, so this repairs a company approved before the fix.
+       ---------------------------------------------------------------------- */
+    if (intent === "save_location_address") {
+      const company = await getCompanyDetails(admin, application.company_id, application.company_name);
+      const location = company?.locations?.edges?.[0]?.node;
+      if (!location?.id) {
+        return { success: false, error: "This company has no location in Shopify." };
+      }
+      const address = parseAddressDetails(application.registered_address, application.country_based || "Singapore");
+      if (!address) {
+        return { success: false, error: "The application has no address to save." };
+      }
+      const saved = await assignLocationAddress(admin, location.id, {
+        ...address,
+        recipient: application.company_name || undefined,
+      });
+      return saved.ok
+        ? { success: true, addressSaved: true, status: application.status }
+        : { success: false, error: `Shopify didn't save the address: ${saved.error}` };
+    }
 
     /* ----------------------------------------------------------------------
        Delete Request (Remove metaobject from Shopify)
@@ -165,7 +194,7 @@ export const action = async ({ request, params }) => {
     const salesRep = String(formData.get("salesRep") || "").trim();
     const salesRepEmail = String(formData.get("salesRepEmail") || "").trim();
     const salesRepPhone = String(formData.get("salesRepPhone") || "").trim();
-    const catalogTitle = String(formData.get("catalogTitle") || "").trim();
+    const catalogId = String(formData.get("catalogId") || "").trim();
 
     if (!Object.values(APPLICATION_STATUSES).includes(status)) {
       return {
@@ -279,13 +308,21 @@ export const action = async ({ request, params }) => {
 
       updates.company_id = b2bResult.companyId;
 
-      // The company exists but Shopify refused its location, so the steps below
-      // can only report it missing. This says why — usually the address.
+      // The company exists but its location has no address, so orders from it
+      // can't be shipped. This says why.
       if (b2bResult.locationError) {
         onboardingSteps.push({
-          name: "location",
+          name: "location address",
           ok: false,
-          detail: `Shopify refused the company location: ${b2bResult.locationError}`,
+          detail: `The company address wasn't saved in Shopify: ${b2bResult.locationError}`,
+        });
+      }
+      // The applicant isn't a contact on the company, so they can't order for it.
+      if (b2bResult.contactError) {
+        onboardingSteps.push({
+          name: "company contact",
+          ok: false,
+          detail: `The applicant wasn't added to the company: ${b2bResult.contactError}`,
         });
       }
 
@@ -293,11 +330,12 @@ export const action = async ({ request, params }) => {
       // Each step reports its own outcome so a partial setup is visible.
       const onboarding = await completeB2BOnboarding(admin, b2bResult.companyId, {
         paymentTerms: paymentTermsTemplateId || null,
-        catalogTitle: catalogTitle || null,
+        catalogId: catalogId || null,
         salesRep,
         salesRepEmail,
         salesRepPhone: salesRepPhone || null,
         taxRegistrationNumber: application?.tax_registration_number || null,
+        preferredCurrency: application?.preferred_currency || null,
       });
       onboardingSteps = onboardingSteps.concat(onboarding.steps);
 
@@ -494,6 +532,7 @@ export default function DistributorDetailPage() {
     application,
     company: initialCompany,
     paymentTermsTemplates = [],
+    tierCatalogs = [],
     addressDetails = {},
     shop = "",
   } = useLoaderData();
@@ -575,7 +614,7 @@ export default function DistributorDetailPage() {
     ]
       .filter(Boolean)
       .join(", ")
-    : application?.registered_address || "—";
+    : "";
 
   /* ==========================================================================
      Notifications
@@ -589,6 +628,11 @@ export default function DistributorDetailPage() {
     if (fetcher.data.deleted) {
       shopify?.toast?.show?.("Distributor request removed from Shopify.");
       navigate("/app/distributors", { replace: true });
+      return;
+    }
+
+    if (fetcher.data.addressSaved) {
+      shopify?.toast?.show?.("Address saved to the company in Shopify.");
       return;
     }
 
@@ -667,7 +711,7 @@ export default function DistributorDetailPage() {
 
   const [salesRepEmail, setSalesRepEmail] = useState("");
   const [salesRepPhone, setSalesRepPhone] = useState("");
-  const [catalogTitle, setCatalogTitle] = useState("");
+  const [catalogId, setCatalogId] = useState("");
 
   // Every distributor gets a named contact, so approval waits for one.
   const repEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(salesRepEmail.trim());
@@ -707,7 +751,7 @@ export default function DistributorDetailPage() {
         salesRep,
         salesRepEmail,
         salesRepPhone,
-        catalogTitle,
+        catalogId,
         rejectionMessage: "",
       },
       {
@@ -1148,20 +1192,37 @@ export default function DistributorDetailPage() {
                         {assignedPaymentTerms?.name ? (
                           <s-badge tone="info">{assignedPaymentTerms.name}</s-badge>
                         ) : (
-                          <s-text color="subdued">Due on Receipt / Prepayment</s-text>
+                          <s-text color="subdued">None</s-text>
                         )}
                       </div>
                     </s-stack>
                   </s-grid>
 
-                  {formattedCompanyAddress && formattedCompanyAddress !== "—" && (
-                    <s-stack direction="block" gap="none">
-                      <s-text color="subdued" type="small">
-                        Company Shipping Address
-                      </s-text>
+                  <s-stack direction="block" gap="none">
+                    <s-text color="subdued" type="small">
+                      Company Shipping Address
+                    </s-text>
+                    {formattedCompanyAddress ? (
                       <s-text>{formattedCompanyAddress}</s-text>
-                    </s-stack>
-                  )}
+                    ) : (
+                      <s-stack direction="block" gap="small">
+                        <s-text tone="critical">No address saved in Shopify, so orders from this company have nowhere to ship.</s-text>
+                        {application?.registered_address && (
+                          <s-button
+                            disabled={isSubmitting}
+                            onClick={() =>
+                              fetcher.submit(
+                                { intent: "save_location_address", metaobjectId: application?.id || params?.id || "" },
+                                { method: "post" },
+                              )
+                            }
+                          >
+                            Save address to Shopify
+                          </s-button>
+                        )}
+                      </s-stack>
+                    )}
+                  </s-stack>
                 </s-stack>
               </s-box>
             )}
@@ -1323,15 +1384,23 @@ export default function DistributorDetailPage() {
                               value={salesRepPhone}
                               onInput={(e) => setSalesRepPhone(e?.currentTarget?.value ?? e?.target?.value ?? "")}
                             />
-                            <s-text-field
-                              label="Pricing tier (optional)"
-                              placeholder="Gold Member"
-                              value={catalogTitle}
-                              onInput={(e) => setCatalogTitle(e?.currentTarget?.value ?? e?.target?.value ?? "")}
-                            />
+                            <s-select
+                              label="Pricing tier"
+                              value={catalogId}
+                              onInput={(e) => setCatalogId(e?.currentTarget?.value ?? e?.target?.value ?? "")}
+                            >
+                              <s-option value="">Retail pricing (no tier)</s-option>
+                              {tierCatalogs.map((catalog) => (
+                                <s-option key={catalog.id} value={catalog.id}>
+                                  {catalog.title}{catalog.status === "ACTIVE" ? "" : ` (${catalog.status.toLowerCase()})`}
+                                </s-option>
+                              ))}
+                            </s-select>
                           </s-grid>
                           <s-text color="subdued" type="small">
-                            The tier is the B2B catalog to attach. Blank means retail pricing.
+                            {tierCatalogs.length
+                              ? "The tier is the B2B catalog the distributor buys from, listed from Shopify."
+                              : "No B2B catalogs in Shopify yet, so the distributor gets retail pricing."}
                           </s-text>
                         </s-stack>
 

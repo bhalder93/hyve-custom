@@ -10,6 +10,7 @@
  */
 
 import { esc } from "./account-shell.server";
+import { BUSINESS_TIME_ZONE } from "./portal.server";
 
 export const ROLES = {
   ADMIN: "Admin",
@@ -146,7 +147,7 @@ export function formatRelativeTime(dateVal) {
     if (diffHours < 24) return `${diffHours} hours ago`;
     if (diffDays === 1) return "Yesterday";
     if (diffDays < 7) return `${diffDays} days ago`;
-    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(d);
+    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: BUSINESS_TIME_ZONE }).format(d);
   } catch (e) {
     return "Recently";
   }

@@ -1,7 +1,15 @@
 import { authenticate } from "../shopify.server";
 import { retrieveQuotePage, retrievedQuotePage, expiredQuotePage } from "../lib/quote-retrieve.server";
 import { findExpiredQuote } from "../lib/expired-quotes.server";
-import { QUOTE_OWNER_FIELDS, quoteEmails } from "../lib/quote-document.server";
+import {
+  LEAD_TIME_ATTRIBUTE,
+  QUOTE_OWNER_FIELDS,
+  chargeLabel,
+  isChargeLine,
+  quoteEmails,
+  quoteLineChips,
+  quoteValidUntil,
+} from "../lib/quote-document.server";
 import { formatMoney, formatDate } from "../lib/portal.server";
 
 /**
@@ -43,12 +51,15 @@ const QUOTE_QUERY = `#graphql
       status
       createdAt
       invoiceUrl
-      totalPriceSet { shopMoney { amount currencyCode } }
+      customAttributes { key value }
+      totalPriceSet { presentmentMoney { amount currencyCode } }
       lineItems(first: 50) {
         nodes {
           title
+          variantTitle
           quantity
-          discountedTotalSet { shopMoney { amount currencyCode } }
+          customAttributes { key value }
+          discountedTotalSet { presentmentMoney { amount currencyCode } }
         }
       }
     }
@@ -154,23 +165,29 @@ export const action = async ({ request }) => {
     const node = fullBody?.data?.draftOrder;
     if (!node) return notFound();
 
-    const money = node.totalPriceSet?.shopMoney || {};
+    // In the currency the quote was raised in, the one the buyer pays (HYV-98).
+    const money = node.totalPriceSet?.presentmentMoney || {};
 
     return liquid(
       retrievedQuotePage({
         reference: node.name.replace(/^#D/, "Q-"),
         email,
         createdAt: formatDate(node.createdAt),
+        validUntil: node.status === "COMPLETED" ? "" : quoteValidUntil(node.createdAt).label,
+        leadTime: (node.customAttributes || []).find((attr) => attr.key === LEAD_TIME_ATTRIBUTE)?.value || "",
         status: node.status === "COMPLETED" ? "Already ordered" : "",
         total: formatMoney(money.amount, money.currencyCode),
         // A completed quote is already an order, so there is nothing to pay.
         invoiceUrl: node.status === "COMPLETED" ? "" : node.invoiceUrl || "",
+        // A charge is named by its variant ("Setup"), and an item carries the
+        // options chosen for it, as on the quote PDF.
         lines: (node.lineItems?.nodes || []).map((line) => ({
-          title: line.title,
+          title: isChargeLine(line) ? chargeLabel(line) : line.title,
           quantity: line.quantity,
+          detail: isChargeLine(line) ? "" : quoteLineChips(line).join(" · "),
           total: formatMoney(
-            line.discountedTotalSet?.shopMoney?.amount,
-            line.discountedTotalSet?.shopMoney?.currencyCode,
+            line.discountedTotalSet?.presentmentMoney?.amount,
+            line.discountedTotalSet?.presentmentMoney?.currencyCode,
           ),
         })),
       }),

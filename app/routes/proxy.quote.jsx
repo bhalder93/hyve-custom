@@ -1,6 +1,7 @@
 import { authenticate } from "../shopify.server";
 import { purchasingCompanyFor, purchasingEntity } from "../lib/purchasing-company.server";
 import { notifyQuoteRaised } from "../lib/quote-notification.server";
+import { LEAD_TIME_ATTRIBUTE } from "../lib/quote-document.server";
 
 /**
  * Quote endpoint — one route for all three cart actions.
@@ -83,9 +84,18 @@ export const action = async ({ request }) => {
   // ----- create the draft order this quote is -----
   const currencyCode = (payload.currency || "USD").toUpperCase();
   const draftInput = {
+    // Saved in the cart's currency, which the line prices are already in
+    // (HYV-98). Without it the draft took the shop's USD and converted them,
+    // so an SGD 276.33 quote read USD 216.40 on Retrieve a Quote and at checkout.
+    presentmentCurrencyCode: currencyCode,
     note: "Quote created from cart",
     tags: ["storefront-quote"],
-    customAttributes: [{ key: "Source", value: "Cart quote" }],
+    customAttributes: [
+      { key: "Source", value: "Cart quote" },
+      // The lead time the cart showed, so the quote read back from the account
+      // or Retrieve a Quote states the same one (HYV-98).
+      ...(payload.invoice?.leadTime ? [{ key: LEAD_TIME_ATTRIBUTE, value: String(payload.invoice.leadTime) }] : []),
+    ],
     lineItems: buildLineItems(items, currencyCode),
   };
   if (loggedInCustomerId) {
@@ -255,14 +265,25 @@ export const action = async ({ request }) => {
  * Note: `originalUnitPriceWithCurrency` is IGNORED when a variantId is present —
  * passing it (as we did before) is what forced Shopify to create custom items.
  * Lines with no variant id fall back to a custom line.
- * Internal `_`-prefixed properties are omitted from customAttributes.
+ * Internal `_`-prefixed properties are omitted from customAttributes, except
+ * the flags in KEPT_FLAGS.
  */
+/**
+ * The cart's hidden flags a quote has to keep. Checkout lets a blank sample
+ * (`_sample`) and the charge lines (`_hyve_*`) through the 25-unit minimum by
+ * these, so a quote that dropped them couldn't be checked out ("Minimum order
+ * quantity is 25 units per item.", HYV-98). The rest stay behind: `_imprint`
+ * and `_hyve_gift_for` tell the cart transform to reprice a line, and a quote's
+ * prices are already final.
+ */
+const KEPT_FLAGS = ["_sample", "_hyve_setup", "_hyve_rush", "_hyve_gift", "_hyve_sample"];
+
 function buildLineItems(items, currencyCode) {
   return items.map((it) => {
     const unit = (Number(it.final_price || 0) / 100).toFixed(2);
     const props = it.properties && typeof it.properties === "object" ? it.properties : {};
     const customAttributes = Object.keys(props)
-      .filter((k) => k && !k.startsWith("_") && props[k] != null && props[k] !== "")
+      .filter((k) => k && (!k.startsWith("_") || KEPT_FLAGS.includes(k)) && props[k] != null && props[k] !== "")
       .slice(0, 20)
       .map((k) => ({ key: String(k).slice(0, 100), value: String(props[k]).slice(0, 900) }));
 

@@ -77,7 +77,9 @@ export function orderModal(order, library = []) {
           }
           ${order.trackHref ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="${esc(order.trackHref)}">${icoTruck()}<span>Track Shipment</span></a>` : ""}
           ${
-            order.id
+            // Reorder once the order is made, as on the order row: offering it
+            // while artwork is still to come read as an order already done (HYV-101).
+            order.id && ["shipped", "production-completed"].includes(order.statusKey)
               ? `<form method="post" action="/apps/account/orders/reorder" class="hyve-ord__reorder">
                    <input type="hidden" name="order" value="${esc(order.id)}">
                    <button type="submit" class="hyve-ord__btn hyve-ord__btn--primary">${icoRepeat()}<span>Reorder Now</span></button>
@@ -98,6 +100,8 @@ function headerFacts(order, status) {
     // The date the proof-approved email gave the buyer. The list row shows it too.
     ["Production Target", order.productionTarget],
     ["Estimated Ship Date", order.shipDate],
+    // When the artwork sent later is due, from Commercial Settings (HYV-102).
+    ["Artwork Due", order.statusKey === "awaiting-artwork" ? order.artworkDueBy : ""],
   ].filter(([, v]) => v);
 
   return `
@@ -668,12 +672,22 @@ export const MODAL_SCRIPT = `
   }
 
   document.addEventListener('click', function (event) {
-    var trigger = event.target.closest && event.target.closest('[data-modal-open]');
+    if (!event.target.closest) return;
+    var trigger = event.target.closest('[data-modal-open]');
     if (trigger) {
       openById(trigger.getAttribute('data-modal-open'));
       return;
     }
-    if (event.target.closest && event.target.closest('[data-modal-close]')) close();
+    if (event.target.closest('[data-modal-close]')) {
+      close();
+      return;
+    }
+    // Anywhere on an order row opens its detail, as the View button does,
+    // except the row's own links, buttons and forms (HYV-101).
+    var row = event.target.closest('[data-modal-row]');
+    if (row && !event.target.closest('a, button, form, input, label')) {
+      openById(row.getAttribute('data-modal-row'));
+    }
   });
 
   document.addEventListener('keydown', function (event) {

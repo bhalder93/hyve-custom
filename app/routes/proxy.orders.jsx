@@ -2,7 +2,13 @@ import { authenticate } from "../shopify.server";
 import { accountShell } from "../lib/account-shell.server";
 import { errorState } from "../lib/account-error.server";
 import { loadAccount } from "../lib/account-data.server";
-import { mapOrders, ordersPage, awaitingActionCount } from "../lib/account-orders.server";
+import {
+  awaitingActionCount,
+  loadReviewOrders,
+  mapOrders,
+  ordersPage,
+  withArtworkDeadlines,
+} from "../lib/account-orders.server";
 import { listArtwork, artworkOwnerGid } from "../lib/artwork.server";
 import { signedOutPage } from "../lib/account-signed-out.server";
 
@@ -21,12 +27,19 @@ export const loader = async ({ request }) => {
     const customerId = url.searchParams.get("logged_in_customer_id");
     if (!customerId) return liquid(signedOutPage("/apps/account/orders"));
 
-    const { customer, isDistributor, terms, orderNodes, awaitingQuotes, failed } = await loadAccount(admin, customerId);
+    const { customer, isDistributor, terms, orderNodes, reviewDraftIds, awaitingQuotes, failed } = await loadAccount(
+      admin,
+      customerId,
+    );
     if (failed) {
       return liquid(accountShell({ active: "orders", main: errorState(), customer }));
     }
 
-    const orders = mapOrders(orderNodes);
+    // Terms orders still under credit review lead the list: they are the
+    // newest, and waiting on Hyve rather than on the buyer.
+    const orders = [...(await loadReviewOrders(admin, reviewDraftIds)), ...mapOrders(orderNodes)];
+    // The artwork "by" date on orders still waiting for it (HYV-102).
+    await withArtworkDeadlines(admin, orders);
 
     // The artwork panel offers the buyer's saved files, but only an order still
     // waiting on artwork can use them — so the library is fetched only then.

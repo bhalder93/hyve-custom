@@ -9,7 +9,7 @@
  *      -- without this the contact can see the company but cannot order for it
  *   3. payment terms on the location     companyLocationUpdate
  *      -- this is what makes Net 30 real; the portal reads it back
- *   4. the tier catalog on the location  catalogUpdate
+ *   4. the tier catalog on the location  catalogContextUpdate
  *      -- this is what gives them distributor pricing
  *   5. credit limit on the location      metafieldsSet (company-credit.server.js)
  *
@@ -21,7 +21,15 @@
 export async function completeB2BOnboarding(
   admin,
   companyGid,
-  { paymentTerms, catalogTitle, salesRep, salesRepEmail, salesRepPhone, taxRegistrationNumber } = {},
+  {
+    paymentTerms,
+    catalogId,
+    salesRep,
+    salesRepEmail,
+    salesRepPhone,
+    taxRegistrationNumber,
+    preferredCurrency,
+  } = {},
 ) {
   const steps = [];
   const record = (name, ok, detail) => steps.push({ name, ok, detail });
@@ -84,25 +92,24 @@ export async function completeB2BOnboarding(
     }
   }
 
-  // 4. The pricing tier.
-  if (catalogTitle) {
-    const catalog = await findCatalog(admin, catalogTitle);
-    if (!catalog) {
-      record("tier catalog", false, `No catalog named "${catalogTitle}" exists.`);
-    } else {
-      const res = await gql(admin, `#graphql
-        mutation AssignCatalog($id: ID!, $input: CatalogUpdateInput!) {
-          catalogUpdate(id: $id, input: $input) {
-            catalog { id title }
-            userErrors { field message code }
-          }
-        }`, {
-        id: catalog.id,
-        input: { context: { companyLocationIds: [locationId] } },
-      });
-      const err = res?.catalogUpdate?.userErrors?.[0];
-      record("tier catalog", !err, err ? err.message : catalog.title);
-    }
+  // 4. The pricing tier: the catalog picked on the approval screen, from the
+  // store's own list (HYV-79). Added to the catalog's companies, never set as
+  // its whole list: catalogContextUpdate only adds, so approving one
+  // distributor can't take the tier away from the others on it.
+  if (catalogId) {
+    const res = await gql(admin, `#graphql
+      mutation AssignCatalog($catalogId: ID!, $contextsToAdd: CatalogContextInput) {
+        catalogContextUpdate(catalogId: $catalogId, contextsToAdd: $contextsToAdd) {
+          catalog { id title }
+          userErrors { field message code }
+        }
+      }`, {
+      catalogId,
+      contextsToAdd: { companyLocationIds: [locationId] },
+    });
+    const err = res?.catalogContextUpdate?.userErrors?.[0];
+    const title = res?.catalogContextUpdate?.catalog?.title;
+    record("tier catalog", !err && Boolean(title), err ? err.message : title || "Shopify didn't attach the catalog.");
   }
 
   // 5. Who the buyer talks to. The portal hides each contact button when the
@@ -133,29 +140,36 @@ export async function completeB2BOnboarding(
     record("sales rep", !err, err ? err.message : String(salesRep || salesRepEmail).trim());
   }
 
-  // 6. The buyer's tax registration number, taken from their application. It
-  // belongs to the company rather than a location, and the invoice PDF prints
-  // it (K3) — a distributor's own tax number has to appear on what they file.
-  if (String(taxRegistrationNumber || "").trim()) {
+  // 6. What the application already told us about the company, kept on it
+  // as its profile (company-profile.server.js), so Settings starts filled in:
+  //  - the tax registration number, which the invoice PDF prints (K3), since a
+  //    distributor's own tax number has to appear on what they file
+  //  - the currency it buys in (HYV-79)
+  const profileFields = [
+    ["tax_registration_number", "tax registration number", taxRegistrationNumber],
+    ["preferred_currency", "preferred currency", preferredCurrency],
+  ].filter(([, , value]) => String(value || "").trim());
+
+  if (profileFields.length) {
     const res = await gql(admin, `#graphql
-      mutation SetCompanyTaxNumber($metafields: [MetafieldsSetInput!]!) {
+      mutation SetCompanyProfile($metafields: [MetafieldsSetInput!]!) {
         metafieldsSet(metafields: $metafields) {
           metafields { id }
           userErrors { field message code }
         }
       }`, {
-      metafields: [
-        {
-          ownerId: companyGid,
-          namespace: "hyve",
-          key: "tax_registration_number",
-          type: "single_line_text_field",
-          value: String(taxRegistrationNumber).trim(),
-        },
-      ],
+      metafields: profileFields.map(([key, , value]) => ({
+        ownerId: companyGid,
+        namespace: "hyve",
+        key,
+        type: "single_line_text_field",
+        value: String(value).trim(),
+      })),
     });
     const err = res?.metafieldsSet?.userErrors?.[0];
-    record("tax registration number", !err, err ? err.message : String(taxRegistrationNumber).trim());
+    for (const [, name, value] of profileFields) {
+      record(name, !err, err ? err.message : String(value).trim());
+    }
   }
 
   return { ok: steps.every((s) => s.ok), steps, locationId };
@@ -207,18 +221,19 @@ async function findPaymentTerms(admin, wanted) {
   );
 }
 
-async function findCatalog(admin, title) {
+/**
+ * The store's B2B catalogs, for the approval screen's pricing tier list. Each
+ * tier is a catalog (Platinum, Gold, Silver, Bronze), so picking from this
+ * list means a typo can't leave a distributor on retail pricing (HYV-79).
+ *
+ * @returns {Promise<{id:string, title:string, status:string}[]>}
+ */
+export async function listTierCatalogs(admin) {
   const data = await gql(admin, `#graphql
     query CompanyCatalogs($first: Int!) {
       catalogs(first: $first, type: COMPANY_LOCATION) { nodes { id title status } }
     }`, { first: 50 });
-  const catalogs = data?.catalogs?.nodes || [];
-  const target = String(title).toLowerCase();
-  return (
-    catalogs.find((c) => String(c.title).toLowerCase() === target) ||
-    catalogs.find((c) => String(c.title).toLowerCase().includes(target)) ||
-    null
-  );
+  return data?.catalogs?.nodes || [];
 }
 
 async function gql(admin, query, variables) {

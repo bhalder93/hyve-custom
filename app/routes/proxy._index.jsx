@@ -3,9 +3,16 @@ import { accountShell } from "../lib/account-shell.server";
 import { errorState } from "../lib/account-error.server";
 import { loadAccount } from "../lib/account-data.server";
 import { dashboardPage } from "../lib/account-dashboard.server";
-import { mapOrders, ordersPage, awaitingActionCount } from "../lib/account-orders.server";
+import {
+  awaitingActionCount,
+  loadReviewOrders,
+  mapOrders,
+  ordersPage,
+  withArtworkDeadlines,
+} from "../lib/account-orders.server";
 import { signedOutPage } from "../lib/account-signed-out.server";
 import { loadPromotions } from "../lib/promotions.server";
+import { loadInvoices, paymentDue } from "../lib/invoices.server";
 
 /**
  * Account portal landing page.
@@ -27,7 +34,7 @@ export const loader = async ({ request }) => {
 
     // Promotions are loaded alongside the account; a failure there leaves
     // the dashboard without them rather than failing the whole page.
-    const [{ customer, isDistributor, terms, orderNodes, awaitingQuotes, failed }, promotions] = await Promise.all([
+    const [{ customer, isDistributor, terms, orderNodes, reviewDraftIds, awaitingQuotes, failed }, promotions] = await Promise.all([
       loadAccount(admin, customerId),
       loadPromotions(admin).catch((error) => {
         console.error("[portal] promotions failed to load", error);
@@ -38,7 +45,16 @@ export const loader = async ({ request }) => {
       return liquid(accountShell({ active: "dashboard", main: errorState(), customer }));
     }
 
-    const orders = mapOrders(orderNodes);
+    // The payment due banner comes from the same invoices the Invoices page
+    // lists. If they can't be read, the dashboard shows without the banner.
+    // Terms orders still under credit review are orders too (HYV-99).
+    const [invoices, reviewOrders] = isDistributor
+      ? await Promise.all([loadInvoices(admin, terms?.locationIds || []), loadReviewOrders(admin, reviewDraftIds)])
+      : [null, []];
+
+    const orders = [...reviewOrders, ...mapOrders(orderNodes)];
+    // The artwork "by" date on orders still waiting for it (HYV-102).
+    await withArtworkDeadlines(admin, orders);
     const counts = { orders: awaitingActionCount(orders), quotes: awaitingQuotes };
 
     const main = isDistributor
@@ -51,8 +67,7 @@ export const loader = async ({ request }) => {
             // badge carries, so the two never disagree.
             activeQuotes: counts.quotes,
           },
-          // Invoices are not built yet, so there is no payment banner to show.
-          payment: null,
+          payment: invoices && !invoices.failed ? paymentDue(invoices.invoices) : null,
           recentOrders: orders.slice(0, 3),
           promotions,
         })

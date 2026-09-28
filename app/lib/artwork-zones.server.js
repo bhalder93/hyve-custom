@@ -25,6 +25,17 @@ const ARTWORK_PREFIX = "Artwork:";
  *   filled later is found here rather than on the line.
  * @returns {Array<{key:string, label:string, url:string}>}
  */
+/**
+ * Whether every decoration position on a line has its artwork, including
+ * files sent after the order was placed. Those are saved on the order, since a
+ * line's own properties can't change once the order exists, so the line's
+ * "Artwork: Artwork Pending" stays as it was and has to be read alongside them.
+ */
+export function artworkSupplied(attributes, orderAttributes) {
+  const zones = zonesFromAttributes(attributes, orderAttributes);
+  return zones.length > 0 && zones.every((zone) => zone.url);
+}
+
 export function zonesFromAttributes(attributes, orderAttributes) {
   // The line's own properties decide which zones exist. They are written at
   // add-to-cart and fixed once the order is placed, so they are the only

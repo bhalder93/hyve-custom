@@ -17,17 +17,22 @@ const ADMIN_TIMEOUT_MS = 4500;
 
 const E164_PHONE_REGEX = /^\+[1-9]\d{7,14}$/;
 
+
 export const loader = async ({ request }) => {
-  const { liquid, admin } = await authenticate.public.appProxy(request);
+  const { liquid, admin } =
+    await authenticate.public.appProxy(request);
 
   try {
     const url = new URL(request.url);
 
-    const customerId = url.searchParams.get("logged_in_customer_id");
+    const customerId =
+      url.searchParams.get("logged_in_customer_id");
 
-    const notice = url.searchParams.get("notice");
+    const notice =
+      url.searchParams.get("notice");
 
-    const errorParam = url.searchParams.get("error");
+    const errorParam =
+      url.searchParams.get("error");
 
     const loginHref =
       "/customer_authentication/login?return_to=" +
@@ -84,13 +89,17 @@ export const loader = async ({ request }) => {
       customer,
       failed,
       error: customerLoadError,
-    } = await fetchCustomerSettings(admin, customerId);
-
+    } = await fetchCustomerSettings(
+      admin,
+      customerId,
+    );
 
     if (
       customer &&
-      (url.searchParams.get("b2b") === "1" ||
-        url.searchParams.get("b2b") === "true")
+      (
+        url.searchParams.get("b2b") === "1" ||
+        url.searchParams.get("b2b") === "true"
+      )
     ) {
       customer.isB2B = true;
     }
@@ -104,23 +113,29 @@ export const loader = async ({ request }) => {
           active: "settings",
 
           main: errorState({
-            heading: "We couldn't load your settings",
+            heading:
+              "We couldn't load your settings",
 
             message:
               customerLoadError ||
               "This is usually temporary. Please try refreshing in a moment.",
 
-            retryHref: "/apps/account/settings",
+            retryHref:
+              "/apps/account/settings",
           }),
 
           customer,
 
-          ...(await portalChrome(admin, customerId)),
+          ...(await portalChrome(
+            admin,
+            customerId,
+          )),
         }),
       );
     }
 
-    const settings = mapCustomerSettings(customer);
+    const settings =
+      mapCustomerSettings(customer);
 
     return liquid(
       accountShell({
@@ -128,17 +143,17 @@ export const loader = async ({ request }) => {
 
         main: settingsPage({
           settings,
-
           customer,
-
           notice,
-
           error: errorParam,
         }),
 
         customer,
 
-        ...(await portalChrome(admin, customerId)),
+        ...(await portalChrome(
+          admin,
+          customerId,
+        )),
       }),
     );
   } catch (error) {
@@ -146,14 +161,21 @@ export const loader = async ({ request }) => {
       throw error;
     }
 
-    console.error("[account] settings loader failed", error);
+    console.error(
+      "[account] settings loader failed",
+      error,
+    );
 
     let customerId = null;
 
     try {
-      const url = new URL(request.url);
+      const url =
+        new URL(request.url);
 
-      customerId = url.searchParams.get("logged_in_customer_id");
+      customerId =
+        url.searchParams.get(
+          "logged_in_customer_id",
+        );
     } catch {
       // Ignore URL parsing error here.
     }
@@ -163,38 +185,61 @@ export const loader = async ({ request }) => {
         active: "settings",
 
         main: errorState({
-          heading: "We couldn't load your settings",
+          heading:
+            "We couldn't load your settings",
 
           message:
             error?.message ||
             "An unexpected error occurred while loading your settings.",
 
-          retryHref: "/apps/account/settings",
+          retryHref:
+            "/apps/account/settings",
         }),
 
-        ...(await portalChrome(admin, customerId)),
+        ...(await portalChrome(
+          admin,
+          customerId,
+        )),
       }),
     );
   }
 };
 
 
+/**
+ * =========================================================
+ * ACTION
+ * =========================================================
+ */
 export const action = async ({ request }) => {
-  const { admin } = await authenticate.public.appProxy(request);
+  const { admin } =
+    await authenticate.public.appProxy(
+      request,
+    );
 
-  const url = new URL(request.url);
+  const url =
+    new URL(request.url);
 
-  const customerId = url.searchParams.get("logged_in_customer_id");
+  const customerId =
+    url.searchParams.get(
+      "logged_in_customer_id",
+    );
 
   const isAjax =
-    request.headers.get("accept")?.includes("application/json") ||
-    request.headers.get("x-requested-with") === "XMLHttpRequest";
+    request.headers
+      .get("accept")
+      ?.includes("application/json") ||
+    request.headers.get(
+      "x-requested-with",
+    ) === "XMLHttpRequest";
+
   if (!customerId) {
     if (isAjax) {
       return Response.json(
         {
           success: false,
-          error: "Customer not authenticated",
+          error:
+            "Customer not authenticated",
         },
         {
           status: 401,
@@ -208,22 +253,42 @@ export const action = async ({ request }) => {
       headers: {
         Location:
           "/customer_authentication/login?return_to=" +
-          encodeURIComponent("/apps/account/settings"),
+          encodeURIComponent(
+            "/apps/account/settings",
+          ),
       },
     });
   }
 
-  const gidCustomerId = customerId.startsWith("gid://")
-    ? customerId
-    : `gid://shopify/Customer/${customerId}`;
+  const gidCustomerId =
+    customerId.startsWith("gid://")
+      ? customerId
+      : `gid://shopify/Customer/${customerId}`;
 
   try {
-    const formData = await request.formData();
+    const formData =
+      await request.formData();
 
-    const intent = String(formData.get("intent") || "").trim();
+    const intent =
+      String(
+        formData.get("intent") || "",
+      ).trim();
 
-    if (intent === "toggleNotification") {
-      const settingKey = String(formData.get("settingKey") || "").trim();
+    /**
+     * =====================================================
+     * NOTIFICATION TOGGLE
+     * =====================================================
+     */
+    if (
+      intent ===
+      "toggleNotification"
+    ) {
+      const settingKey =
+        String(
+          formData.get(
+            "settingKey",
+          ) || "",
+        ).trim();
 
       const allowedSettings = [
         "marketingEmails",
@@ -231,13 +296,17 @@ export const action = async ({ request }) => {
         "whatsappUpdates",
       ];
 
- 
-      if (!allowedSettings.includes(settingKey)) {
+      if (
+        !allowedSettings.includes(
+          settingKey,
+        )
+      ) {
         return Response.json(
           {
             success: false,
             settingKey,
-            error: "Invalid notification setting.",
+            error:
+              "Invalid notification setting.",
           },
           {
             status: 400,
@@ -245,11 +314,28 @@ export const action = async ({ request }) => {
         );
       }
 
-      const isTrue = formData.get("value") === "true";
+      const isTrue =
+        formData.get("value") ===
+        "true";
 
-      const valueStr = isTrue ? "true" : "false";
-      if (settingKey === "marketingEmails") {
-        const saved = await setMarketingConsent(admin, gidCustomerId, isTrue);
+      const valueStr =
+        isTrue
+          ? "true"
+          : "false";
+
+      /**
+       * Marketing email consent
+       */
+      if (
+        settingKey ===
+        "marketingEmails"
+      ) {
+        const saved =
+          await setMarketingConsent(
+            admin,
+            gidCustomerId,
+            isTrue,
+          );
 
         if (!saved.success) {
           return Response.json(
@@ -257,8 +343,10 @@ export const action = async ({ request }) => {
               success: false,
               settingKey,
               value: isTrue,
+
               error:
-                saved.error || "Failed to update marketing email preference.",
+                saved.error ||
+                "Failed to update marketing email preference.",
             },
             {
               status: 400,
@@ -274,19 +362,20 @@ export const action = async ({ request }) => {
         });
       }
 
-
       const metafieldKey =
-        settingKey === "emailNotifications"
+        settingKey ===
+        "emailNotifications"
           ? "email_notifications"
           : "whatsapp_updates";
 
-      const saved = await setCustomerMetafield(
-        admin,
-        gidCustomerId,
-        metafieldKey,
-        "boolean",
-        valueStr,
-      );
+      const saved =
+        await setCustomerMetafield(
+          admin,
+          gidCustomerId,
+          metafieldKey,
+          "boolean",
+          valueStr,
+        );
 
       if (!saved.success) {
         return Response.json(
@@ -294,7 +383,10 @@ export const action = async ({ request }) => {
             success: false,
             settingKey,
             value: isTrue,
-            error: saved.error || "Failed to update notification preference.",
+
+            error:
+              saved.error ||
+              "Failed to update notification preference.",
           },
           {
             status: 400,
@@ -310,80 +402,130 @@ export const action = async ({ request }) => {
       });
     }
 
+    if (
+      intent ===
+      "saveSettings"
+    ) {
+      const fullName =
+        String(
+          formData.get("fullName") ||
+            "",
+        ).trim();
 
-    if (intent === "saveSettings") {
-      const fullName = String(formData.get("fullName") || "").trim();
-
-      const company = String(formData.get("company") || "").trim();
-
-      const rawPhone = String(formData.get("phone") || "").trim();
+      const company =
+        String(
+          formData.get("company") ||
+            "",
+        ).trim();
+      const rawPhone =
+        String(
+          formData.get("phone") ||
+            "",
+        ).trim();
 
       const whatsappUpdates =
-        formData.get("whatsappUpdates") === "true" ? "true" : "false";
+        formData.get(
+          "whatsappUpdates",
+        ) === "true"
+          ? "true"
+          : "false";
 
       const emailNotifications =
-        formData.get("emailNotifications") === "true" ? "true" : "false";
+        formData.get(
+          "emailNotifications",
+        ) === "true"
+          ? "true"
+          : "false";
 
-      const marketingEmails = formData.get("marketingEmails") === "true";
+      const marketingEmails =
+        formData.get(
+          "marketingEmails",
+        ) === "true";
 
-      if (!rawPhone) {
+
+      const phoneValidation =
+        validatePhoneNumber(
+          rawPhone,
+        );
+
+      if (
+        !phoneValidation.valid
+      ) {
         return respond(
           isAjax,
           {
-            error: "Phone number is required.",
+            success: false,
+
+            error:
+              phoneValidation.error,
           },
           400,
         );
       }
 
-      const phone = normalizePhoneNumber(rawPhone);
+      const phone =
+        phoneValidation.phone;
+      const nameParts =
+        fullName
+          .split(/\s+/)
+          .filter(Boolean);
+
+      const firstName =
+        nameParts[0] || "";
+
+      const lastName =
+        nameParts
+          .slice(1)
+          .join(" ") || "";
+
+      const profileResult =
+        await updateCustomerProfile(
+          admin,
+          gidCustomerId,
+          {
+            firstName,
+            lastName,
+            phone,
+          },
+        );
+
+      if (
+        !profileResult.success
+      ) {
+        return respond(
+          isAjax,
+          {
+            success: false,
+
+            error:
+              profileResult.error ||
+              "Failed to update customer profile.",
+          },
+          400,
+        );
+      }
+
 
       /**
-       * Check E.164 format.
+       * -------------------------------------------------
+       * MARKETING CONSENT
+       * -------------------------------------------------
        */
-      if (!isValidE164Phone(phone)) {
-        return respond(
-          isAjax,
-          {
-            error:
-              "Please enter a valid phone number with country code, for example +919876543210.",
-          },
-          400,
+      const marketingResult =
+        await setMarketingConsent(
+          admin,
+          gidCustomerId,
+          marketingEmails,
         );
-      }
 
-      const nameParts = fullName.split(/\s+/).filter(Boolean);
-
-      const firstName = nameParts[0] || "";
-
-      const lastName = nameParts.slice(1).join(" ") || "";
-
-      const profileResult = await updateCustomerProfile(admin, gidCustomerId, {
-        firstName,
-        lastName,
-        phone,
-      });
-
-      if (!profileResult.success) {
+      if (
+        !marketingResult.success
+      ) {
         return respond(
           isAjax,
           {
-            error: profileResult.error || "Failed to update customer profile.",
-          },
-          400,
-        );
-      }
+            success: false,
 
-      const marketingResult = await setMarketingConsent(
-        admin,
-        gidCustomerId,
-        marketingEmails,
-      );
-
-      if (!marketingResult.success) {
-        return respond(
-          isAjax,
-          {
             error:
               marketingResult.error ||
               "Profile was updated, but marketing email preference could not be saved.",
@@ -391,53 +533,80 @@ export const action = async ({ request }) => {
           400,
         );
       }
+
+
+      /**
+       * -------------------------------------------------
+       * ACCOUNT SETTINGS METAFIELDS
+       * -------------------------------------------------
+       */
       const metafields = [
         {
-          ownerId: gidCustomerId,
+          ownerId:
+            gidCustomerId,
 
-          namespace: "custom",
+          namespace:
+            "custom",
 
-          key: "whatsapp_updates",
+          key:
+            "whatsapp_updates",
 
-          type: "boolean",
+          type:
+            "boolean",
 
-          value: whatsappUpdates,
+          value:
+            whatsappUpdates,
         },
 
         {
-          ownerId: gidCustomerId,
+          ownerId:
+            gidCustomerId,
 
-          namespace: "custom",
+          namespace:
+            "custom",
 
-          key: "email_notifications",
+          key:
+            "email_notifications",
 
-          type: "boolean",
+          type:
+            "boolean",
 
-          value: emailNotifications,
+          value:
+            emailNotifications,
         },
 
         {
-          ownerId: gidCustomerId,
+          ownerId:
+            gidCustomerId,
 
-          namespace: "custom",
+          namespace:
+            "custom",
 
-          key: "company",
+          key:
+            "company",
 
-          type: "single_line_text_field",
+          type:
+            "single_line_text_field",
 
-          value: company,
+          value:
+            company,
         },
       ];
 
-      const metafieldResult = await setCustomerMetafieldsBatch(
-        admin,
-        metafields,
-      );
+      const metafieldResult =
+        await setCustomerMetafieldsBatch(
+          admin,
+          metafields,
+        );
 
-      if (!metafieldResult.success) {
+      if (
+        !metafieldResult.success
+      ) {
         return respond(
           isAjax,
           {
+            success: false,
+
             error:
               metafieldResult.error ||
               "Profile was updated, but some settings could not be saved.",
@@ -446,39 +615,73 @@ export const action = async ({ request }) => {
         );
       }
 
+
+      /**
+       * Only return SUCCESS after:
+       *
+       * 1. Phone validation passes
+       * 2. Shopify confirms customerUpdate
+       * 3. Marketing consent succeeds
+       * 4. Metafields save successfully
+       */
       return respond(
         isAjax,
         {
           success: true,
 
-          notice: "Settings saved successfully",
+          notice:
+            "Settings saved successfully",
         },
         200,
       );
     }
+
+
+    /**
+     * Unknown intent
+     */
     return respond(
       isAjax,
       {
-        error: "Invalid request.",
+        success: false,
+        error:
+          "Invalid request.",
       },
       400,
     );
   } catch (err) {
-    console.error("[account] settings action error", err);
+    console.error(
+      "[account] settings action error",
+      err,
+    );
 
     return respond(
       isAjax,
       {
-        error: err?.message || "Failed to update settings. Please try again.",
+        success: false,
+
+        error:
+          err?.message ||
+          "Failed to update settings. Please try again.",
       },
       500,
     );
   }
 };
 
+
+/**
+ * =========================================================
+ * RESPONSE HELPER
+ * =========================================================
+ */
 function respond(
   isAjax,
-  { success = false, notice = null, error = null },
+  {
+    success = false,
+    notice = null,
+    error = null,
+  },
   status = 200,
 ) {
   if (isAjax) {
@@ -489,65 +692,219 @@ function respond(
         error,
       },
       {
-        status: success ? 200 : status >= 400 ? status : 400,
+        /**
+         * Never return HTTP 200 for a failed request.
+         */
+        status:
+          success
+            ? 200
+            : status >= 400
+              ? status
+              : 400,
       },
     );
   }
 
-  const param = error
-    ? `error=${encodeURIComponent(error)}`
-    : `notice=${encodeURIComponent(notice || "Saved")}`;
+  /**
+   * Traditional form submission.
+   *
+   * Success:
+   * ?notice=...
+   *
+   * Failure:
+   * ?error=...
+   */
+  const param =
+    error
+      ? `error=${encodeURIComponent(
+          error,
+        )}`
+      : `notice=${encodeURIComponent(
+          notice || "Saved",
+        )}`;
 
   return new Response(null, {
     status: 302,
 
     headers: {
-      Location: `/apps/account/settings?${param}`,
+      Location:
+        `/apps/account/settings?${param}`,
     },
   });
 }
 
 
-function normalizePhoneNumber(phone) {
-  let normalized = String(phone || "")
-    .trim()
-    .replace(/[\s\-().]/g, "");
+/**
+ * =========================================================
+ * PHONE HELPERS
+ * =========================================================
+ */
 
-  if (normalized.startsWith("00")) {
-    normalized = `+${normalized.slice(2)}`;
+/**
+ * Normalize a user-friendly international phone number
+ * into E.164 format.
+ *
+ * Accepted:
+ *
+ * +65 6932 2855
+ * +65-6932-2855
+ * +65 (6932) 2855
+ * +6569322855
+ * 006569322855
+ *
+ * Output:
+ *
+ * +6569322855
+ */
+function normalizePhoneNumber(
+  phone,
+) {
+  let normalized =
+    String(phone || "")
+      .trim()
+
+      /**
+       * Remove user-friendly formatting.
+       *
+       * We intentionally do NOT remove letters or other
+       * characters because those must fail validation.
+       */
+      .replace(
+        /[\s\-().]/g,
+        "",
+      );
+
+  /**
+   * Convert:
+   *
+   * 006569322855
+   *
+   * to:
+   *
+   * +6569322855
+   */
+  if (
+    normalized.startsWith(
+      "00",
+    )
+  ) {
+    normalized =
+      `+${normalized.slice(
+        2,
+      )}`;
   }
 
   return normalized;
 }
 
-function isValidE164Phone(phone) {
+
+/**
+ * Validate normalized E.164 value.
+ */
+function isValidE164Phone(
+  phone,
+) {
   if (!phone) {
     return false;
   }
 
-  return E164_PHONE_REGEX.test(phone);
+  return E164_PHONE_REGEX.test(
+    phone,
+  );
 }
 
-async function fetchCustomerSettings(admin, customerId) {
-  if (!admin || !customerId) {
+
+/**
+ * Unified validation helper used by both:
+ *
+ * - action()
+ * - updateCustomerProfile()
+ */
+function validatePhoneNumber(
+  rawPhone,
+) {
+  const raw =
+    String(rawPhone || "")
+      .trim();
+
+  if (!raw) {
+    return {
+      valid: false,
+      phone: null,
+
+      error:
+        "Phone number is required.",
+    };
+  }
+
+  const phone =
+    normalizePhoneNumber(
+      raw,
+    );
+
+  /**
+   * Must become valid E.164.
+   */
+  if (
+    !isValidE164Phone(
+      phone,
+    )
+  ) {
+    return {
+      valid: false,
+      phone: null,
+
+      error:
+        "Please enter a valid phone number with country code, for example +1 555 555 1234.",
+    };
+  }
+
+  return {
+    valid: true,
+    phone,
+    error: null,
+  };
+}
+
+
+/**
+ * =========================================================
+ * FETCH CUSTOMER SETTINGS
+ * =========================================================
+ */
+async function fetchCustomerSettings(
+  admin,
+  customerId,
+) {
+  if (
+    !admin ||
+    !customerId
+  ) {
     return {
       customer: null,
 
       failed: true,
 
-      error: "Customer information is unavailable.",
+      error:
+        "Customer information is unavailable.",
     };
   }
 
-  const gid = customerId.startsWith("gid://")
-    ? customerId
-    : `gid://shopify/Customer/${customerId}`;
+  const gid =
+    customerId.startsWith(
+      "gid://",
+    )
+      ? customerId
+      : `gid://shopify/Customer/${customerId}`;
 
   try {
-    const response = await withTimeout(
-      admin.graphql(
-        `#graphql
-            query CustomerSettings($id: ID!) {
+    const response =
+      await withTimeout(
+        admin.graphql(
+          `#graphql
+            query CustomerSettings(
+              $id: ID!
+            ) {
               customer(id: $id) {
                 id
                 firstName
@@ -590,33 +947,42 @@ async function fetchCustomerSettings(admin, customerId) {
               }
             }
           `,
-        {
-          variables: {
-            id: gid,
+          {
+            variables: {
+              id: gid,
+            },
           },
-        },
-      ),
+        ),
 
-      ADMIN_TIMEOUT_MS,
-    );
+        ADMIN_TIMEOUT_MS,
+      );
 
-    const body = await response.json();
+    const body =
+      await response.json();
 
-    const graphqlError = extractGraphQLErrors(body);
+    const graphqlError =
+      extractGraphQLErrors(
+        body,
+      );
 
     if (graphqlError) {
-      console.error("[account] CustomerSettings GraphQL error:", graphqlError);
+      console.error(
+        "[account] CustomerSettings GraphQL error:",
+        graphqlError,
+      );
 
       return {
         customer: null,
 
         failed: true,
 
-        error: graphqlError,
+        error:
+          graphqlError,
       };
     }
 
-    const c = body?.data?.customer;
+    const c =
+      body?.data?.customer;
 
     if (!c) {
       console.warn(
@@ -629,35 +995,61 @@ async function fetchCustomerSettings(admin, customerId) {
 
         failed: true,
 
-        error: "Customer could not be found.",
+        error:
+          "Customer could not be found.",
       };
     }
 
-    const first = c.firstName || "";
+    const first =
+      c.firstName || "";
 
-    const last = c.lastName || "";
+    const last =
+      c.lastName || "";
 
-    const name = c.displayName || `${first} ${last}`.trim();
+    const name =
+      c.displayName ||
+      `${first} ${last}`.trim();
 
     const initials =
-      ((first[0] || "") + (last[0] || "")).toUpperCase() ||
-      (name ? name[0].toUpperCase() : "");
+      (
+        (first[0] || "") +
+        (last[0] || "")
+      ).toUpperCase() ||
+      (
+        name
+          ? name[0].toUpperCase()
+          : ""
+      );
 
-    const tags = c.tags || [];
+    const tags =
+      c.tags || [];
 
-    const isB2B = tags.some((tag) =>
-      /^(b2b|distributor|wholesale|commercial|gold)$/i.test(String(tag).trim()),
-    );
+    const isB2B =
+      tags.some(
+        (tag) =>
+          /^(b2b|distributor|wholesale|commercial|gold)$/i.test(
+            String(
+              tag,
+            ).trim(),
+          ),
+      );
 
     return {
       customer: {
         ...c,
 
-        name: name || c.defaultEmailAddress?.emailAddress || "",
+        name:
+          name ||
+          c.defaultEmailAddress
+            ?.emailAddress ||
+          "",
 
         initials,
 
-        email: c.defaultEmailAddress?.emailAddress || "",
+        email:
+          c.defaultEmailAddress
+            ?.emailAddress ||
+          "",
 
         tags,
 
@@ -669,62 +1061,81 @@ async function fetchCustomerSettings(admin, customerId) {
       error: null,
     };
   } catch (error) {
-    console.error("[account] customer settings threw", error);
+    console.error(
+      "[account] customer settings threw",
+      error,
+    );
 
     return {
       customer: null,
 
       failed: true,
 
-      error: error?.message || "Failed to load customer settings.",
+      error:
+        error?.message ||
+        "Failed to load customer settings.",
     };
   }
 }
 
 
+/**
+ * =========================================================
+ * UPDATE CUSTOMER PROFILE
+ * =========================================================
+ */
 async function updateCustomerProfile(
   admin,
   customerId,
-  { firstName, lastName, phone },
+  {
+    firstName,
+    lastName,
+    phone,
+  },
 ) {
   try {
 
-    const normalizedPhone = normalizePhoneNumber(phone);
+    const phoneValidation =
+      validatePhoneNumber(
+        phone,
+      );
 
-    if (!normalizedPhone) {
-      return {
-        success: false,
-
-        error: "Phone number is required.",
-      };
-    }
-
-    if (!isValidE164Phone(normalizedPhone)) {
+    if (
+      !phoneValidation.valid
+    ) {
       return {
         success: false,
 
         error:
-          "Please enter a valid phone number with country code, for example +919876543210.",
+          phoneValidation.error,
       };
     }
 
+    const normalizedPhone =
+      phoneValidation.phone;
+
+     
     const input = {
       id: customerId,
-
-      phone: normalizedPhone,
+      phone:
+        normalizedPhone,
     };
 
+     console.log("--------------",input)
     if (firstName) {
-      input.firstName = firstName;
+      input.firstName =
+        firstName;
     }
 
     if (lastName) {
-      input.lastName = lastName;
+      input.lastName =
+        lastName;
     }
 
-    const response = await withTimeout(
-      admin.graphql(
-        `#graphql
+    const response =
+      await withTimeout(
+        admin.graphql(
+          `#graphql
             mutation CustomerProfileUpdate(
               $input: CustomerInput!
             ) {
@@ -745,79 +1156,175 @@ async function updateCustomerProfile(
               }
             }
           `,
-        {
-          variables: {
-            input,
+          {
+            variables: {
+              input,
+            },
           },
-        },
-      ),
+        ),
 
-      ADMIN_TIMEOUT_MS,
-    );
+        ADMIN_TIMEOUT_MS,
+      );
 
-    const body = await response.json();
+    const body =
+      await response.json();
 
-    const graphqlError = extractGraphQLErrors(body);
+    /**
+     * GraphQL top-level errors.
+     */
+    const graphqlError =
+      extractGraphQLErrors(
+        body,
+      );
 
     if (graphqlError) {
-      console.error("[account] customerUpdate GraphQL error:", graphqlError);
+      console.error(
+        "[account] customerUpdate GraphQL error:",
+        graphqlError,
+      );
 
       return {
         success: false,
 
-        error: `Shopify GraphQL error: ${graphqlError}`,
+        error:
+          `Shopify GraphQL error: ${graphqlError}`,
       };
     }
 
-    const userErrors = body?.data?.customerUpdate?.userErrors || [];
+    /**
+     * Shopify mutation userErrors.
+     */
+    const userErrors =
+      body?.data
+        ?.customerUpdate
+        ?.userErrors ||
+      [];
 
-    if (userErrors.length > 0) {
-      const errorMessage = formatUserErrors(userErrors);
+    if (
+      userErrors.length > 0
+    ) {
+      const errorMessage =
+        formatUserErrors(
+          userErrors,
+        );
 
-      console.warn("[account] customerUpdate userErrors:", errorMessage);
+      console.warn(
+        "[account] customerUpdate userErrors:",
+        errorMessage,
+      );
 
       return {
         success: false,
 
-        error: errorMessage || "Shopify rejected the customer update.",
+        error:
+          errorMessage ||
+          "Shopify rejected the customer update.",
       };
     }
 
-    const updatedCustomer = body?.data?.customerUpdate?.customer;
+    const updatedCustomer =
+      body?.data
+        ?.customerUpdate
+        ?.customer;
 
-    if (!updatedCustomer) {
-      console.error("[account] customerUpdate returned no customer", body);
+    /**
+     * Mutation must return customer.
+     */
+    if (
+      !updatedCustomer
+    ) {
+      console.error(
+        "[account] customerUpdate returned no customer",
+        body,
+      );
 
       return {
         success: false,
 
-        error: "Shopify did not return the updated customer.",
+        error:
+          "Shopify did not return the updated customer.",
+      };
+    }
+
+    /**
+     * -------------------------------------------------
+     * IMPORTANT
+     * -------------------------------------------------
+     *
+     * Shopify must confirm that the phone was actually
+     * stored.
+     *
+     * This fixes the case where the UI reports success
+     * but the phone was not actually saved.
+     */
+    const returnedPhone =
+      normalizePhoneNumber(
+        updatedCustomer.phone,
+      );
+
+    if (
+      returnedPhone !==
+      normalizedPhone
+    ) {
+      console.error(
+        "[account] Shopify did not confirm phone update",
+        {
+          requested:
+            normalizedPhone,
+
+          returned:
+            updatedCustomer.phone,
+        },
+      );
+
+      return {
+        success: false,
+
+        error:
+          "The phone number could not be saved. Please check the number and try again.",
       };
     }
 
     return {
       success: true,
 
-      customer: updatedCustomer,
+      customer:
+        updatedCustomer,
 
       error: null,
     };
   } catch (err) {
-    console.error("[account] customerUpdate threw", err);
+    console.error(
+      "[account] customerUpdate threw",
+      err,
+    );
 
     return {
       success: false,
 
-      error: err?.message || "Failed to update customer profile.",
+      error:
+        err?.message ||
+        "Failed to update customer profile.",
     };
   }
 }
 
-async function setMarketingConsent(admin, customerId, subscribed) {
+
+/**
+ * =========================================================
+ * MARKETING CONSENT
+ * =========================================================
+ */
+async function setMarketingConsent(
+  admin,
+  customerId,
+  subscribed,
+) {
   try {
-    const response = await withTimeout(
-      admin.graphql(
-        `#graphql
+    const response =
+      await withTimeout(
+        admin.graphql(
+          `#graphql
             mutation CustomerMarketingConsent(
               $input: CustomerEmailMarketingConsentUpdateInput!
             ) {
@@ -835,110 +1342,176 @@ async function setMarketingConsent(admin, customerId, subscribed) {
               }
             }
           `,
-        {
-          variables: {
-            input: {
-              customerId,
+          {
+            variables: {
+              input: {
+                customerId,
 
-              emailMarketingConsent: {
-                marketingState: subscribed ? "SUBSCRIBED" : "UNSUBSCRIBED",
+                emailMarketingConsent: {
+                  marketingState:
+                    subscribed
+                      ? "SUBSCRIBED"
+                      : "UNSUBSCRIBED",
 
-                marketingOptInLevel: "SINGLE_OPT_IN",
+                  marketingOptInLevel:
+                    "SINGLE_OPT_IN",
 
-                consentUpdatedAt: new Date().toISOString(),
+                  consentUpdatedAt:
+                    new Date()
+                      .toISOString(),
+                },
               },
             },
           },
-        },
-      ),
+        ),
 
-      ADMIN_TIMEOUT_MS,
-    );
+        ADMIN_TIMEOUT_MS,
+      );
 
-    const body = await response.json();
+    const body =
+      await response.json();
 
-    const graphqlError = extractGraphQLErrors(body);
+    const graphqlError =
+      extractGraphQLErrors(
+        body,
+      );
 
     if (graphqlError) {
-      console.error("[account] marketing consent GraphQL error:", graphqlError);
+      console.error(
+        "[account] marketing consent GraphQL error:",
+        graphqlError,
+      );
 
       return {
         success: false,
 
-        error: `Shopify GraphQL error: ${graphqlError}`,
+        error:
+          `Shopify GraphQL error: ${graphqlError}`,
       };
     }
 
     const userErrors =
-      body?.data?.customerEmailMarketingConsentUpdate?.userErrors || [];
+      body?.data
+        ?.customerEmailMarketingConsentUpdate
+        ?.userErrors ||
+      [];
 
-    if (userErrors.length > 0) {
-      const errorMessage = formatUserErrors(userErrors);
+    if (
+      userErrors.length > 0
+    ) {
+      const errorMessage =
+        formatUserErrors(
+          userErrors,
+        );
 
-      console.warn("[account] marketing consent userErrors:", errorMessage);
+      console.warn(
+        "[account] marketing consent userErrors:",
+        errorMessage,
+      );
 
       return {
         success: false,
 
-        error: errorMessage || "Unable to update marketing consent.",
+        error:
+          errorMessage ||
+          "Unable to update marketing consent.",
       };
     }
 
-    const customer = body?.data?.customerEmailMarketingConsentUpdate?.customer;
+    const customer =
+      body?.data
+        ?.customerEmailMarketingConsentUpdate
+        ?.customer;
 
     if (!customer) {
       return {
         success: false,
 
-        error: "Shopify did not confirm the marketing consent update.",
+        error:
+          "Shopify did not confirm the marketing consent update.",
       };
     }
 
     return {
       success: true,
-
       error: null,
     };
   } catch (err) {
-    console.error("[account] marketing consent update threw", err);
+    console.error(
+      "[account] marketing consent update threw",
+      err,
+    );
 
     return {
       success: false,
 
-      error: err?.message || "Failed to update marketing consent.",
+      error:
+        err?.message ||
+        "Failed to update marketing consent.",
     };
   }
 }
 
-async function setCustomerMetafield(admin, customerId, key, type, value) {
-  return setCustomerMetafieldsBatch(admin, [
-    {
-      ownerId: customerId,
 
-      namespace: "custom",
+/**
+ * =========================================================
+ * SINGLE CUSTOMER METAFIELD
+ * =========================================================
+ */
+async function setCustomerMetafield(
+  admin,
+  customerId,
+  key,
+  type,
+  value,
+) {
+  return setCustomerMetafieldsBatch(
+    admin,
+    [
+      {
+        ownerId:
+          customerId,
 
-      key,
+        namespace:
+          "custom",
 
-      type,
+        key,
 
-      value,
-    },
-  ]);
+        type,
+
+        value,
+      },
+    ],
+  );
 }
 
-async function setCustomerMetafieldsBatch(admin, metafields = []) {
-  if (!Array.isArray(metafields) || metafields.length === 0) {
+
+/**
+ * =========================================================
+ * CUSTOMER METAFIELD BATCH
+ * =========================================================
+ */
+async function setCustomerMetafieldsBatch(
+  admin,
+  metafields = [],
+) {
+  if (
+    !Array.isArray(
+      metafields,
+    ) ||
+    metafields.length === 0
+  ) {
     return {
       success: true,
-
       error: null,
     };
   }
 
   try {
-    const response = await withTimeout(
-      admin.graphql(
-        `#graphql
+    const response =
+      await withTimeout(
+        admin.graphql(
+          `#graphql
             mutation CustomerMetafieldsSet(
               $metafields: [MetafieldsSetInput!]!
             ) {
@@ -959,97 +1532,173 @@ async function setCustomerMetafieldsBatch(admin, metafields = []) {
               }
             }
           `,
-        {
-          variables: {
-            metafields,
+          {
+            variables: {
+              metafields,
+            },
           },
-        },
-      ),
+        ),
 
-      ADMIN_TIMEOUT_MS,
-    );
+        ADMIN_TIMEOUT_MS,
+      );
 
-    const body = await response.json();
+    const body =
+      await response.json();
 
-    const graphqlError = extractGraphQLErrors(body);
+    const graphqlError =
+      extractGraphQLErrors(
+        body,
+      );
 
     if (graphqlError) {
-      console.error("[account] metafieldsSet GraphQL error:", graphqlError);
+      console.error(
+        "[account] metafieldsSet GraphQL error:",
+        graphqlError,
+      );
 
       return {
         success: false,
 
-        error: `Shopify GraphQL error: ${graphqlError}`,
+        error:
+          `Shopify GraphQL error: ${graphqlError}`,
       };
     }
 
-  
-    const userErrors = body?.data?.metafieldsSet?.userErrors || [];
+    const userErrors =
+      body?.data
+        ?.metafieldsSet
+        ?.userErrors ||
+      [];
 
-    if (userErrors.length > 0) {
-      const errorMessage = formatUserErrors(userErrors);
+    if (
+      userErrors.length > 0
+    ) {
+      const errorMessage =
+        formatUserErrors(
+          userErrors,
+        );
 
-      console.warn("[account] metafieldsSet userErrors:", errorMessage);
+      console.warn(
+        "[account] metafieldsSet userErrors:",
+        errorMessage,
+      );
 
       return {
         success: false,
 
-        error: errorMessage || "Unable to update customer settings.",
+        error:
+          errorMessage ||
+          "Unable to update customer settings.",
       };
     }
 
     return {
       success: true,
 
-      metafields: body?.data?.metafieldsSet?.metafields || [],
+      metafields:
+        body?.data
+          ?.metafieldsSet
+          ?.metafields ||
+        [],
 
       error: null,
     };
   } catch (err) {
-    console.error("[account] metafieldsSet threw", err);
+    console.error(
+      "[account] metafieldsSet threw",
+      err,
+    );
 
     return {
       success: false,
 
-      error: err?.message || "Failed to save customer settings.",
+      error:
+        err?.message ||
+        "Failed to save customer settings.",
     };
   }
 }
 
-function extractGraphQLErrors(body) {
-  if (!Array.isArray(body?.errors) || body.errors.length === 0) {
+
+/**
+ * =========================================================
+ * GRAPHQL ERROR HELPER
+ * =========================================================
+ */
+function extractGraphQLErrors(
+  body,
+) {
+  if (
+    !Array.isArray(
+      body?.errors,
+    ) ||
+    body.errors.length === 0
+  ) {
     return null;
   }
 
-  const messages = body.errors
-    .map((error) => {
-      if (typeof error === "string") {
-        return error;
-      }
+  const messages =
+    body.errors
+      .map((error) => {
+        if (
+          typeof error ===
+          "string"
+        ) {
+          return error;
+        }
 
-      return error?.message || JSON.stringify(error);
-    })
-    .filter(Boolean);
+        return (
+          error?.message ||
+          JSON.stringify(error)
+        );
+      })
+      .filter(Boolean);
 
-  return messages.join(", ") || "Unknown Shopify GraphQL error.";
+  return (
+    messages.join(", ") ||
+    "Unknown Shopify GraphQL error."
+  );
 }
 
 
-function formatUserErrors(errors) {
-  if (!Array.isArray(errors)) {
+/**
+ * =========================================================
+ * USER ERROR HELPER
+ * =========================================================
+ */
+function formatUserErrors(
+  errors,
+) {
+  if (
+    !Array.isArray(errors)
+  ) {
     return "";
   }
 
   return errors
     .map((error) => {
-      const message = error?.message || "Unknown error";
+      const message =
+        error?.message ||
+        "Unknown error";
 
       let field = "";
 
-      if (Array.isArray(error?.field)) {
-        field = error.field.join(".");
-      } else if (error?.field) {
-        field = String(error.field);
+      if (
+        Array.isArray(
+          error?.field,
+        )
+      ) {
+        field =
+          error.field.join(
+            ".",
+          );
+      } else if (
+        error?.field
+      ) {
+        field =
+          String(
+            error.field,
+          );
       }
 
       if (field) {
@@ -1062,17 +1711,38 @@ function formatUserErrors(errors) {
     .join(", ");
 }
 
-function withTimeout(promise, ms) {
+
+/**
+ * =========================================================
+ * TIMEOUT
+ * =========================================================
+ */
+function withTimeout(
+  promise,
+  ms,
+) {
   let timer;
 
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`Admin API timed out after ${ms}ms`)),
-      ms,
+  const timeout =
+    new Promise(
+      (_, reject) => {
+        timer =
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Admin API timed out after ${ms}ms`,
+                ),
+              ),
+            ms,
+          );
+      },
     );
-  });
 
-  return Promise.race([promise, timeout]).finally(() => {
+  return Promise.race([
+    promise,
+    timeout,
+  ]).finally(() => {
     clearTimeout(timer);
   });
 }

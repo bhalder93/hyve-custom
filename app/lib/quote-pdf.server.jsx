@@ -21,9 +21,12 @@ import {
 
 function money(cents, currency) {
   try {
+    // Always the code, "USD 216.40" not "$216.40": the store sells in several
+    // currencies and a bare "$" says which of them only for some (HYV-98).
     return new Intl.NumberFormat("en", {
       style: "currency",
       currency: currency || "USD",
+      currencyDisplay: "code",
     }).format((Number(cents) || 0) / 100);
   } catch (_) {
     return "$" + ((Number(cents) || 0) / 100).toFixed(2);

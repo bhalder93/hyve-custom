@@ -8,6 +8,8 @@
  * shows. Current promotions come first, then upcoming ones with their start
  * date, so distributors can plan ahead.
  */
+import { BUSINESS_TIME_ZONE } from "./portal.server";
+
 const QUERY = `#graphql
   query DashboardPromotions {
     metaobjects(type: "$app:promotion", first: 50) {
@@ -30,8 +32,6 @@ const QUERY = `#graphql
 /** How many the dashboard shows. */
 const LIMIT = 6;
 
-/** Promotion dates are Hyve's calendar days. */
-const TIME_ZONE = "Asia/Singapore";
 
 /**
  * @returns {Promise<Array<{id:string, title:string, copy:string, link:string, linkLabel:string,
@@ -42,7 +42,8 @@ export async function loadPromotions(admin, now = new Date()) {
   const body = await response.json();
   if (body?.errors?.length) throw new Error(body.errors[0]?.message || "Shopify rejected the request.");
 
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE }).format(now);
+  // Promotion dates are Hyve's calendar days.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIME_ZONE }).format(now);
 
   return (body.data?.metaobjects?.nodes || [])
     .filter((node) => node.capabilities?.publishable?.status === "ACTIVE")

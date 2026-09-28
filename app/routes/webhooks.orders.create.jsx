@@ -296,7 +296,7 @@ async function getOrder(admin, orderId) {
                 sku
 
                 originalUnitPriceSet {
-                  shopMoney {
+                  presentmentMoney {
                     amount
                     currencyCode
                   }

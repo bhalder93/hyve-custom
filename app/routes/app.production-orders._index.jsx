@@ -130,7 +130,7 @@ export async function loader({ request }) {
                 displayFulfillmentStatus
 
                 totalPriceSet {
-                  shopMoney {
+                  presentmentMoney {
                     amount
                     currencyCode
                   }
@@ -215,8 +215,8 @@ export async function loader({ request }) {
         email: order.customer?.email || order.email || "",
         financialStatus: order.displayFinancialStatus || "",
         fulfillmentStatus: order.displayFulfillmentStatus || "",
-        amount: order.totalPriceSet?.shopMoney?.amount || "0",
-        currency: order.totalPriceSet?.shopMoney?.currencyCode || "",
+        amount: order.totalPriceSet?.presentmentMoney?.amount || "0",
+        currency: order.totalPriceSet?.presentmentMoney?.currencyCode || "",
         productionStatus: order.productionStatus?.value || statusFromTag || "",
         statusChangedAt: order.statusChangedAt?.value || "",
         productionDueAt: order.productionDueAt?.value || "",
