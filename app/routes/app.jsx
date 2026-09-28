@@ -18,6 +18,7 @@ export default function App() {
       <s-app-nav>
         <s-link href="/app/quotes">Quotes</s-link>
         <s-link href="/app/production-orders">Production Orders</s-link>
+        <s-link href="/app/order-statuses">Order Statuses</s-link>
         <s-link href="/app/distributors">Distributor Applications</s-link>
         <s-link href="/app/notification-recipients">Notification Recipients</s-link>
         <s-link href="/app/business-holidays">Holidays</s-link>

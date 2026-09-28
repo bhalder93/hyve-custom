@@ -97,10 +97,10 @@ export async function loadProofFromLink(admin, link) {
   if (!order) return { ok: false, error: "We couldn't find that order." };
 
   if (productionStatusOf(order) !== "proof-sent") {
-    return { ok: false, error: `There's no proof waiting for a decision on ${order.name}. It may already have been approved or sent back for changes.` };
+    return { ok: false, error: `There's no Artwork Proof waiting for a decision on ${order.name}. It may already have been approved or sent back for changes.` };
   }
   if (String(order.proofVersion?.value || "") !== link.version) {
-    return { ok: false, error: `This link is for an earlier proof of ${order.name}. Please use the links in the latest proof email.` };
+    return { ok: false, error: `This link is for an earlier Artwork Proof of ${order.name}. Please use the links in the latest Artwork Proof email.` };
   }
   return { ok: true, order };
 }
@@ -159,13 +159,13 @@ function cleanMessage(message) {
 
 function checkDecision(decision, message) {
   if (!DECISIONS[decision]) return "That isn't a decision we can record.";
-  if (decision === "changes" && !message) return "Tell us what needs changing so we can prepare the next proof.";
+  if (decision === "changes" && !message) return "Tell us what needs changing so we can prepare the next Artwork Proof.";
   return null;
 }
 
 async function decide(admin, order, decision, { who, message, where, source }) {
   if (productionStatusOf(order) !== "proof-sent") {
-    return { ok: false, error: `There's no proof waiting for a decision on ${order.name}.` };
+    return { ok: false, error: `There's no Artwork Proof waiting for a decision on ${order.name}.` };
   }
 
   const chosen = DECISIONS[decision];
@@ -185,7 +185,7 @@ async function decide(admin, order, decision, { who, message, where, source }) {
     ]
       .filter(Boolean)
       .join("\n"),
-    onHoldReason: decision === "changes" ? `Changes requested to proof${version ? ` v${version}` : ""}` : "",
+    onHoldReason: decision === "changes" ? `Changes requested to Artwork Proof${version ? ` v${version}` : ""}` : "",
   });
   if (!moved.ok) return moved;
 

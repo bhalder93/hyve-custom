@@ -2,13 +2,13 @@
 
 // One SMTP connection for the whole app, shared with the quote and team emails
 // so there is a single pooled transport and a single set of settings.
-import { getMailer, getDefaultFrom } from "../lib/email/mailer.server";
+import { getMailer, getDefaultFrom, defaultReplyTo, CUSTOMER_SERVICE_EMAIL } from "../lib/email/mailer.server";
 import { customerStatusLabel } from "../lib/portal.server";
 
 
 const BRAND = {
   name: "HYVE",
-  supportEmail: "support@hyve.promo",
+  supportEmail: CUSTOMER_SERVICE_EMAIL,
   logoUrl:"https://hyve.promo/cdn/shop/files/Image_Hyve.Promo.png",
   primaryText: "#111827",
   secondaryText: "#6B7280",
@@ -537,10 +537,7 @@ export async function sendEmail({
     html,
     text,
     attachments,
-    replyTo:
-      replyTo ||
-      process.env.EMAIL_REPLY_TO ||
-      undefined,
+    replyTo: replyTo || defaultReplyTo(),
   });
 
   if (!result.accepted?.length) {
@@ -577,11 +574,11 @@ export async function sendArtworkReceivedEmail({
       </p>
 
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
-        Our artwork team will now prepare your digital proof for review.
+        Our artwork team will now prepare your Artwork Proof for review.
       </p>
 
       <p style="margin:0; line-height:1.7; font-size:15px;">
-        We will contact you again when the proof is ready for approval.
+        We will contact you again when your Artwork Proof is ready for approval.
       </p>
     `,
   });
@@ -590,13 +587,58 @@ export async function sendArtworkReceivedEmail({
     to: customerEmail,
     subject: `${customerStatusLabel("artwork-received")} - ${orderName}`,
     html,
-    text: `Artwork received for ${orderName}. Our team will now prepare your proof.`,
+    text: `Artwork received for ${orderName}. Our team will now prepare your Artwork Proof.`,
   });
 }
 
 /* -------------------------------------------------------------------------- */
 /* MSG-03 Proof Sent                                                          */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Approve Proof and Request Changes, as links that work without signing in
+ * (proof.server.js). Shared by the proof email and its reminders.
+ */
+function decisionButtons(approveUrl, changesUrl) {
+  return `
+      <div style="margin:0 0 22px;">
+        <a
+          href="${escapeHtml(approveUrl)}"
+          style="
+            display:inline-block;
+            margin:0 8px 8px 0;
+            padding:14px 22px;
+            background:${BRAND.gradient};
+            background-color:#A3EA6E;
+            color:#0A1414;
+            text-decoration:none;
+            border-radius:10px;
+            font-size:14px;
+            font-weight:700;
+          "
+        >
+          Approve Artwork Proof
+        </a>
+        <a
+          href="${escapeHtml(changesUrl)}"
+          style="
+            display:inline-block;
+            margin:0 0 8px;
+            padding:13px 21px;
+            background:#ffffff;
+            color:#0f172a;
+            text-decoration:none;
+            border:1px solid #0f172a;
+            border-radius:10px;
+            font-size:14px;
+            font-weight:700;
+          "
+        >
+          Request Changes
+        </a>
+      </div>
+`;
+}
 
 export async function sendProofSentEmail({
   customerEmail,
@@ -634,7 +676,7 @@ export async function sendProofSentEmail({
       >
         <div style="font-size:15px; line-height:1.6; color:${BRAND.primaryText};">
           <strong>Action required:</strong>
-          Please review your proof, then approve it or request changes with the buttons below.
+          Please review your Artwork Proof, then approve it or request changes with the buttons below.
           No sign-in needed.
         </div>
       </div>
@@ -653,49 +695,14 @@ export async function sendProofSentEmail({
             font-weight:700;
           "
         >
-          View Proof
+          View Artwork Proof
         </a>
       </div>
 
-      <div style="margin:0 0 22px;">
-        <a
-          href="${escapeHtml(approveUrl)}"
-          style="
-            display:inline-block;
-            margin:0 8px 8px 0;
-            padding:14px 22px;
-            background:${BRAND.gradient};
-            background-color:#A3EA6E;
-            color:#0A1414;
-            text-decoration:none;
-            border-radius:10px;
-            font-size:14px;
-            font-weight:700;
-          "
-        >
-          Approve Proof
-        </a>
-        <a
-          href="${escapeHtml(changesUrl)}"
-          style="
-            display:inline-block;
-            margin:0 0 8px;
-            padding:13px 21px;
-            background:#ffffff;
-            color:#0f172a;
-            text-decoration:none;
-            border:1px solid #0f172a;
-            border-radius:10px;
-            font-size:14px;
-            font-weight:700;
-          "
-        >
-          Request Changes
-        </a>
-      </div>
+      ${decisionButtons(approveUrl, changesUrl)}
 
       <p style="margin:0; line-height:1.7; font-size:15px;">
-        <strong>Proof version:</strong>
+        <strong>Artwork Proof version:</strong>
         ${escapeHtml(proofVersion)}
       </p>
     `,
@@ -721,18 +728,24 @@ export async function sendProofReminderEmail({
   orderDate,
   proofUrl,
   proofVersion,
+  approveUrl,
+  changesUrl,
   reminderDay,
   lineItems = [],
 }) {
+  if (!approveUrl || !changesUrl) {
+    throw new Error("Approve and Request changes links are required.");
+  }
+
   const html = customerLayout({
-    title: "Reminder: your proof is awaiting approval",
+    title: "Reminder: your Artwork Proof is awaiting approval",
     customerName,
     orderName,
     orderDate,
     lineItems,
     body: `
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
-        This is a reminder that proof version
+        This is a reminder that Artwork Proof version
         <strong>${escapeHtml(proofVersion)}</strong>
         is still awaiting your approval.
       </p>
@@ -751,13 +764,15 @@ export async function sendProofReminderEmail({
             font-weight:700;
           "
         >
-          Review Proof
+          Review Artwork Proof
         </a>
       </div>
 
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
-        Please reply to this email to approve the proof or request changes.
+        Approve it or request changes with the buttons below. No sign-in needed.
       </p>
+
+      ${decisionButtons(approveUrl, changesUrl)}
 
       <p style="margin:0; font-size:13px; color:${BRAND.secondaryText};">
         Reminder day: ${escapeHtml(reminderDay)}
@@ -767,9 +782,9 @@ export async function sendProofReminderEmail({
 
   return sendEmail({
     to: customerEmail,
-    subject: `Proof approval reminder - ${orderName}`,
+    subject: `Artwork Proof reminder - ${orderName}`,
     html,
-    text: `Reminder: proof version ${proofVersion} for ${orderName} is awaiting approval. ${proofUrl}`,
+    text: `Reminder: proof version ${proofVersion} for ${orderName} is awaiting approval. View: ${proofUrl}\nApprove: ${approveUrl}\nRequest changes: ${changesUrl}`,
     replyTo: process.env.EMAIL_REPLY_TO,
   });
 }
@@ -798,7 +813,7 @@ export async function sendProofApprovedEmail({
     lineItems,
     body: `
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
-        Thank you. Your proof has been approved.
+        Thank you. Your Artwork Proof has been approved.
       </p>
 
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
@@ -847,7 +862,7 @@ export async function sendProofApprovedEmail({
     to: customerEmail,
     subject: `${customerStatusLabel("proof-approved")} - ${orderName}`,
     html,
-    text: `Your proof for ${orderName} has been approved. Production target: ${formatDate(productionDueAt)}.`,
+    text: `Your Artwork Proof for ${orderName} has been approved. Production target: ${formatDate(productionDueAt)}.`,
   });
 }
 
@@ -913,7 +928,7 @@ export async function sendProductionCompleteEmail({
 ${photo ? `
       <img
         src="cid:${PHOTO_CID}"
-        alt="Production photo for ${escapeHtml(orderName)}"
+        alt="Production Photo for ${escapeHtml(orderName)}"
         width="520"
         style="display:block; width:100%; max-width:520px; height:auto; margin:22px 0 0; border-radius:12px; border:1px solid ${BRAND.border};"
       />
@@ -942,7 +957,7 @@ ${photo ? `
     to: customerEmail,
     subject: `${customerStatusLabel("production-complete")} - ${orderName}`,
     html,
-    text: `Production for ${orderName} is complete. Production photo: ${productionPhotoUrl}`,
+    text: `Production for ${orderName} is complete. Production Photo: ${productionPhotoUrl}`,
     attachments: photo ? [photo] : undefined,
   });
 }
@@ -965,53 +980,24 @@ export async function sendInternalSlaAlert({
   const recipients =
     Array.isArray(to) ? to.join(",") : to;
 
-  const html = `
-    <!doctype html>
-    <html>
-      <body style="font-family:Arial,Helvetica,sans-serif;color:#202223;">
-        <h2>${escapeHtml(subject)}</h2>
-
-        <table cellspacing="0" cellpadding="6">
-          <tr>
-            <td><strong>Order</strong></td>
-            <td>${escapeHtml(orderName)}</td>
-          </tr>
-          <tr>
-            <td><strong>Customer</strong></td>
-            <td>${escapeHtml(customerName || "—")}</td>
-          </tr>
-          <tr>
-            <td><strong>Status</strong></td>
-            <td>${escapeHtml(status)}</td>
-          </tr>
-          <tr>
-            <td><strong>Elapsed</strong></td>
-            <td>${escapeHtml(elapsed || "—")}</td>
-          </tr>
-          <tr>
-            <td><strong>Owner</strong></td>
-            <td>${escapeHtml(assignedRole || "—")}</td>
-          </tr>
-        </table>
-
-        ${
-          message
-            ? `<p style="margin-top:20px;">${escapeHtml(message)}</p>`
-            : ""
-        }
-
-        ${
-          adminUrl
-            ? `<p style="margin-top:24px;"><a href="${escapeHtml(adminUrl)}">Open order in Hyve admin</a></p>`
-            : ""
-        }
-
-        <p style="margin-top:24px; font-size:13px; color:#6b7280;">
-          Support: <a href="mailto:${BRAND.supportEmail}">${BRAND.supportEmail}</a>
-        </p>
-      </body>
-    </html>
-  `;
+  // The same branded frame as every customer email (HYV-110).
+  const html = brandedEmail({
+    title: subject,
+    body: `
+      ${message ? `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;">${escapeHtml(message)}</p>` : ""}
+      ${
+        adminUrl
+          ? `<div style="margin:22px 0;"><a href="${escapeHtml(adminUrl)}" style="display:inline-block; padding:14px 22px; background:#0f172a; color:#ffffff; text-decoration:none; border-radius:10px; font-size:14px; font-weight:700;">Open order in Hyve admin</a></div>`
+          : ""
+      }`,
+    details: [
+      ["Order", escapeHtml(orderName)],
+      ["Customer", escapeHtml(customerName || "—")],
+      ["Status", escapeHtml(status)],
+      ["Elapsed", escapeHtml(elapsed || "—")],
+      ["Owner", escapeHtml(assignedRole || "—")],
+    ],
+  });
 
   return sendEmail({
     to: recipients,

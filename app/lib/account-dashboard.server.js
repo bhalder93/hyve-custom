@@ -26,8 +26,7 @@ const QUICK_ACTIONS = [
 /**
  * @param {object} opts
  * @param {{firstName?:string}} [opts.customer]
- * @param {{totalOrders:number, pendingProofs:number, activeQuotes:number,
- *          storeCredit:?string}} opts.stats
+ * @param {{totalOrders:number, pendingProofs:number, activeQuotes:number}} opts.stats
  * @param {?object} [opts.payment]  outstanding invoice, when one is known
  * @param {Array<object>} [opts.recentOrders]
  * @param {Array<object>} [opts.promotions]  from loadPromotions
@@ -52,16 +51,8 @@ export function dashboardPage({
 
       <div class="hyve-dash__stats">
         ${statCard(icoBox(), "lime", stats.totalOrders ?? 0, "Total Orders")}
-        ${statCard(icoClock(), "amber", stats.pendingProofs ?? 0, "Pending Proofs")}
+        ${statCard(icoClock(), "amber", stats.pendingProofs ?? 0, "Pending Artwork Proofs")}
         ${statCard(icoQuote(), "blue", stats.activeQuotes ?? 0, "Active Quotes")}
-        ${statCard(
-          icoWallet(),
-          "teal",
-          stats.storeCredit || "&mdash;",
-          "Store Credit",
-          // M3: the figure never appears undated.
-          // stats.storeCreditIssuedAt ? `Issued ${esc(stats.storeCreditIssuedAt)}` : "",
-        )}
       </div>
 
       <div class="hyve-dash__actions">
@@ -219,7 +210,6 @@ function svg(inner) {
 function icoBox() { return svg('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>'); }
 function icoClock() { return svg('<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>'); }
 function icoQuote() { return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="15" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>'); }
-function icoWallet() { return svg('<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>'); }
 function icoRepeat() { return svg('<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>'); }
 function icoTruck() { return svg('<path d="M10 17V6a1 1 0 0 0-1-1H2v11h2"/><path d="M14 17h-4"/><path d="M20 17h2v-4l-3-4h-5v8h2"/><circle cx="7" cy="17.5" r="2.5"/><circle cx="17" cy="17.5" r="2.5"/>'); }
 function icoUpload() { return svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'); }
@@ -231,7 +221,7 @@ const DASHBOARD_STYLES = `
   .hyve-dash__title { font-family: var(--hyve-display); font-size: 22px; font-weight: 800; margin: 0 0 3px; }
   .hyve-dash__sub { color: var(--hyve-500); font-size: 13px; margin: 0 0 20px; }
 
-  .hyve-dash__stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+  .hyve-dash__stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
   .hyve-dash__stat { display: flex; flex-direction: column; gap: 2px; background: var(--hyve-white); border: 1px solid var(--hyve-border); border-radius: var(--hyve-radius); padding: 20px; }
   .hyve-dash__stat-icon { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; margin-bottom: 14px; }
   .hyve-dash__stat-icon svg { width: 19px; height: 19px; }
@@ -299,7 +289,8 @@ const DASHBOARD_STYLES = `
     .hyve-dash__actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
   @media (max-width: 760px) {
-    .hyve-dash__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .hyve-dash__stats { gap: 10px; }
+    .hyve-dash__stat { padding: 14px; }
     .hyve-dash__actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .hyve-dash__payment-amount { margin-left: 0; text-align: left; }
     .hyve-dash__products { grid-template-columns: repeat(2, minmax(0, 1fr)); }

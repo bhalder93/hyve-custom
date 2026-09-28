@@ -73,6 +73,48 @@ export async function canManageTeam(admin, numericCustomerId) {
   }
 }
 
+const TEAM_SCOPE_QUERY = `#graphql
+  query TeamScope($id: ID!) {
+    customer(id: $id) {
+      companyContactProfiles {
+        company {
+          id
+          contacts(first: 250) { nodes { id } }
+          locations(first: 100) { nodes { id } }
+          contactRoles(first: 20) { nodes { id } }
+        }
+      }
+    }
+  }`;
+
+/**
+ * The records the signed-in customer's own company holds: its contacts,
+ * locations and roles. Every team change is checked against it, because the
+ * ids arrive in a form a buyer can edit, and the Admin API would otherwise act
+ * on another company's contact just as readily (HYV-76).
+ *
+ * @param {string} numericCustomerId the id from `logged_in_customer_id`
+ * @returns {Promise<{contactIds:Set<string>, locationIds:Set<string>, roleIds:Set<string>}>}
+ */
+export async function teamScope(admin, numericCustomerId) {
+  const empty = { contactIds: new Set(), locationIds: new Set(), roleIds: new Set() };
+  if (!admin || !numericCustomerId) return empty;
+
+  const response = await admin.graphql(TEAM_SCOPE_QUERY, {
+    variables: { id: `gid://shopify/Customer/${numericCustomerId}` },
+  });
+  const body = await response.json();
+  const company = body?.data?.customer?.companyContactProfiles?.[0]?.company;
+  if (!company) return empty;
+
+  const ids = (connection) => new Set((connection?.nodes || []).map((node) => node.id));
+  return {
+    contactIds: ids(company.contacts),
+    locationIds: ids(company.locations),
+    roleIds: ids(company.contactRoles),
+  };
+}
+
 export function getRoleDescription(name = "") {
   const n = String(name).toLowerCase();
   if (n.includes("order")) {

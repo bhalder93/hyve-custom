@@ -16,6 +16,7 @@
  * so switching a filter costs no round trip.
  */
 import { esc } from "./account-shell.server";
+import { PROOF_HOLD_DAY } from "../utils/sla-engine.server";
 import { zonesFromAttributes } from "./artwork-zones.server";
 import { orderModal, MODAL_STYLES, MODAL_SCRIPT } from "./account-order-modal.server";
 import {
@@ -65,6 +66,15 @@ export function mapOrders(nodes = []) {
       // Set when the proof is approved, and the same date the buyer is sent in
       // the "Proof approved — production starting" email.
       productionTarget: formatDate(node?.productionDueAt?.value),
+      // HYV-102: the ship date customer service gives, which the portal shows
+      // in place of the calculated target once it's set.
+      shipDate: formatDate(node?.estimatedShipDate?.value),
+      // The day the proof decision is due: when an undecided order goes On
+      // Hold (PROOF_HOLD_DAY in the SLA engine).
+      proofDueBy:
+        statusKey === "proof-sent" && node?.statusChangedAt?.value
+          ? formatDate(new Date(new Date(node.statusChangedAt.value).getTime() + PROOF_HOLD_DAY * 86400000).toISOString())
+          : "",
       proofUrl: node?.proofUrl?.value || "",
       onHoldReason: node?.onHoldReason?.value || "",
 
@@ -179,6 +189,7 @@ export function orderRow(order) {
         <div class="hyve-ord__head">
           <span class="hyve-ord__name">${esc(order.name)}</span>
           <span class="hyve-ord__badge hyve-ord__badge--${status.tone}">${esc(status.label)}</span>
+          ${status.key === "proof-sent" ? `<span class="hyve-ord__badge hyve-ord__badge--action">Approval required</span>` : ""}
         </div>
         <p class="hyve-ord__items">${esc(order.items)}</p>
         <p class="hyve-ord__date">
@@ -207,7 +218,7 @@ function rowActions(order, statusKey) {
   const actions = [];
 
   if (statusKey === "proof-sent") {
-    actions.push(openDetail(icoProof(), "Review Proof", "primary"));
+    actions.push(openDetail(icoProof(), "Review Artwork Proof", "primary"));
   } else if (statusKey === "awaiting-artwork") {
     actions.push(openDetail(icoUpload(), "Upload Artwork", "primary"));
   } else {
@@ -245,7 +256,8 @@ function rowActions(order, statusKey) {
 /** J12 action-required line, plus the status-specific detail lines. */
 function metaLine(order, statusKey) {
   if (statusKey === "proof-sent") {
-    return `<p class="hyve-ord__meta is-action">${icoClock()}<span>Action Required: Approve your artwork proof to avoid delays</span></p>`;
+    const by = order.proofDueBy ? ` by <strong>${esc(order.proofDueBy)}</strong>` : "";
+    return `<p class="hyve-ord__meta is-action">${icoClock()}<span>Action Required: Approve your Artwork Proof or request changes${by} to avoid delays</span></p>`;
   }
   if (statusKey === "awaiting-artwork") {
     return `<p class="hyve-ord__meta is-action">${icoUpload()}<span>Action Required: Upload your artwork so production can start</span></p>`;
@@ -257,6 +269,9 @@ function metaLine(order, statusKey) {
     const carrier = order.carrier ? `Carrier: ${esc(order.carrier)}` : "";
     const number = order.trackingNumber ? `Tracking: <strong>${esc(order.trackingNumber)}</strong>` : "";
     return `<p class="hyve-ord__meta">${icoTruck()}<span>${[carrier, number].filter(Boolean).join(" &middot; ")}</span></p>`;
+  }
+  if (["in-production", "production-completed"].includes(statusKey) && order.shipDate) {
+    return `<p class="hyve-ord__meta">${icoCalendar()}<span>Estimated ship date: <strong>${esc(order.shipDate)}</strong></span></p>`;
   }
   if (statusKey === "in-production" && order.productionTarget) {
     return `<p class="hyve-ord__meta">${icoCalendar()}<span>Production target: <strong>${esc(order.productionTarget)}</strong></span></p>`;
@@ -355,6 +370,7 @@ export const ORDER_ROW_STYLES = `
   .hyve-ord__badge--teal { background: #CCFBF1; color: #0F766E; }
   .hyve-ord__badge--ok { background: #DCFCE7; color: #15803D; }
   .hyve-ord__badge--error { background: #FEE2E2; color: #B91C1C; }
+  .hyve-ord__badge--action { background: #B45309; color: #FFFFFF; }
   .hyve-ord__items { font-size: 13px; color: var(--hyve-700); margin: 0 0 2px; }
   .hyve-ord__date { font-size: 12px; color: var(--hyve-muted); margin: 0; }
   .hyve-ord__po { color: var(--hyve-700); font-weight: 600; }

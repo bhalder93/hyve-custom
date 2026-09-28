@@ -107,3 +107,98 @@ export async function sendApplicationEmails(admin, application) {
     console.warn("[application] no internal address on the shop — notification skipped");
   }
 }
+
+const PRIMARY_DOMAIN = `#graphql
+  query ApplicationShopDomain {
+    shop { primaryDomain { url } }
+  }`;
+
+/**
+ * Tells the applicant the outcome once Hyve decides (HYV-110). Approved: they
+ * can sign in to their distributor account, and who their sales contact is.
+ * Declined: a short, neutral note. The reason staff record stays internal,
+ * since the wording of a decline is still open (OD18).
+ * Never throws — the decision is already saved by this point.
+ *
+ * @param {{approved:boolean, salesRep?:string, salesRepEmail?:string}} outcome
+ */
+export async function sendApplicationDecisionEmail(admin, application, outcome) {
+  const to = application.customer_email || application.customerEmail;
+  if (!to) return;
+
+  try {
+    const { shopName } = await internalNotifyTarget(admin);
+    const { sendEmail } = await import("./mailer.server");
+    const company = application.company_name || application.companyName || "your company";
+    const applicant = application.contact_person || application.contactPerson || "";
+    const greeting = applicant ? `Hi ${escapeHtml(applicant)},` : "Hi,";
+
+    if (outcome.approved) {
+      const response = await admin.graphql(PRIMARY_DOMAIN);
+      const body = await response.json();
+      const accountUrl = new URL("/apps/account", body?.data?.shop?.primaryDomain?.url || "https://hyve.promo").toString();
+      const rep = outcome.salesRep
+        ? `Your sales representative is <strong>${escapeHtml(outcome.salesRep)}</strong>${
+            outcome.salesRepEmail ? ` (${escapeHtml(outcome.salesRepEmail)})` : ""
+          }, and they'll be in touch to help you get started.`
+        : "";
+
+      await sendEmail({
+        to,
+        subject: `Application Approved - ${shopName} distributor programme`,
+        text: [
+          applicant ? `Hi ${applicant},` : "Hi,",
+          "",
+          `${company} is now set up as a ${shopName} distributor.`,
+          "Sign in to see your distributor pricing, place orders and manage quotes:",
+          accountUrl,
+          outcome.salesRep ? `\nYour sales representative is ${outcome.salesRep}${outcome.salesRepEmail ? ` (${outcome.salesRepEmail})` : ""}.` : "",
+        ].join("\n"),
+        html: brandedEmail({
+          title: "Application Approved",
+          greeting,
+          body: `
+            <p ${PARAGRAPH}>
+              Good news: <strong>${escapeHtml(company)}</strong> is now set up as a ${escapeHtml(shopName)} distributor.
+              Sign in to see your distributor pricing, place orders and manage quotes.
+            </p>
+            ${rep ? `<p ${PARAGRAPH}>${rep}</p>` : ""}
+            <div style="margin:22px 0;">
+              <a href="${escapeHtml(accountUrl)}" style="display:inline-block; padding:14px 22px; background:#0f172a; color:#ffffff; text-decoration:none; border-radius:10px; font-size:14px; font-weight:700;">
+                Go to your account
+              </a>
+            </div>`,
+          details: [["Company", escapeHtml(company)]],
+        }),
+      });
+      return;
+    }
+
+    await sendEmail({
+      to,
+      subject: `Your ${shopName} distributor application`,
+      text: [
+        applicant ? `Hi ${applicant},` : "Hi,",
+        "",
+        `Thank you for your interest in the ${shopName} distributor programme.`,
+        `We've reviewed the application for ${company}, and we're unable to approve it at this time.`,
+        "If you have any questions, just reply to this email.",
+        "",
+        shopName,
+      ].join("\n"),
+      html: brandedEmail({
+        title: "Application Update",
+        greeting,
+        body: `
+          <p ${PARAGRAPH}>
+            Thank you for your interest in the ${escapeHtml(shopName)} distributor programme. We've reviewed the
+            application for <strong>${escapeHtml(company)}</strong>, and we're unable to approve it at this time.
+          </p>
+          <p ${PARAGRAPH}>If you have any questions, just reply to this email.</p>`,
+        details: [["Company", escapeHtml(company)]],
+      }),
+    });
+  } catch (error) {
+    console.error("[application] decision email failed", error?.message || error);
+  }
+}

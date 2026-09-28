@@ -4,20 +4,9 @@ import { useState } from "react";
 import { useLoaderData, useNavigate } from "react-router";
 
 import { authenticate } from "../shopify.server";
+import { STATUS_OPTIONS } from "../lib/production-statuses";
 
 const PAGE_SIZE = 10;
-
-const STATUS_OPTIONS = [
-  { label: "Order Placed", value: "order-placed" },
-  { label: "Artwork Received", value: "artwork-received" },
-  { label: "Proof Sent", value: "proof-sent" },
-  { label: "Proof Approved", value: "proof-approved" },
-  { label: "In Production", value: "in-production" },
-  { label: "Production Complete", value: "production-complete" },
-  { label: "Shipped", value: "shipped" },
-  { label: "Delivered", value: "delivered" },
-  { label: "On Hold", value: "on-hold" },
-];
 
 /**
  * Only orders in the production chain. An order with no customisation never

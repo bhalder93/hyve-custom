@@ -6,11 +6,12 @@
  *   - Page header: "Quotes" + subtitle + "+ Request Quote" CTA button
  *   - Main card with live client-side search input & filter tabs (All, Awaiting Action, Approved, Rejected)
  *   - Quote cards with Quote #, status badge, items summary, validity / converted metadata, price, and actions
- *   - Actions: "Resume & Order" (Shopify invoice checkout), "View Order", "Requote", and "PDF"
+ *   - Actions: "Confirm Order" (the draft order's checkout link), "View Order", "Requote", and "PDF"
  *   - Interactive "+ Request Quote" modal to submit custom wholesale quote requests
  */
 
 import { esc } from "./account-shell.server";
+import { quoteValidUntil } from "./quote-document.server";
 
 /**
  * Quote statuses.
@@ -100,6 +101,20 @@ export function quoteDecision(node) {
  * Map Shopify Admin API DraftOrder nodes to Quote objects.
  * Uses ONLY real data from Shopify — no dummy/sample data fallback.
  */
+/**
+ * A buyer's quotes: the company's, plus any that sales raised for them
+ * personally without picking the company (HYV-135), so a draft made for the
+ * customer shows up either way. Each quote once, most recently updated first.
+ */
+export function mergeQuoteNodes(...lists) {
+  const byId = new Map();
+  for (const node of lists.flat()) {
+    if (node?.id && !byId.has(node.id)) byId.set(node.id, node);
+  }
+  const stamp = (node) => String(node.updatedAt || node.createdAt || "");
+  return [...byId.values()].sort((a, b) => stamp(b).localeCompare(stamp(a)));
+}
+
 export function mapDraftOrdersToQuotes(draftOrderNodes = []) {
   if (!Array.isArray(draftOrderNodes) || draftOrderNodes.length === 0) {
     return [];
@@ -130,14 +145,12 @@ export function mapDraftOrdersToQuotes(draftOrderNodes = []) {
     let metaText = "";
     const createdDate = formatDate(node.createdAt);
 
-    // Check custom attributes for sales rep and validity
+    // Check custom attributes for the sales rep
     const customAttrs = node.customAttributes || [];
     const repAttr = customAttrs.find((a) => a.key === "Sales Rep" || a.key === "Sent By" || a.key === "Representative");
-    const validAttr = customAttrs.find((a) => a.key === "Valid Until" || a.key === "Target Date");
     const repName = repAttr?.value || "Sales Team";
-    // Only shown when sales actually set one. A date invented from the created
-    // date would read as a promise nobody made.
-    const validUntil = validAttr?.value ? ` · Valid until ${validAttr.value}` : "";
+    // The same day the quote's PDF prints and its expiry reminder counts down to.
+    const validUntil = ` · Valid until ${quoteValidUntil(node.createdAt).label}`;
 
     const decision = quoteDecision(node);
     // A draft Shopify marks COMPLETED has become a real order, which is the
@@ -352,7 +365,7 @@ function renderQuoteRow(q) {
     ? `
       <a href="${esc(q.invoiceUrl)}" class="hyve-btn hyve-btn--resume">
         ${icoCart()}
-        <span>Resume &amp; Order</span>
+        <span>Confirm Order</span>
       </a>`
     : "";
 

@@ -7,6 +7,7 @@ import {
 import {
   runSlaEngine,
 } from "../utils/sla-engine.server";
+import { sendQuoteExpiryReminders } from "../lib/quote-expiry-reminders.server";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Helpers                                   */
@@ -273,6 +274,12 @@ export async function action({
       await runSlaEngine(
         admin,
       );
+
+    // HYV-110: one reminder to the buyer shortly before a quote expires. Its
+    // failure is reported, never allowed to fail the SLA run.
+    summary.quoteReminders = await sendQuoteExpiryReminders(admin).catch(
+      (error) => ({ sent: 0, errors: [error?.message || String(error)] }),
+    );
 
     const response = {
       success:

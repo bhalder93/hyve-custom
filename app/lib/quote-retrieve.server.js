@@ -108,7 +108,7 @@ export function retrievedQuotePage(quote) {
         <div class="hyve-rq__actions">
           ${
             quote.invoiceUrl
-              ? `<a class="hyve-rq__btn" href="${esc(quote.invoiceUrl)}">Review &amp; order</a>`
+              ? `<a class="hyve-rq__btn" href="${esc(quote.invoiceUrl)}">Confirm Order</a>`
               : ""
           }
           <form method="post" action="/apps/account/quotes/retrieve">

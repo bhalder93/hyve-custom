@@ -143,20 +143,14 @@ function navItem(item, active, counts) {
 }
 
 /**
- * Commercial terms panel (M2). The credit figures are maintained by hand until
- * NetSuite is connected, so M3 requires the date they were last updated to sit
- * with them rather than presenting them as live numbers.
+ * Commercial terms panel (M2). No credit figure is shown for launch
+ * (HYV-135); credit limits and balances will come from NetSuite.
  */
 function termsPanel(terms, isDistributor) {
   if (!isDistributor || !terms) return "";
 
   const rows = [
     terms.paymentTerms ? ["Payment", esc(terms.paymentTerms)] : null,
-    terms.storeCredit ? ["Store Credit", esc(terms.storeCredit)] : null,
-    terms.storeCreditUsed ? ["Used", esc(terms.storeCreditUsed)] : null,
-    terms.storeCreditExpired ? ["Expired", esc(terms.storeCreditExpired)] : null,
-    // M3: date the credit so the figure is never read as an undated claim.
-    terms.storeCreditIssuedAt ? ["Issued", esc(terms.storeCreditIssuedAt)] : null,
     terms.salesRep ? ["Sales Rep", esc(terms.salesRep)] : null,
   ]
     .filter(Boolean)
@@ -165,20 +159,10 @@ function termsPanel(terms, isDistributor) {
 
   if (!rows) return "";
 
-  // The bar is spend against everything ever issued, which is what's been used
-  // plus what's left. With nothing issued there is nothing to draw.
-  const used = Number(terms.storeCreditUsedAmount);
-  const issued = Number(terms.storeCreditIssuedAmount);
-  const bar =
-    Number.isFinite(used) && Number.isFinite(issued) && issued > 0
-      ? `<div class="hyve-acct__terms-bar"><span style="width:${Math.min(Math.max(Math.round((used / issued) * 1000) / 10, 0), 100)}%"></span></div>`
-      : "";
-
   return `
     <div class="hyve-acct__terms">
       <span class="hyve-acct__terms-heading">${icoShield()}Commercial Terms</span>
       ${rows}
-      ${bar}
     </div>`;
 }
 
@@ -366,8 +350,6 @@ const SHELL_STYLES = `
   .hyve-acct__apply:hover { border-color: var(--hyve-muted); }
 
   .hyve-acct__terms { margin: 0 10px; padding: 14px; border-radius: 12px; background: linear-gradient(135deg, rgba(15,23,42,0.03) 0%, rgba(110,222,225,0.06) 100%); border: 1px solid var(--hyve-border); display: flex; flex-direction: column; gap: 7px; }
-  .hyve-acct__terms-bar { height: 4px; border-radius: 9999px; background: rgba(15,23,42,0.06); overflow: hidden; margin-top: 2px; }
-  .hyve-acct__terms-bar span { display: block; height: 100%; border-radius: 9999px; background: var(--hyve-gradient); }
   .hyve-acct__terms-heading { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--hyve-muted); }
   .hyve-acct__terms-heading svg { width: 13px; height: 13px; }
   .hyve-acct__term { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; }

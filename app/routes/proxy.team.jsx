@@ -7,6 +7,7 @@ import {
   teamPage,
   getInitials,
   canManageTeam,
+  teamScope,
   ROLES,
 } from "../lib/account-team.server";
 import { sendTeamWelcomeEmail } from "../lib/team-welcome.server";
@@ -318,6 +319,21 @@ export const action = async ({ request }) => {
           status: 302,
           headers: { Location: "/apps/account/team?error=Store+admin+session+not+available." },
         });
+      }
+
+      // A location or role picked in the form must be one of the inviter's
+      // own company's.
+      if (selectedLocationId || selectedRoleId) {
+        const scope = await teamScope(admin, numericCustId);
+        if (
+          (selectedLocationId && !scope.locationIds.has(selectedLocationId)) ||
+          (selectedRoleId && !scope.roleIds.has(selectedRoleId))
+        ) {
+          return new Response(null, {
+            status: 302,
+            headers: { Location: "/apps/account/team?error=That+location+or+role+isn%27t+part+of+your+company." },
+          });
+        }
       }
 
       let companyId = null;
@@ -645,6 +661,14 @@ export const action = async ({ request }) => {
       const memberId = String(formData.get("memberId") || "").trim();
       const memberEmail = String(formData.get("memberEmail") || "").trim();
 
+      // Only someone on the admin's own company can be removed from it.
+      if (admin && memberId && !(await isOwnTeamMember(admin, numericCustId, memberId))) {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "/apps/account/team?error=That+person+isn%27t+on+your+team." },
+        });
+      }
+
       if (admin && memberId) {
         try {
           if (memberId.startsWith("gid://shopify/CompanyContact/")) {
@@ -719,4 +743,28 @@ function withTimeout(promise, ms) {
     timer = setTimeout(() => reject(new Error(`Admin API timed out after ${ms}ms`)), ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * A member id posted to remove_member belongs to the admin's team: a contact
+ * of their company, or a customer tagged into it the older way
+ * (`company_id:<admin's customer id>`, the tag the team list reads).
+ */
+async function isOwnTeamMember(admin, numericCustId, memberId) {
+  if (memberId.startsWith("gid://shopify/CompanyContact/")) {
+    const scope = await teamScope(admin, numericCustId);
+    return scope.contactIds.has(memberId);
+  }
+  if (memberId.startsWith("gid://shopify/Customer/")) {
+    const response = await admin.graphql(
+      `#graphql
+      query MemberTags($id: ID!) {
+        customer(id: $id) { tags }
+      }`,
+      { variables: { id: memberId } },
+    );
+    const body = await response.json();
+    return (body?.data?.customer?.tags || []).includes(`company_id:${numericCustId}`);
+  }
+  return false;
 }

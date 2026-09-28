@@ -47,20 +47,24 @@ export async function sendTeamWelcomeEmail({ to, firstName, companyName, addedBy
     "Hyve Promo",
   ].join("\n");
 
-  const html = `
-    <div style="font-family: -apple-system, 'Segoe UI', sans-serif; font-size: 15px; color: #0F172A; line-height: 1.6;">
-      <p>${greeting}</p>
-      <p>${opener}</p>
-      <p>You can now see the company's orders, quotes, invoices and saved artwork, and place orders on the account.</p>
-      <p style="margin: 24px 0;">
-        <a href="${portalUrl}" style="background: #0F766E; color: #fff; text-decoration: none;
-          padding: 12px 22px; border-radius: 8px; font-weight: 600; display: inline-block;">Sign in to your account</a>
-      </p>
-      <p style="color: #64748B; font-size: 13.5px;">
-        Use this email address to sign in — we'll send you a code, so there is no password to set up.
-      </p>
-      <p style="color: #64748B; font-size: 13.5px;">Hyve Promo</p>
-    </div>`;
+  const { brandedEmail, escapeHtml } = await import("../utils/email.server");
+  const paragraph = 'style="margin:0 0 14px; line-height:1.7; font-size:15px;"';
+  const html = brandedEmail({
+    title: "You've been added to the team",
+    greeting: escapeHtml(greeting),
+    body: `
+      <p ${paragraph}>${escapeHtml(opener)}</p>
+      <p ${paragraph}>You can now see the company's orders, quotes, invoices and saved artwork, and place orders on the account.</p>
+      <div style="margin:22px 0;">
+        <a href="${escapeHtml(portalUrl)}" style="display:inline-block; padding:14px 22px; background:#0f172a; color:#ffffff; text-decoration:none; border-radius:10px; font-size:14px; font-weight:700;">
+          Sign in to your account
+        </a>
+      </div>
+      <p style="margin:0; font-size:13px; line-height:1.6; color:#6B7280;">
+        Use this email address to sign in. We'll send you a code, so there's no password to set up.
+      </p>`,
+    details: [["Company", escapeHtml(companyName)]],
+  });
 
   return sendEmail({
     to,

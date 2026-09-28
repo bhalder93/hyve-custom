@@ -13,17 +13,9 @@ const FILTERS = [
 
 export function invoicesPage({
   invoices = [],
-  storeCredit = "",
-  storeCreditUsed = "",
-  storeCreditIssued = "",
-  storeCreditIssuedAt = "",
-  storeCreditExpired = "",
-  storeCreditPercentUsed = null,
-  paymentTerms = "",
   salesRep = "",
   salesRepEmail = "",
   salesRepPhone = "",
-  tier = "",
 } = {}) {
   return `
     ${INVOICE_STYLES}
@@ -31,7 +23,6 @@ export function invoicesPage({
       <h1 class="hyve-inv__title">Invoices</h1>
       <p class="hyve-inv__sub">View and download your invoices</p>
 
-      ${creditPanel({ storeCredit, storeCreditUsed, storeCreditIssued, storeCreditIssuedAt, storeCreditExpired, storeCreditPercentUsed, paymentTerms, tier })}
       ${salesRep ? repBar(salesRep, salesRepEmail, salesRepPhone) : ""}
 
       <div class="hyve-inv__card">
@@ -56,70 +47,6 @@ export function invoicesPage({
       </div>
     </div>
     ${INVOICE_SCRIPT}`;
-}
-
-/**
- * Store credit is Shopify's own prepaid balance on the company location, which
- * Shopify redeems at checkout. There is no outstanding total or payment
- * breakdown here: Shopify gives a buyer no way to settle a terms balance
- * themselves, so a figure they can't act on doesn't belong on the page.
- */
-function creditPanel({
-  storeCredit,
-  storeCreditUsed,
-  storeCreditIssued,
-  storeCreditIssuedAt,
-  storeCreditExpired,
-  storeCreditPercentUsed,
-  paymentTerms,
-  tier,
-}) {
-  if (!storeCredit && !paymentTerms) return "";
-
-  const hasBar = Number.isFinite(storeCreditPercentUsed);
-
-  return `
-    <div class="hyve-inv__summary">
-      <section class="hyve-inv__panel">
-        <div class="hyve-inv__panel-head">
-          <span class="hyve-inv__label">Store Credit Available</span>
-          ${tier ? `<span class="hyve-inv__tier">${esc(tier)}</span>` : ""}
-        </div>
-        ${storeCredit ? `<span class="hyve-inv__big hyve-inv__big--credit">${esc(storeCredit)}</span>` : ""}
-        <span class="hyve-inv__muted">Choose store credit at checkout to use it</span>
-        ${
-          storeCreditUsed
-            ? `<div class="hyve-inv__credit-grid">
-                 <div>
-                   <span class="hyve-inv__muted">Issued</span>
-                   <strong>${esc(storeCreditIssued)}</strong>
-                   ${storeCreditIssuedAt ? `<span class="hyve-inv__asof">${esc(storeCreditIssuedAt)}</span>` : ""}
-                 </div>
-                 <div><span class="hyve-inv__muted">Used</span><strong>${esc(storeCreditUsed)}</strong></div>
-                 ${
-                   storeCreditExpired
-                     ? `<div><span class="hyve-inv__muted">Expired</span><strong>${esc(storeCreditExpired)}</strong></div>`
-                     : ""
-                 }
-               </div>`
-            : ""
-        }
-        ${
-          paymentTerms
-            ? `<div class="hyve-inv__terms"><span class="hyve-inv__muted">Terms</span><strong>${esc(paymentTerms)}</strong></div>`
-            : ""
-        }
-        ${hasBar ? `<div class="hyve-inv__meter"><span style="width:${esc(storeCreditPercentUsed)}%"></span></div>` : ""}
-        ${
-          hasBar
-            ? `<div class="hyve-inv__meter-legend">
-                 <span class="hyve-inv__muted">${esc(storeCreditUsed)} used</span>
-                 <span class="hyve-inv__free">${esc(Math.round((100 - storeCreditPercentUsed) * 10) / 10)}% left</span>
-               </div>`
-            : ""
-        }
-      </section>
-    </div>`;
 }
 
 function repBar(salesRep, email, phone) {
@@ -201,26 +128,9 @@ const INVOICE_STYLES = `
 <style>
   .hyve-inv__title { font-family: var(--hyve-display); font-size: 22px; font-weight: 800; margin: 0; }
   .hyve-inv__sub { color: var(--hyve-muted); font-size: 13px; margin: 2px 0 20px; }
-  .hyve-inv__summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
-  .hyve-inv__panel { background: var(--hyve-white); border: 1px solid var(--hyve-border); border-radius: var(--hyve-radius); padding: 18px 20px; display: flex; flex-direction: column; gap: 6px; }
-  .hyve-inv__label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--hyve-muted); }
-  .hyve-inv__big { font-family: var(--hyve-display); font-size: 26px; font-weight: 800; line-height: 1.15; }
-  .hyve-inv__big--credit { color: #15803D; }
   .hyve-inv__muted { font-size: 11.5px; color: var(--hyve-muted); display: inline-flex; align-items: center; gap: 5px; }
   .hyve-inv__muted svg { width: 13px; height: 13px; }
 
-  .hyve-inv__credit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
-  .hyve-inv__credit-grid div { display: flex; flex-direction: column; background: #F8FAFC; border-radius: 8px; padding: 8px 10px; }
-  .hyve-inv__credit-grid strong { font-size: 13px; font-weight: 700; }
-  .hyve-inv__asof { font-size: 10.5px; color: var(--hyve-muted); margin-top: 2px; }
-  .hyve-inv__meter { height: 6px; border-radius: 9999px; background: #E2E8F0; overflow: hidden; margin-top: 6px; }
-  .hyve-inv__meter span { display: block; height: 100%; background: var(--hyve-gradient); }
-  .hyve-inv__meter-legend { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .hyve-inv__free { font-size: 11.5px; font-weight: 700; color: #15803D; }
-  .hyve-inv__panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .hyve-inv__tier { background: #FEF3C7; color: #B45309; border-radius: 9999px; padding: 3px 10px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
-  .hyve-inv__terms { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--hyve-border); margin-top: 8px; padding-top: 10px; }
-  .hyve-inv__terms strong { font-size: 12.5px; font-weight: 700; }
 
   .hyve-inv__rep { display: flex; align-items: center; gap: 12px; background: var(--hyve-white); border: 1px solid var(--hyve-border); border-radius: var(--hyve-radius); padding: 14px 18px; margin-bottom: 14px; }
   .hyve-inv__rep-avatar { width: 34px; height: 34px; border-radius: 9999px; background: var(--hyve-gradient); color: #0A1414; display: inline-flex; align-items: center; justify-content: center; font-family: var(--hyve-display); font-weight: 800; font-size: 12px; flex-shrink: 0; }
@@ -263,7 +173,6 @@ const INVOICE_STYLES = `
   .hyve-inv__none, .hyve-inv__empty { border: 1px dashed #CBD5E1; border-radius: var(--hyve-radius); padding: 36px 20px; text-align: center; color: var(--hyve-muted); font-size: 13px; margin: 16px; }
   .hyve-inv__none[hidden] { display: none; }
 
-  @media (max-width: 980px) { .hyve-inv__summary { grid-template-columns: 1fr; } }
   @media (max-width: 860px) {
     .hyve-inv__rep { flex-wrap: wrap; }
     .hyve-inv__rep-actions { width: 100%; }

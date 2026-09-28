@@ -18,7 +18,7 @@ export const loader = async ({ request }) => {
 
   try {
     const link = readProofLink(params);
-    if (!link) return liquid(page(problem("This link isn't valid. Please use the buttons in your proof email.")));
+    if (!link) return liquid(page(problem("This link isn't valid. Please use the buttons in your Artwork Proof email.")));
 
     const found = await loadProofFromLink(admin, link);
     if (!found.ok) return liquid(page(problem(found.error)));
@@ -28,7 +28,7 @@ export const loader = async ({ request }) => {
   } catch (error) {
     if (error instanceof Response) throw error;
     console.error("[proof-link] could not show the proof decision", error);
-    return liquid(page(problem("We couldn't load this proof. Please try again in a moment.")));
+    return liquid(page(problem("We couldn't load this Artwork Proof. Please try again in a moment.")));
   }
 };
 
@@ -38,7 +38,7 @@ export const action = async ({ request }) => {
 
   try {
     const link = readProofLink(params);
-    if (!link) return liquid(page(problem("This link isn't valid. Please use the buttons in your proof email.")));
+    if (!link) return liquid(page(problem("This link isn't valid. Please use the buttons in your Artwork Proof email.")));
 
     const form = await request.formData();
     const decision = String(form.get("decision") || "");
@@ -49,8 +49,8 @@ export const action = async ({ request }) => {
       page(
         done(
           decision === "approve"
-            ? `Thank you — the proof for ${result.orderName} is approved. We'll start production and email you when it's complete.`
-            : `Thanks — we've passed your changes for ${result.orderName} to the team. We'll email you the next proof.`,
+            ? `Thank you — the Artwork Proof for ${result.orderName} is approved. We'll start production and email you when it's complete.`
+            : `Thanks — we've passed your changes for ${result.orderName} to the team. We'll email you the next Artwork Proof.`,
         ),
       ),
     );
@@ -74,16 +74,16 @@ function decisionForm(order, decision, params) {
   const approve = decision === "approve";
 
   return `
-    <h1 class="hyve-proof__title">${approve ? "Approve your proof" : "Request changes"}</h1>
-    <p class="hyve-proof__meta">Order ${esc(order.name)}${version ? ` · Proof version ${esc(version)}` : ""}</p>
+    <h1 class="hyve-proof__title">${approve ? "Approve your Artwork Proof" : "Request changes"}</h1>
+    <p class="hyve-proof__meta">Order ${esc(order.name)}${version ? ` · Artwork Proof version ${esc(version)}` : ""}</p>
     ${proofUrl ? `<a class="hyve-proof__view" href="${esc(proofUrl)}" target="_blank" rel="noopener">View proof</a>` : ""}
 
     <form method="post" action="${esc(linkQuery(params))}" class="hyve-proof__form">
       <input type="hidden" name="decision" value="${approve ? "approve" : "changes"}">
       ${
         approve
-          ? `<p class="hyve-proof__text">Approving starts production, and your order is made exactly as the proof shows. Please check spelling, colours, size and placement first.</p>
-             <button type="submit" class="hyve-proof__btn">Approve proof</button>`
+          ? `<p class="hyve-proof__text">Approving starts production, and your order is made exactly as the Artwork Proof shows. Please check spelling, colours, size and placement first.</p>
+             <button type="submit" class="hyve-proof__btn">Approve Artwork Proof</button>`
           : `<label class="hyve-proof__label" for="hyve-proof-message">What needs changing?</label>
              <textarea id="hyve-proof-message" name="message" rows="5" maxlength="900" required class="hyve-proof__input"
                placeholder="For example: make the logo 20% larger and use white instead of black."></textarea>
@@ -92,7 +92,7 @@ function decisionForm(order, decision, params) {
     </form>
 
     <a class="hyve-proof__switch" href="${esc(linkQuery(params, approve ? "changes" : "approve"))}">
-      ${approve ? "Need changes instead?" : "Happy with the proof? Approve it instead"}
+      ${approve ? "Need changes instead?" : "Happy with the Artwork Proof? Approve it instead"}
     </a>`;
 }
 

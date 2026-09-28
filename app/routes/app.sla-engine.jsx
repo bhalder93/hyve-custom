@@ -15,6 +15,8 @@ import {
   sendProofReminderEmail,
   sendInternalSlaAlert,
 } from "../utils/email.server";
+import { proofDecisionLinks } from "../lib/proof.server";
+import { NOTIFICATIONS_PAUSED_TAG, PROOF_HOLD_DAY } from "../utils/sla-engine.server";
 
 
 const STATUS_TAG_PREFIX = "hyve-status:";
@@ -107,8 +109,8 @@ const PROOF_REMINDERS = [
     tag: "hyve-notified:proof-reminder-day-5",
   },
   {
-    day: 10,
-    tag: "hyve-notified:proof-reminder-day-10",
+    day: PROOF_HOLD_DAY,
+    tag: `hyve-notified:proof-reminder-day-${PROOF_HOLD_DAY}`,
   },
 ];
 
@@ -676,6 +678,9 @@ async function processProofSent(admin, order) {
 
       proofVersion,
 
+      // Approve and Request changes straight from the reminder (HYV-110).
+      ...(await proofDecisionLinks(admin, order.id, proofVersion)),
+
       reminderDay: reminder.day,
     });
 
@@ -685,7 +690,7 @@ async function processProofSent(admin, order) {
   }
 
 
-  if (elapsedDays >= 10) {
+  if (elapsedDays >= PROOF_HOLD_DAY) {
     const currentOrder = await getOrdersByStatus(admin, "proof-sent");
 
     const stillProofSent = currentOrder.find((item) => item.id === order.id);
@@ -887,6 +892,12 @@ async function runSlaEngine(admin) {
           continue;
         }
 
+        // Staff paused this order's automatic messages (HYV-110).
+        if (hasTag(order, NOTIFICATIONS_PAUSED_TAG)) {
+          summary.skipped += 1;
+          continue;
+        }
+
         if (status === "proof-sent") {
           const result = await processProofSent(admin, order);
 
@@ -966,7 +977,7 @@ export async function loader({ request }) {
   return {
     rules: [
       {
-        status: "Order Placed",
+        status: "Order Received",
 
         target: "24 hours",
 

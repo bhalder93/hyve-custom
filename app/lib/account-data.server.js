@@ -7,7 +7,7 @@
  * scopes, GraphQL errors or a timeout — so the caller shows the error panel
  * instead of an empty portal.
  */
-import { quoteDecision } from "./account-quotes.server";
+import { mergeQuoteNodes, quoteDecision } from "./account-quotes.server";
 import {
   isDistributor,
   orderStatusKey,
@@ -46,6 +46,7 @@ const PORTAL_ORDER_FIELDS = `#graphql
           onHoldReason: metafield(namespace: "$app", key: "on_hold_reason") { value }
           statusChangedAt: metafield(namespace: "$app", key: "status_changed_at") { value }
           productionPhotoUrl: metafield(namespace: "$app", key: "production_photo_url") { value }
+          estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
           note
           customAttributes { key value }
           shippingAddress { name company address1 address2 city provinceCode zip countryCodeV2 }
@@ -90,24 +91,6 @@ const ACCOUNT_QUERY = `#graphql
                 paymentTermsTemplate { name dueInDays }
               }
               catalogs(first: 1) { nodes { id title } }
-              storeCreditAccounts(first: 1) {
-                nodes {
-                  id
-                  balance { amount currencyCode }
-                  transactions(first: 250, query: "type:debit OR type:debit_revert") {
-                    nodes {
-                      __typename
-                      amount { amount currencyCode }
-                    }
-                  }
-                  credits: transactions(first: 250, query: "type:credit", sortKey: CREATED_AT, reverse: true) {
-                    nodes { createdAt amount { amount } }
-                  }
-                  expiries: transactions(first: 250, query: "type:expiration") {
-                    nodes { amount { amount } }
-                  }
-                }
-              }
               salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
               salesRepEmail: metafield(namespace: "hyve", key: "sales_rep_email") { value }
               salesRepPhone: metafield(namespace: "hyve", key: "sales_rep_phone") { value }
@@ -188,7 +171,7 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
     // An order carries no link back to the quote it came from, but the quote
     // records the order it became — so the pairing is read from that side and
     // hung on the order for the detail view to offer the quote PDF.
-    const quotes = companyQuotes(c) || body?.data?.draftOrders?.nodes || [];
+    const quotes = mergeQuoteNodes(companyQuotes(c) || [], body?.data?.draftOrders?.nodes || []);
     const quoteByOrder = new Map(
       quotes.filter((q) => q.order?.id).map((q) => [q.order.id, q.id]),
     );
@@ -205,7 +188,7 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
         tier: catalogTier(c),
       },
       isDistributor: distributor,
-      terms: distributor ? buildTerms(c, orderNodes) : null,
+      terms: distributor ? buildTerms(c) : null,
       orderNodes,
       // Quotes awaiting the buyer's decision, for the nav badge.
       awaitingQuotes: distributor ? quotes.filter((n) => quoteDecision(n) == null).length : 0,
@@ -218,23 +201,15 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
 }
 
 /**
- * Commercial terms for the sidebar panel (M2) and the credit card on the
- * dashboard.
+ * Commercial terms for the sidebar panel (M2).
  *
- * M3 asks for a date against every credit figure. The balance itself is live
- * from Shopify and can't be stale, and a store credit account carries no
- * "updated at" — so the date shown is when credit was last issued, taken from
- * the most recent credit transaction. That dates the Issued figure, which is
- * the one a buyer would ask "since when?" about.
+ * No credit figure is shown for launch (HYV-135): credit limits and balances
+ * will come from NetSuite, so none are read here.
  */
-function buildTerms(customer, orderNodes) {
-  const fallbackCurrency = orderNodes[0]?.totalPriceSet?.shopMoney?.currencyCode || "";
-
+function buildTerms(customer) {
   // Everything here is real Shopify data. Payment terms come from the company
-  // location's buyer experience configuration, the tier is the catalog assigned
-  // to that location, and the credit figure is the location's own store credit
-  // balance — Shopify's native prepaid balance, redeemed at checkout by Shopify
-  // itself.
+  // location's buyer experience configuration, and the tier is the catalog
+  // assigned to that location.
   const profiles = customer.companyContactProfiles || [];
   const location = profiles[0]?.company?.locations?.nodes?.[0] || null;
 
@@ -246,17 +221,6 @@ function buildTerms(customer, orderNodes) {
     .flatMap((profile) => profile?.company?.locations?.nodes || [])
     .map((node) => node?.id)
     .filter(Boolean);
-
-  const account = location?.storeCreditAccounts?.nodes?.[0] || null;
-  const balance = account?.balance ? Number(account.balance.amount) : null;
-  const currency = account?.balance?.currencyCode || fallbackCurrency;
-  const used = storeCreditUsed(account);
-  // Counted from the credits themselves. Working it out as "spent plus left"
-  // was wrong the moment any credit expired: expiry takes money off the
-  // balance without anyone spending it, so 2,000 issued with 400 spent and
-  // 1,600 expired reported as 400 ever issued.
-  const issued = sumAmounts(account?.credits?.nodes);
-  const expired = sumAmounts(account?.expiries?.nodes);
 
   return {
     locationIds,
@@ -270,53 +234,7 @@ function buildTerms(customer, orderNodes) {
     // button reach the person named above rather than a general inbox.
     salesRepEmail: location?.salesRepEmail?.value || "",
     salesRepPhone: location?.salesRepPhone?.value || "",
-    storeCredit: Number.isFinite(balance) ? formatMoney(balance, currency) : "",
-    storeCreditAmount: Number.isFinite(balance) ? balance : null,
-    storeCreditUsed: Number.isFinite(used) ? formatMoney(used, currency) : "",
-    storeCreditUsedAmount: Number.isFinite(used) ? used : null,
-    storeCreditIssued: Number.isFinite(issued) ? formatMoney(issued, currency) : "",
-    storeCreditIssuedAmount: Number.isFinite(issued) ? issued : null,
-    storeCreditIssuedAt: formatDate(account?.credits?.nodes?.[0]?.createdAt) || "",
-    // Only shown when some has actually lapsed, so the figures add up: what was
-    // issued, less what was spent, less what expired, is what is left.
-    storeCreditExpired: expired > 0 ? formatMoney(expired, currency) : "",
-    currency,
   };
-}
-
-/**
- * How much store credit has been spent.
- *
- * Shopify only exposes the balance, so the spend is the account's own debit
- * history: every debit, less any that were reverted. An account that has never
- * been debited returns 0, not null — nothing spent is a real answer.
- */
-/** Totals a set of transactions by magnitude — Shopify signs them by direction. */
-function sumAmounts(nodes) {
-  if (!Array.isArray(nodes)) return null;
-  return nodes.reduce((total, tx) => {
-    const amount = Math.abs(Number(tx?.amount?.amount));
-    return Number.isFinite(amount) ? total + amount : total;
-  }, 0);
-}
-
-function storeCreditUsed(account) {
-  const nodes = account?.transactions?.nodes;
-  if (!Array.isArray(nodes)) return null;
-
-  // Shopify signs these from the account's point of view: a debit is negative
-  // because it takes the balance down, a revert is positive because it puts it
-  // back. "Used" is the opposite view — money spent — so each amount is taken
-  // by magnitude and the revert subtracts. Summing the raw values instead made
-  // spend come out negative, which then made Issued smaller than the balance.
-  return nodes.reduce((total, tx) => {
-    const amount = Math.abs(Number(tx?.amount?.amount));
-    if (!Number.isFinite(amount)) return total;
-    // A revert puts credit back, so it cancels out part of the spend.
-    return tx.__typename === "StoreCreditAccountDebitRevertTransaction"
-      ? total - amount
-      : total + amount;
-  }, 0);
 }
 
 /** Reject rather than let a slow Admin API hold the proxy response open. */
@@ -354,24 +272,6 @@ const CHROME_QUERY = `#graphql
                 paymentTermsTemplate { name dueInDays }
               }
               catalogs(first: 1) { nodes { id title } }
-              storeCreditAccounts(first: 1) {
-                nodes {
-                  id
-                  balance { amount currencyCode }
-                  transactions(first: 250, query: "type:debit OR type:debit_revert") {
-                    nodes {
-                      __typename
-                      amount { amount currencyCode }
-                    }
-                  }
-                  credits: transactions(first: 250, query: "type:credit", sortKey: CREATED_AT, reverse: true) {
-                    nodes { createdAt amount { amount } }
-                  }
-                  expiries: transactions(first: 250, query: "type:expiration") {
-                    nodes { amount { amount } }
-                  }
-                }
-              }
               salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
               salesRepEmail: metafield(namespace: "hyve", key: "sales_rep_email") { value }
               salesRepPhone: metafield(namespace: "hyve", key: "sales_rep_phone") { value }
@@ -464,7 +364,7 @@ export async function portalChrome(admin, customerId) {
 
     // A quote needs the buyer's attention until staff mark it approved or
     // rejected, which they do with the hyve_status metafield on the draft order.
-    const awaitingQuotes = (companyQuotes(c) || body?.data?.draftOrders?.nodes || []).filter(
+    const awaitingQuotes = mergeQuoteNodes(companyQuotes(c) || [], body?.data?.draftOrders?.nodes || []).filter(
       (node) => quoteDecision(node) == null,
     ).length;
 
@@ -480,7 +380,7 @@ export async function portalChrome(admin, customerId) {
       },
       isDistributor: distributor,
       counts: { orders: awaiting, quotes: distributor ? awaitingQuotes : 0 },
-      terms: distributor ? buildTerms(c, orderNodes) : null,
+      terms: distributor ? buildTerms(c) : null,
     };
   } catch (error) {
     console.warn("[portal] chrome query failed", error?.message || error);
@@ -500,7 +400,11 @@ function companyOrders(customer) {
   return company ? company.orders?.nodes || [] : null;
 }
 
-/** The company's quotes, on the same terms. */
+/**
+ * The company's quotes, on the same terms. The buyer's own drafts are read
+ * alongside and merged in (mergeQuoteNodes), since sales can raise one for the
+ * customer without picking the company.
+ */
 function companyQuotes(customer) {
   const company = customer?.companyContactProfiles?.[0]?.company;
   return company ? company.draftOrders?.nodes || [] : null;

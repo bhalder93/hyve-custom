@@ -20,146 +20,31 @@ import {
 } from "../utils/email.server";
 import { proofDecisionLinks } from "../lib/proof.server";
 import { artworkPending } from "../lib/portal.server";
-const STATUS_OPTIONS = [
-  {
-    label: "Order Placed",
-    value: "order-placed",
-  },
-  {
-    label: "Artwork Received",
-    value: "artwork-received",
-  },
-  {
-    label: "Proof Sent",
-    value: "proof-sent",
-  },
-  {
-    label: "Proof Approved",
-    value: "proof-approved",
-  },
-  {
-    label: "In Production",
-    value: "in-production",
-  },
-  {
-    label: "Production Complete",
-    value: "production-complete",
-  },
-  {
-    label: "Shipped",
-    value: "shipped",
-  },
-  {
-    label: "Delivered",
-    value: "delivered",
-  },
-  {
-    label: "On Hold",
-    value: "on-hold",
-  },
-];
+import { NOTIFICATIONS_PAUSED_TAG } from "../utils/sla-engine.server";
+import { statusEmailWanted } from "../lib/notification-preferences.server";
+import {
+  CUSTOMER_EMAIL_STATUSES,
+  STATUS_OPTIONS,
+  STATUS_TRANSITIONS,
+} from "../lib/production-statuses";
+import { ShopifyFileUpload } from "../components/ShopifyFileUpload";
 
-const STATUS_TRANSITIONS = {
-  "order-placed": ["artwork-received", "proof-approved", "on-hold"],
+/** Set once a paid physical sample has been approved (ORS-03, HYV-102). */
+const SAMPLE_APPROVED_TAG = "hyve-sample:approved";
 
-  "artwork-received": ["proof-sent", "on-hold"],
-
-  "proof-sent": ["proof-approved", "on-hold"],
-
-  "proof-approved": ["in-production", "on-hold"],
-
-  "in-production": ["production-complete", "on-hold"],
-
-  "production-complete": ["shipped", "on-hold"],
-
-  shipped: ["delivered", "on-hold"],
-
-  delivered: [],
-
-  "on-hold": [
-    "proof-sent",
-    "proof-approved",
-    "in-production",
-    "production-complete",
-  ],
-};
-
-const CUSTOMER_EMAIL_STATUSES = new Set([
-  "artwork-received",
-  "proof-sent",
-  "proof-approved",
-  "production-complete",
-]);
-
+/** An order carrying the paid physical sample charge, chosen at checkout. */
+function hasPhysicalSample(order) {
+  return (order?.lineItems?.nodes || []).some((line) =>
+    (line?.customAttributes || []).some(
+      (attr) => attr?.key === "_hyve_sample" && String(attr.value) === "true",
+    ),
+  );
+}
 const VALID_STATUSES = new Set(STATUS_OPTIONS.map((status) => status.value));
 
 const PRODUCTION_MARKET = "CN";
 
 const RUSH_DAYS = 4;
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
-const PROOF_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
-const PHOTO_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-
-function validateUpload(file, kind) {
-  if (!(file instanceof File) || file.size === 0) return `Select a ${kind === "proof" ? "proof" : "production photo"} file.`;
-  if (file.size > MAX_UPLOAD_BYTES) return "The file must be 20 MB or smaller.";
-  if (!(kind === "proof" ? PROOF_MIME_TYPES : PHOTO_MIME_TYPES).has(file.type)) {
-    return kind === "proof" ? "Upload a PDF, JPG, PNG, or WebP file." : "Upload a JPG, PNG, or WebP image.";
-  }
-  return null;
-}
-
-async function uploadShopifyFile(admin, file, kind) {
-  const staged = await parseGraphQL(await admin.graphql(`#graphql
-    mutation StageProductionFile($input: [StagedUploadInput!]!) {
-      stagedUploadsCreate(input: $input) {
-        stagedTargets { url resourceUrl parameters { name value } }
-        userErrors { field message }
-      }
-    }`, { variables: { input: [{ filename: file.name, mimeType: file.type,
-      resource: "FILE", httpMethod: "POST", fileSize: String(file.size) }] } }), "Stage production file");
-  const stageResult = staged.data?.stagedUploadsCreate;
-  if (stageResult?.userErrors?.length) throw new Error(stageResult.userErrors.map(e => e.message).join("; "));
-  const target = stageResult?.stagedTargets?.[0];
-  if (!target?.url || !target?.resourceUrl) throw new Error("Shopify did not return a file upload target.");
-
-  const body = new FormData();
-  for (const parameter of target.parameters || []) body.append(parameter.name, parameter.value);
-  body.append("file", file, file.name);
-  const uploadResponse = await fetch(target.url, { method: "POST", body });
-  if (!uploadResponse.ok) throw new Error(`File upload failed (${uploadResponse.status}).`);
-
-  const created = await parseGraphQL(await admin.graphql(`#graphql
-    mutation CreateProductionFile($files: [FileCreateInput!]!) {
-      fileCreate(files: $files) {
-        files { id fileStatus ... on MediaImage { image { url } } ... on GenericFile { url } }
-        userErrors { field message }
-      }
-    }`, { variables: { files: [{ originalSource: target.resourceUrl,
-      contentType: file.type.startsWith("image/") ? "IMAGE" : "FILE",
-      alt: `${kind === "proof" ? "Production proof" : "Production photo"}: ${file.name}` }] } }), "Create production file");
-  const createResult = created.data?.fileCreate;
-  if (createResult?.userErrors?.length) throw new Error(createResult.userErrors.map(e => e.message).join("; "));
-  const fileId = createResult?.files?.[0]?.id;
-  if (!fileId) throw new Error("Shopify did not create the file.");
-
-  // Shopify processes Files asynchronously. Persist only the final CDN URL.
-  for (let attempt = 0; attempt < 30; attempt++) {
-    const result = await parseGraphQL(await admin.graphql(`#graphql
-      query ProductionFileStatus($id: ID!) {
-        node(id: $id) {
-          ... on MediaImage { fileStatus image { url } }
-          ... on GenericFile { fileStatus url }
-        }
-      }`, { variables: { id: fileId } }), "Check production file");
-    const node = result.data?.node;
-    if (node?.fileStatus === "FAILED") throw new Error("Shopify could not process the uploaded file.");
-    const url = node?.image?.url || node?.url;
-    if (node?.fileStatus === "READY" && validateHttpUrl(url)) return url;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  }
-  throw new Error("The file is still processing in Shopify Files. Please try again shortly.");
-}
 
 function getStatusLabel(value) {
   return (
@@ -314,11 +199,26 @@ function validateStatusChange(payload) {
   }
 
   if (payload.nextStatus === "proof-sent") {
-    if (!payload.proofFile) errors.proofFile = "Upload a proof before setting Proof Sent.";
+    const proofUrl = payload.proofUrl?.trim();
+
+    if (!proofUrl) {
+      errors.proofUrl =
+        "Proof URL is required when setting status to Proof Sent.";
+    } else if (!validateHttpUrl(proofUrl)) {
+      errors.proofUrl = "Enter a valid http or https proof URL.";
+    }
   }
 
   if (payload.nextStatus === "production-complete") {
-    if (!payload.productionPhotoFile) errors.productionPhotoFile = "Upload a photo before setting Production Complete.";
+    const productionPhotoUrl = payload.productionPhotoUrl?.trim();
+
+    if (!productionPhotoUrl) {
+      errors.productionPhotoUrl =
+        "Production photo URL is required before setting Production Complete.";
+    } else if (!validateHttpUrl(productionPhotoUrl)) {
+      errors.productionPhotoUrl =
+        "Enter a valid http or https production photo URL.";
+    }
   }
 
   return errors;
@@ -509,6 +409,13 @@ async function getOrder(admin, orderId) {
             onHoldReason: metafield(
               namespace: "$app"
               key: "on_hold_reason"
+            ) {
+              value
+            }
+
+            estimatedShipDate: metafield(
+              namespace: "hyve"
+              key: "estimated_ship_date"
             ) {
               value
             }
@@ -1189,6 +1096,17 @@ async function sendCurrentCustomerStatusEmail({
     };
   }
 
+  // The buyer switched status emails off in Settings (HYV-110).
+  if (!(await statusEmailWanted(admin, order.customer?.id, status))) {
+    return {
+      sent: false,
+      alreadySent: false,
+      optedOut: true,
+      notificationTag,
+      messageId: null,
+    };
+  }
+
   const result = await sendCustomerStatusEmail({
     admin,
     orderId,
@@ -1272,6 +1190,15 @@ export async function loader({ request, params }) {
 
         proofEmailSent,
 
+        // HYV-102 / HYV-110 staff controls.
+        estimatedShipDate: order.estimatedShipDate?.value || "",
+
+        notificationsPaused: (order.tags ?? []).includes(NOTIFICATIONS_PAUSED_TAG),
+
+        hasPhysicalSample: hasPhysicalSample(order),
+
+        sampleApproved: (order.tags ?? []).includes(SAMPLE_APPROVED_TAG),
+
         productionPhotoUrl: order.productionPhotoUrl?.value || "",
 
         onHoldReason: order.onHoldReason?.value || "",
@@ -1310,6 +1237,59 @@ export async function action({ request, params }) {
     const formData = await request.formData();
 
     const intent = String(formData.get("intent") || "").trim();
+
+    // HYV-110: pause or resume this order's automatic messages.
+    if (intent === "toggle_notifications") {
+      const order = await getOrder(admin, orderId);
+      const paused = (order.tags ?? []).includes(NOTIFICATIONS_PAUSED_TAG);
+      if (paused) await removeTags(admin, orderId, [NOTIFICATIONS_PAUSED_TAG]);
+      else await addTags(admin, orderId, [NOTIFICATIONS_PAUSED_TAG]);
+      return {
+        success: true,
+        message: paused
+          ? "Automatic messages resumed for this order."
+          : "Automatic messages paused for this order. Status emails still go out.",
+      };
+    }
+
+    // HYV-102: the ship date customer service gives the buyer, shown in the
+    // portal in place of the calculated production date. Blank clears it.
+    if (intent === "set_ship_date") {
+      const value = String(formData.get("estimatedShipDate") || "").trim();
+      if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return { success: false, formError: "Enter the ship date as a date." };
+      }
+      const identifier = { ownerId: orderId, namespace: "hyve", key: "estimated_ship_date" };
+      const response = await admin.graphql(
+        value
+          ? `#graphql
+            mutation ShipDateSet($metafields: [MetafieldsSetInput!]!) {
+              metafieldsSet(metafields: $metafields) { userErrors { field message } }
+            }`
+          : `#graphql
+            mutation ShipDateClear($metafields: [MetafieldIdentifierInput!]!) {
+              metafieldsDelete(metafields: $metafields) { userErrors { field message } }
+            }`,
+        { variables: { metafields: [value ? { ...identifier, type: "date", value } : identifier] } },
+      );
+      const body = await response.json();
+      const error =
+        body?.errors?.[0]?.message ||
+        body?.data?.metafieldsSet?.userErrors?.[0]?.message ||
+        body?.data?.metafieldsDelete?.userErrors?.[0]?.message;
+      if (error) return { success: false, formError: error };
+      return {
+        success: true,
+        message: value ? "Estimated ship date saved." : "Estimated ship date cleared; the calculated date shows again.",
+      };
+    }
+
+    // HYV-102: the buyer approved their paid physical sample, so the full
+    // production run can start.
+    if (intent === "approve_sample") {
+      await addTags(admin, orderId, [SAMPLE_APPROVED_TAG]);
+      return { success: true, message: "Sample approved. The order can now move into production." };
+    }
 
     if (intent === "retry_proof_email") {
       const order = await getOrder(admin, orderId);
@@ -1422,22 +1402,18 @@ export async function action({ request, params }) {
 
     const onHoldReason = String(formData.get("onHoldReason") || "").trim();
 
-    const proofFile = formData.get("proofFile");
-    const productionPhotoFile = formData.get("productionPhotoFile");
+    const proofUrl = String(formData.get("proofUrl") || "").trim();
+
+    const productionPhotoUrl = String(
+      formData.get("productionPhotoUrl") || "",
+    ).trim();
 
     const fieldErrors = validateStatusChange({
       nextStatus,
       onHoldReason,
-      proofFile: proofFile instanceof File && proofFile.size ? proofFile : null,
-      productionPhotoFile: productionPhotoFile instanceof File && productionPhotoFile.size ? productionPhotoFile : null,
+      proofUrl,
+      productionPhotoUrl,
     });
-    if (nextStatus === "proof-sent" && proofFile instanceof File && proofFile.size) {
-      fieldErrors.proofFile = validateUpload(proofFile, "proof") || undefined;
-    }
-    if (nextStatus === "production-complete" && productionPhotoFile instanceof File && productionPhotoFile.size) {
-      fieldErrors.productionPhotoFile = validateUpload(productionPhotoFile, "photo") || undefined;
-    }
-    for (const key of Object.keys(fieldErrors)) if (!fieldErrors[key]) delete fieldErrors[key];
 
     if (Object.keys(fieldErrors).length > 0) {
       return {
@@ -1481,7 +1457,7 @@ export async function action({ request, params }) {
             ? `Cannot move directly from ${getStatusLabel(
               currentStatus,
             )} to ${getStatusLabel(nextStatus)}.`
-            : "The first production status must be Order Placed.",
+            : "The first production status must be Order Received.",
         },
 
         formError: "Invalid production status transition.",
@@ -1504,6 +1480,25 @@ export async function action({ request, params }) {
         },
 
         formError: "The order is on hold for artwork.",
+      };
+    }
+
+    // A paid physical sample ships and is approved before the full run
+    // (ORS-03).
+    if (
+      nextStatus === "in-production" &&
+      hasPhysicalSample(order) &&
+      !(order.tags ?? []).includes(SAMPLE_APPROVED_TAG)
+    ) {
+      return {
+        success: false,
+
+        fieldErrors: {
+          nextStatus:
+            "This order has a paid physical sample. Mark the sample approved before starting production.",
+        },
+
+        formError: "Waiting for the sample to be approved.",
       };
     }
 
@@ -1532,12 +1527,6 @@ export async function action({ request, params }) {
         holidays,
       ).toISOString();
     }
-
-    let proofUrl = "";
-    let productionPhotoUrl = "";
-    // Upload after all transition checks, before changing order status.
-    if (nextStatus === "proof-sent") proofUrl = await uploadShopifyFile(admin, proofFile, "proof");
-    if (nextStatus === "production-complete") productionPhotoUrl = await uploadShopifyFile(admin, productionPhotoFile, "photo");
 
     await removeTags(admin, orderId, productionTags);
 
@@ -1605,6 +1594,8 @@ export async function action({ request, params }) {
 
     let emailAlreadySent = false;
 
+    let emailOptedOut = false;
+
     if (CUSTOMER_EMAIL_STATUSES.has(nextStatus)) {
       try {
         const result = await sendCurrentCustomerStatusEmail({
@@ -1635,6 +1626,8 @@ export async function action({ request, params }) {
         });
 
         emailSent = result.sent;
+
+        emailOptedOut = Boolean(result.optedOut);
 
         emailAlreadySent = result.alreadySent;
       } catch (emailError) {
@@ -1671,6 +1664,10 @@ export async function action({ request, params }) {
 
     if (emailAlreadySent) {
       message += " Customer notification had already been sent.";
+    }
+
+    if (emailOptedOut) {
+      message += " No email sent: the buyer has switched status emails off.";
     }
 
     return {
@@ -1777,10 +1774,23 @@ export default function ProductionOrderDetailsPage() {
 
   const [onHoldReason, setOnHoldReason] = useState("");
 
-  const [proofFile, setProofFile] = useState(null);
-  const [productionPhotoFile, setProductionPhotoFile] = useState(null);
+  const [proofUrl, setProofUrl] = useState(order?.proofUrl || "");
+
+  const [productionPhotoUrl, setProductionPhotoUrl] = useState(
+    order?.productionPhotoUrl || "",
+  );
 
   const [clientErrors, setClientErrors] = useState({});
+
+  const [shipDate, setShipDate] = useState(order?.estimatedShipDate || "");
+  useEffect(() => {
+    setProofUrl(order?.proofUrl || "");
+  }, [order?.proofUrl]);
+
+  useEffect(() => {
+    setProductionPhotoUrl(order?.productionPhotoUrl || "");
+  }, [order?.productionPhotoUrl]);
+
   useEffect(() => {
     if (actionData?.success && actionData?.message) {
       shopify.toast.show(actionData.message);
@@ -1788,8 +1798,6 @@ export default function ProductionOrderDetailsPage() {
       setNextStatus("");
       setNote("");
       setOnHoldReason("");
-      setProofFile(null);
-      setProductionPhotoFile(null);
     }
   }, [actionData]);
 
@@ -1822,12 +1830,9 @@ export default function ProductionOrderDetailsPage() {
     const errors = validateStatusChange({
       nextStatus,
       onHoldReason,
-      proofFile,
-      productionPhotoFile,
+      proofUrl,
+      productionPhotoUrl,
     });
-    if (nextStatus === "proof-sent" && proofFile) errors.proofFile = validateUpload(proofFile, "proof") || undefined;
-    if (nextStatus === "production-complete" && productionPhotoFile) errors.productionPhotoFile = validateUpload(productionPhotoFile, "photo") || undefined;
-    for (const key of Object.keys(errors)) if (!errors[key]) delete errors[key];
 
     if (nextStatus && !canTransition(order.productionStatus, nextStatus)) {
       errors.nextStatus = "This production status transition is not allowed.";
@@ -1851,12 +1856,15 @@ export default function ProductionOrderDetailsPage() {
 
     formData.set("onHoldReason", onHoldReason);
 
-    if (nextStatus === "proof-sent") formData.set("proofFile", proofFile);
-    if (nextStatus === "production-complete") formData.set("productionPhotoFile", productionPhotoFile);
+    formData.set("proofUrl", nextStatus === "proof-sent" ? proofUrl : "");
+
+    formData.set(
+      "productionPhotoUrl",
+      nextStatus === "production-complete" ? productionPhotoUrl : "",
+    );
 
     submit(formData, {
       method: "post",
-      encType: "multipart/form-data",
     });
   }
 
@@ -1865,6 +1873,18 @@ export default function ProductionOrderDetailsPage() {
     const formData = new FormData();
 
     formData.set("intent", "retry_proof_email");
+
+    submit(formData, {
+      method: "post",
+    });
+  }
+
+  function submitIntent(intent, fields = {}) {
+    const formData = new FormData();
+
+    formData.set("intent", intent);
+
+    for (const [key, value] of Object.entries(fields)) formData.set(key, value);
 
     submit(formData, {
       method: "post",
@@ -2024,27 +2044,42 @@ export default function ProductionOrderDetailsPage() {
                 {nextStatus === "proof-sent" && (
                   <s-box padding="base" border="base" borderRadius="base">
                     <s-stack direction="block" gap="base">
-                      <s-heading>Proof details</s-heading>
+                      <s-heading>Artwork Proof</s-heading>
 
                       <s-banner tone="info">
                         <s-paragraph>
-                          The customer will receive the proof link after the
-                          status is updated.
+                          Upload the Artwork Proof, or paste a link to it. The
+                          customer receives it by email once the status is
+                          updated.
                         </s-paragraph>
                       </s-banner>
 
-                      <s-drop-zone
-                        label="Upload proof (PDF or image, up to 20 MB)"
-                        accept=".pdf,.jpg,.jpeg,.png,.webp"
-                        disabled={busy}
-                        error={clientErrors.proofFile || actionData?.fieldErrors?.proofFile || undefined}
-                        onChange={(event) => {
-                          setProofFile(event.currentTarget.files?.[0] || null);
-                          clearFieldError("proofFile");
+                      <ShopifyFileUpload
+                        label="Upload Artwork Proof"
+                        prefix={`${order.name}-proof-v${nextProofVersion}`}
+                        onUploaded={(url) => {
+                          setProofUrl(url);
+
+                          clearFieldError("proofUrl");
                         }}
-                        onDropRejected={() => setClientErrors(current => ({...current, proofFile: "Upload a PDF, JPG, PNG, or WebP file."}))}
                       />
-                      {proofFile && <s-text>Selected: {proofFile.name}</s-text>}
+
+                      <s-text-field
+                        label="Artwork Proof URL"
+                        type="url"
+                        placeholder="https://..."
+                        value={proofUrl}
+                        error={
+                          clientErrors.proofUrl ||
+                          actionData?.fieldErrors?.proofUrl ||
+                          undefined
+                        }
+                        onInput={(event) => {
+                          setProofUrl(event.currentTarget.value);
+
+                          clearFieldError("proofUrl");
+                        }}
+                      />
 
                       <s-grid gridTemplateColumns="1fr 1fr" gap="base">
                         <s-box>
@@ -2060,8 +2095,10 @@ export default function ProductionOrderDetailsPage() {
                         </s-box>
                       </s-grid>
 
-                      {order.proofUrl && (
-                        <s-button href={order.proofUrl} target="_blank">View current proof</s-button>
+                      {proofUrl && validateHttpUrl(proofUrl) && (
+                        <s-button href={proofUrl} target="_blank">
+                          Preview proof
+                        </s-button>
                       )}
                     </s-stack>
                   </s-box>
@@ -2070,23 +2107,50 @@ export default function ProductionOrderDetailsPage() {
                 {nextStatus === "production-complete" && (
                   <s-box padding="base" border="base" borderRadius="base">
                     <s-stack direction="block" gap="base">
-                      <s-heading>Production photo</s-heading>
+                      <s-heading>Production Photo</s-heading>
 
-                      <s-drop-zone
-                        label="Upload production photo (JPG, PNG, or WebP, up to 20 MB)"
-                        accept=".jpg,.jpeg,.png,.webp"
-                        disabled={busy}
-                        error={clientErrors.productionPhotoFile || actionData?.fieldErrors?.productionPhotoFile || undefined}
-                        onChange={(event) => {
-                          setProductionPhotoFile(event.currentTarget.files?.[0] || null);
-                          clearFieldError("productionPhotoFile");
+                      <s-banner tone="info">
+                        <s-paragraph>
+                          A Production Photo is required. Upload it, or paste a
+                          direct link from Content › Files. A PNG or JPEG shows
+                          in the Production Completed email; a PDF or SVG is
+                          linked instead.
+                        </s-paragraph>
+                      </s-banner>
+
+                      <ShopifyFileUpload
+                        label="Upload Production Photo"
+                        prefix={`${order.name}-photo`}
+                        onUploaded={(url) => {
+                          setProductionPhotoUrl(url);
+
+                          clearFieldError("productionPhotoUrl");
                         }}
-                        onDropRejected={() => setClientErrors(current => ({...current, productionPhotoFile: "Upload a JPG, PNG, or WebP image."}))}
                       />
-                      {productionPhotoFile && <s-text>Selected: {productionPhotoFile.name}</s-text>}
-                      {order.productionPhotoUrl && (
-                        <s-button href={order.productionPhotoUrl} target="_blank">View current photo</s-button>
-                      )}
+
+                      <s-text-field
+                        label="Production Photo URL"
+                        type="url"
+                        placeholder="https://..."
+                        value={productionPhotoUrl}
+                        error={
+                          clientErrors.productionPhotoUrl ||
+                          actionData?.fieldErrors?.productionPhotoUrl ||
+                          undefined
+                        }
+                        onInput={(event) => {
+                          setProductionPhotoUrl(event.currentTarget.value);
+
+                          clearFieldError("productionPhotoUrl");
+                        }}
+                      />
+
+                      {productionPhotoUrl &&
+                        validateHttpUrl(productionPhotoUrl) && (
+                          <s-button href={productionPhotoUrl} target="_blank">
+                            Preview production photo
+                          </s-button>
+                        )}
                     </s-stack>
                   </s-box>
                 )}
@@ -2282,6 +2346,60 @@ export default function ProductionOrderDetailsPage() {
                   <s-badge tone={order.rush ? "critical" : "neutral"}>
                     {order.rush ? "Yes" : "No"}
                   </s-badge>
+                </s-stack>
+
+                {order.hasPhysicalSample && (
+                  <s-stack direction="block" gap="small">
+                    <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+                      <s-text>Paid physical sample</s-text>
+
+                      <s-badge tone={order.sampleApproved ? "success" : "warning"}>
+                        {order.sampleApproved ? "Approved" : "Awaiting approval"}
+                      </s-badge>
+                    </s-stack>
+
+                    {!order.sampleApproved && (
+                      <s-button variant="secondary" onClick={() => submitIntent("approve_sample")}>
+                        Mark sample approved
+                      </s-button>
+                    )}
+                  </s-stack>
+                )}
+
+                <s-divider />
+
+                <s-stack direction="block" gap="small">
+                  <s-date-field
+                    label="Estimated ship date"
+                    details="Shown to the buyer instead of the calculated production date. Leave blank to show the calculated one."
+                    value={shipDate}
+                    onChange={(event) => setShipDate(event.currentTarget.value)}
+                  />
+
+                  <s-button
+                    variant="secondary"
+                    onClick={() => submitIntent("set_ship_date", { estimatedShipDate: shipDate })}
+                  >
+                    Save ship date
+                  </s-button>
+                </s-stack>
+
+                <s-stack direction="block" gap="small">
+                  <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+                    <s-text>Automatic messages</s-text>
+
+                    <s-badge tone={order.notificationsPaused ? "warning" : "success"}>
+                      {order.notificationsPaused ? "Paused" : "On"}
+                    </s-badge>
+                  </s-stack>
+
+                  <s-text tone="subdued">
+                    Proof reminders, the day-10 On Hold and late-order alerts. Status emails are not affected.
+                  </s-text>
+
+                  <s-button variant="secondary" onClick={() => submitIntent("toggle_notifications")}>
+                    {order.notificationsPaused ? "Resume automatic messages" : "Pause automatic messages"}
+                  </s-button>
                 </s-stack>
 
                 <s-divider />

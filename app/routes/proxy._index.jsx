@@ -50,9 +50,6 @@ export const loader = async ({ request }) => {
             // Quotes awaiting the buyer's decision — the same figure the nav
             // badge carries, so the two never disagree.
             activeQuotes: counts.quotes,
-            // Shopify's own store credit balance for this company location.
-            storeCredit: terms?.storeCredit || "",
-            storeCreditIssuedAt: terms?.storeCreditIssuedAt || "",
           },
           // Invoices are not built yet, so there is no payment banner to show.
           payment: null,

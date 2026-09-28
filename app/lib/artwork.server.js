@@ -36,6 +36,32 @@ export const MAX_FILE_LABEL = "20 MB";
 /** F2: vector for laser decoration, high-resolution raster for digital and transfer. */
 export const ACCEPTED_EXTENSIONS = [".ai", ".eps", ".pdf", ".svg", ".png", ".jpg", ".jpeg"];
 
+const VECTOR_EXTENSIONS = [".ai", ".eps", ".pdf", ".svg"];
+
+/**
+ * The files one decoration position takes. Laser cuts a path, so a laser or
+ * engraved position needs a vector file; every other method also takes PNG
+ * and JPG. The same rule, and wording, as artRules() in the theme's
+ * hyve-order.liquid, so the portal never accepts what the product page
+ * refused. If one changes, both must.
+ *
+ * @param {string} method the decoration method, or a zone key or label that
+ *   names it, such as "Artwork: Laser - Back"
+ */
+export function artworkRulesFor(method) {
+  const isLaser = /laser|engrav/i.test(String(method || ""));
+  const allowed = isLaser ? VECTOR_EXTENSIONS : ACCEPTED_EXTENSIONS;
+  return {
+    isLaser,
+    allowed,
+    accept: allowed.join(","),
+    note: isLaser ? "Laser needs a vector file — AI, EPS, PDF or SVG." : "AI, EPS, PDF, SVG, PNG or JPG.",
+    reject: isLaser
+      ? "Laser engraving needs a vector file (AI, EPS, PDF or SVG). A PNG or JPG cannot be engraved cleanly."
+      : "That file type is not accepted. Use AI, EPS, PDF, SVG, PNG or JPG.",
+  };
+}
+
 /** Formats a browser can render. Everything else gets a generic icon (F13). */
 const PREVIEWABLE = [".png", ".jpg", ".jpeg", ".svg"];
 

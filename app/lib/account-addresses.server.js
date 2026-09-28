@@ -100,40 +100,62 @@ export function mapAddresses(rawAddresses = [], defaultAddressId = null, custome
 /**
  * Main renderer for the Addresses page.
  */
+/**
+ * @param {object} opts
+ * @param {?{canManage:boolean}} [opts.company] set for a distributor, whose
+ *   addresses are the company's locations (company-addresses.server.js); only
+ *   a company admin can change them.
+ */
 export function addressesPage({
   addresses = [],
   // eslint-disable-next-line no-unused-vars -- part of the page's signature; callers pass it
   customer = null,
+  company = null,
   notice = null,
   error = null,
 } = {}) {
   const cardsHtml = addresses.map(renderAddressCard).join("");
+  const canManage = !company || company.canManage;
 
   const toastHtml = renderNotificationToast(notice, error);
 
   return `
     ${ADDRESSES_STYLES}
-    <div class="hyve-addr">
+    <div class="hyve-addr" data-scope="${company ? "company" : "personal"}">
       ${toastHtml}
 
       <header class="hyve-addr__header">
         <h1 class="hyve-addr__title">Addresses</h1>
-        <p class="hyve-addr__sub">Manage your shipping and billing addresses</p>
+        <p class="hyve-addr__sub">${
+          company
+            ? "Your company's shipping and billing addresses. Orders ship to these, and invoices use the billing address."
+            : "Manage your shipping and billing addresses"
+        }</p>
       </header>
+
+      ${
+        company && !company.canManage
+          ? `<p class="hyve-addr__note">Only your account admin can add or change company addresses.</p>`
+          : ""
+      }
 
       ${
         addresses.length
           ? ""
-          : `<p class="hyve-addr__empty">You have no saved addresses yet. Add one and it will be offered at checkout.</p>`
+          : `<p class="hyve-addr__empty">${
+              company
+                ? "Your company has no addresses yet. Please contact us to set one up."
+                : "You have no saved addresses yet. Add one and it will be offered at checkout."
+            }</p>`
       }
 
       <div class="hyve-addr__grid">
         ${cardsHtml}
-        ${renderAddCard()}
+        ${canManage ? renderAddCard() : ""}
       </div>
 
-      ${renderAddressModal()}
-      ${renderDeleteModal()}
+      ${canManage ? renderAddressModal(company) : ""}
+      ${canManage ? renderDeleteModal(company) : ""}
     </div>
     ${ADDRESSES_SCRIPT}`;
 }
@@ -142,21 +164,34 @@ export function addressesPage({
  * Render an individual address card.
  */
 function renderAddressCard(addr) {
-  const isShipping = addr.type === "shipping";
-  const typeBadge = isShipping
-    ? `<div class="hyve-addr__type">${icoTruck()}<span>SHIPPING</span></div>`
-    : `<div class="hyve-addr__type">${icoCard()}<span>BILLING</span></div>`;
+  const typeBadge =
+    addr.type === "both"
+      ? `<div class="hyve-addr__type">${icoTruck()}<span>SHIPPING &amp; BILLING</span></div>`
+      : addr.type === "billing"
+        ? `<div class="hyve-addr__type">${icoCard()}<span>BILLING</span></div>`
+        : `<div class="hyve-addr__type">${icoTruck()}<span>SHIPPING</span></div>`;
 
-  const defaultBadge = addr.isDefault
-    ? `<span class="hyve-addr__badge-default">${icoCheck()} DEFAULT</span>`
+  // A combined card can be the default for billing without being it for shipping.
+  const defaultLabel = addr.isDefault ? "DEFAULT" : addr.isDefaultBilling ? "DEFAULT BILLING" : "";
+  const defaultBadge = defaultLabel
+    ? `<span class="hyve-addr__badge-default">${icoCheck()} ${defaultLabel}</span>`
     : "";
 
-  const linesHtml = addr.lines
-    .map((line) => `<div class="hyve-addr__line">${esc(line)}</div>`)
-    .join("");
+  const linesHtml = [
+    ...addr.lines.map((line) => `<div class="hyve-addr__line">${esc(line)}</div>`),
+    addr.taxRegistrationId ? `<div class="hyve-addr__line">Tax reg. no. ${esc(addr.taxRegistrationId)}</div>` : "",
+  ].join("");
 
-  const setDefaultBtn = !addr.isDefault
+  // Personal addresses are always the customer's own to change; company ones
+  // only an admin's.
+  const canManage = addr.canManage !== false;
+  const setDefaultBtn = canManage && !addr.isDefault
     ? `<button type="button" class="hyve-addr__btn hyve-addr__btn--default" data-set-default="${esc(addr.id)}">Set Default</button>`
+    : "";
+  const deleteBtn = canManage && addr.deletable !== false
+    ? `<button type="button" class="hyve-addr__btn-icon hyve-addr__btn-icon--delete" data-delete-addr="${esc(addr.id)}" aria-label="Delete address" title="Delete address">
+          ${icoTrash()}
+        </button>`
     : "";
 
   const encodedData = esc(JSON.stringify(addr));
@@ -175,16 +210,18 @@ function renderAddressCard(addr) {
         </div>
       </div>
 
-      <div class="hyve-addr-card__foot">
+      ${
+        canManage
+          ? `<div class="hyve-addr-card__foot">
         <button type="button" class="hyve-addr__btn hyve-addr__btn--edit" data-edit-addr="${esc(addr.id)}">
           ${icoEdit()}
           <span>Edit</span>
         </button>
         ${setDefaultBtn}
-        <button type="button" class="hyve-addr__btn-icon hyve-addr__btn-icon--delete" data-delete-addr="${esc(addr.id)}" aria-label="Delete address" title="Delete address">
-          ${icoTrash()}
-        </button>
-      </div>
+        ${deleteBtn}
+      </div>`
+          : ""
+      }
     </article>`;
 }
 
@@ -225,7 +262,8 @@ function renderNotificationToast(notice, error) {
 /**
  * Modal dialog for Creating and Editing addresses.
  */
-function renderAddressModal() {
+function renderAddressModal(company = null) {
+  const companyMode = Boolean(company);
   return `
     <dialog class="hyve-modal" id="hyve-address-modal" aria-labelledby="hyve-modal-title">
       <div class="hyve-modal__backdrop" data-modal-close></div>
@@ -243,8 +281,39 @@ function renderAddressModal() {
         <form method="POST" action="/apps/account/addresses" class="hyve-modal__form" id="hyve-address-form">
           <input type="hidden" name="intent" id="addr-intent" value="create">
           <input type="hidden" name="addressId" id="addr-id" value="">
+          <input type="hidden" name="scope" value="${companyMode ? "company" : "personal"}">
 
+          ${
+            companyMode
+              ? `<div class="hyve-form-group" id="addr-company-scope" hidden>
+            <label class="hyve-label">Change</label>
+            <div class="hyve-segmented">
+              <label class="hyve-segmented__opt">
+                <input type="radio" name="addressType" value="both" id="scope-both" checked>
+                <span>Shipping &amp; billing</span>
+              </label>
+              <label class="hyve-segmented__opt">
+                <input type="radio" name="addressType" value="shipping" id="scope-shipping">
+                <span>${icoTruck()} Shipping only</span>
+              </label>
+              <label class="hyve-segmented__opt">
+                <input type="radio" name="addressType" value="billing" id="scope-billing">
+                <span>${icoCard()} Billing only</span>
+              </label>
+            </div>
+          </div>
           <div class="hyve-form-group">
+            <label class="hyve-label" for="addr-nickname">Location name</label>
+            <input type="text" class="hyve-input" id="addr-nickname" name="label" required placeholder="e.g. Head Office, KL Branch">
+            <p class="hyve-addr__hint" id="addr-location-hint">A new address becomes a company location, with the same pricing and payment terms as your main one.</p>
+          </div>`
+              : ""
+          }
+
+          ${
+            companyMode
+              ? ""
+              : `<div class="hyve-form-group">
             <label class="hyve-label">Address Type</label>
             <div class="hyve-segmented">
               <label class="hyve-segmented__opt">
@@ -256,7 +325,8 @@ function renderAddressModal() {
                 <span>${icoCard()} Billing</span>
               </label>
             </div>
-          </div>
+          </div>`
+          }
 
           <div class="hyve-form-row hyve-form-row--2">
             <div class="hyve-form-group">
@@ -269,7 +339,10 @@ function renderAddressModal() {
             </div>
           </div>
 
-          <div class="hyve-form-row hyve-form-row--2">
+          ${
+            companyMode
+              ? ""
+              : `<div class="hyve-form-row hyve-form-row--2">
             <div class="hyve-form-group">
               <label class="hyve-label" for="addr-company">Company</label>
               <input type="text" class="hyve-input" id="addr-company" name="company" placeholder="e.g. Acme Corp Pte. Ltd.">
@@ -278,7 +351,8 @@ function renderAddressModal() {
               <label class="hyve-label" for="addr-nickname">Department / Label <span class="hyve-label__opt">(Optional)</span></label>
               <input type="text" class="hyve-input" id="addr-nickname" name="label" placeholder="e.g. KL Office, Finance Dept">
             </div>
-          </div>
+          </div>`
+          }
 
           <div class="hyve-form-group">
             <label class="hyve-label" for="addr-address1">Street Address</label>
@@ -323,8 +397,13 @@ function renderAddressModal() {
 
           <div class="hyve-form-row hyve-form-row--2">
             <div class="hyve-form-group">
-              <label class="hyve-label" for="addr-province">State / Province / Region <span class="hyve-label__opt">(Optional)</span></label>
-              <input type="text" class="hyve-input" id="addr-province" name="province" placeholder="e.g. Federal Territory">
+              ${
+                companyMode
+                  ? `<label class="hyve-label" for="addr-province">State code <span class="hyve-label__opt">(Optional)</span></label>
+              <input type="text" class="hyve-input" id="addr-province" name="province" placeholder="e.g. SGR for Selangor" maxlength="6" autocapitalize="characters">`
+                  : `<label class="hyve-label" for="addr-province">State / Province / Region <span class="hyve-label__opt">(Optional)</span></label>
+              <input type="text" class="hyve-input" id="addr-province" name="province" placeholder="e.g. Federal Territory">`
+              }
             </div>
             <div class="hyve-form-group">
               <label class="hyve-label" for="addr-phone">Phone Number</label>
@@ -336,7 +415,7 @@ function renderAddressModal() {
             <label class="hyve-checkbox">
               <input type="checkbox" name="setAsDefault" id="addr-set-default" value="true">
               <span class="hyve-checkbox__check"></span>
-              <span class="hyve-checkbox__label">Set as default address</span>
+              <span class="hyve-checkbox__label" id="addr-set-default-label">Set as default address</span>
             </label>
           </div>
 
@@ -354,7 +433,7 @@ function renderAddressModal() {
 /**
  * Delete confirmation dialog.
  */
-function renderDeleteModal() {
+function renderDeleteModal(company = null) {
   return `
     <dialog class="hyve-modal hyve-modal--confirm" id="hyve-delete-modal" aria-labelledby="hyve-delete-title">
       <div class="hyve-modal__backdrop" data-delete-modal-close></div>
@@ -368,6 +447,7 @@ function renderDeleteModal() {
         <form method="POST" action="/apps/account/addresses" id="hyve-delete-form">
           <input type="hidden" name="intent" value="delete">
           <input type="hidden" name="addressId" id="delete-addr-id" value="">
+          <input type="hidden" name="scope" value="${company ? "company" : "personal"}">
 
           <div class="hyve-modal__actions hyve-modal__actions--center">
             <button type="button" class="hyve-addr__btn hyve-addr__btn--ghost" data-delete-modal-close>Cancel</button>
@@ -434,6 +514,8 @@ function icoAlert() {
 /* ---------- Styles ---------- */
 const ADDRESSES_STYLES = `
 <style>
+  .hyve-addr__note { margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: #F1F5F9; color: #475569; font-size: 13px; }
+  .hyve-addr__hint { margin: 6px 0 0; color: #64748B; font-size: 12px; line-height: 1.5; }
   .hyve-addr {
     --addr-fg: #0f172a;
     --addr-sub: #64748b;
@@ -1125,6 +1207,42 @@ const ADDRESSES_SCRIPT = `
   const provinceInput = document.getElementById('addr-province');
   const phoneInput = document.getElementById('addr-phone');
   const setDefaultCheck = document.getElementById('addr-set-default');
+  const setDefaultLabel = document.getElementById('addr-set-default-label');
+  const root = document.querySelector('.hyve-addr');
+  const companyMode = root && root.dataset.scope === 'company';
+  const companyScope = document.getElementById('addr-company-scope');
+  const locationHint = document.getElementById('addr-location-hint');
+
+  function companyTypeChosen() {
+    const checked = form.querySelector('input[name="addressType"]:checked');
+    return checked ? checked.value : 'shipping';
+  }
+
+  // Company addresses: a new address is a location's shipping (and billing)
+  // address; editing a combined card can change both or split one off.
+  function refreshCompanyFields() {
+    if (!companyMode) return;
+    const type = companyTypeChosen();
+    setDefaultLabel.textContent =
+      type === 'billing' ? 'Set as default billing address'
+      : type === 'both' ? 'Set as default shipping and billing address'
+      : 'Set as default shipping address';
+  }
+
+  function setCompanyType(type, editing) {
+    if (!companyMode) return;
+    companyScope.hidden = !(editing && type === 'both');
+    locationHint.hidden = editing;
+    const radio = document.getElementById('scope-' + (editing ? type : 'shipping'));
+    if (radio) radio.checked = true;
+    refreshCompanyFields();
+  }
+
+  if (companyMode) {
+    form.querySelectorAll('input[name="addressType"]').forEach((radio) => {
+      radio.addEventListener('change', refreshCompanyFields);
+    });
+  }
 
   function openAddModal() {
     form.reset();
@@ -1132,8 +1250,9 @@ const ADDRESSES_SCRIPT = `
     idInput.value = '';
     modalTitle.textContent = 'Add New Address';
     submitBtn.querySelector('span').textContent = 'Save Address';
-    typeShipping.checked = true;
+    if (typeShipping) typeShipping.checked = true;
     setDefaultCheck.checked = false;
+    setCompanyType('shipping', false);
     modal.showModal();
   }
 
@@ -1144,15 +1263,21 @@ const ADDRESSES_SCRIPT = `
     modalTitle.textContent = 'Edit Address';
     submitBtn.querySelector('span').textContent = 'Update Address';
 
-    if (addr.type === 'billing') {
-      typeBilling.checked = true;
-    } else {
-      typeShipping.checked = true;
+    if (!companyMode) {
+      if (addr.type === 'billing') {
+        typeBilling.checked = true;
+      } else {
+        typeShipping.checked = true;
+      }
     }
 
     firstNameInput.value = addr.firstName || '';
     lastNameInput.value = addr.lastName || '';
-    companyInput.value = addr.company || '';
+    if (companyInput) companyInput.value = addr.company || '';
+    if (companyMode) {
+      nicknameInput.value = addr.locationName || '';
+      setCompanyType(addr.type || 'shipping', true);
+    }
     address1Input.value = addr.address1 || '';
     address2Input.value = addr.address2 || '';
     cityInput.value = addr.city || '';
@@ -1213,6 +1338,7 @@ const ADDRESSES_SCRIPT = `
       const formData = new FormData();
       formData.append('intent', 'setDefault');
       formData.append('addressId', addrId);
+      formData.append('scope', companyMode ? 'company' : 'personal');
 
       btn.disabled = true;
       btn.textContent = 'Updating...';
@@ -1222,8 +1348,10 @@ const ADDRESSES_SCRIPT = `
           method: 'POST',
           body: formData,
         });
-        if (res.ok) {
-          window.location.href = window.location.pathname + '?notice=Default+address+updated+successfully';
+        // The server redirects with its own notice or error; show that one.
+        if (res.ok && res.redirected) {
+          const next = new URL(res.url);
+          window.location.href = window.location.pathname + next.search;
         } else {
           window.location.reload();
         }

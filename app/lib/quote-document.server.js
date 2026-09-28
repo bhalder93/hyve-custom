@@ -14,6 +14,19 @@
 export const QUOTE_VALID_DAYS = 14;
 
 /**
+ * The day a quote stops standing, QUOTE_VALID_DAYS after it was raised. The
+ * PDF prints it and the expiry reminder counts down to it, so both read it
+ * from here.
+ *
+ * @param {string|Date} createdAt when the draft order was created
+ * @returns {{at: Date, label: string}}
+ */
+export function quoteValidUntil(createdAt) {
+  const at = new Date(addDays(createdAt, QUOTE_VALID_DAYS));
+  return { at, label: formatDay(at) };
+}
+
+/**
  * Who a quote belongs to. A quote raised by someone buying for a company is
  * created against the company alone — Shopify refuses a customer and a
  * purchasing company on the same draft — so it can carry no customer and no
@@ -69,7 +82,6 @@ const QUOTE_QUERY = `#graphql
           discountedTotalSet { shopMoney { amount currencyCode } }
         }
       }
-      customAttributes { key value }
     }
   }`;
 
@@ -107,9 +119,6 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
   const cents = (set) => Math.round((Number(set?.shopMoney?.amount) || 0) * 100);
 
   const lines = draft.lineItems?.nodes || [];
-  const validUntil = draft.customAttributes?.find(
-    (a) => a.key === "Valid Until" || a.key === "Target Date",
-  )?.value;
 
   return {
     shopName: body.data.shop?.name || "",
@@ -118,7 +127,7 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
     dateStr: formatDay(draft.createdAt),
     // Must match the scheduled job that withdraws expired quotes, or the PDF
     // promises a date the quote no longer honours.
-    validStr: validUntil || formatDay(addDays(draft.createdAt, QUOTE_VALID_DAYS)),
+    validStr: quoteValidUntil(draft.createdAt).label,
 
     merch: lines.map((li) => ({
       title: li.title,

@@ -5,6 +5,7 @@ import { distributorOnly } from "../lib/account-error.server";
 import { portalChrome } from "../lib/account-data.server";
 import {
   mapDraftOrdersToQuotes,
+  mergeQuoteNodes,
   expiredQuoteToRow,
   quotesPage,
 } from "../lib/account-quotes.server";
@@ -19,6 +20,7 @@ const QUOTE_FIELDS = `#graphql
     id
     name
     createdAt
+    updatedAt
     status
     invoiceUrl
     invoiceSentAt
@@ -87,16 +89,22 @@ export const loader = async ({ request }) => {
 
         const company = await purchasingCompanyFor(admin, customerId);
 
-        const draftRes = await withTimeout(
-          company
-            ? admin.graphql(COMPANY_QUOTES_QUERY, { variables: { id: company.companyId } })
-            : admin.graphql(CUSTOMER_QUOTES_QUERY, { variables: { query: draftSearchQuery } }),
+        // The company's quotes, and the buyer's own: sales can raise a draft
+        // for the customer without picking their company, and it still has to
+        // show here (HYV-135).
+        const [companyData, ownData] = await withTimeout(
+          Promise.all([
+            company
+              ? admin.graphql(COMPANY_QUOTES_QUERY, { variables: { id: company.companyId } }).then((r) => r.json())
+              : null,
+            admin.graphql(CUSTOMER_QUOTES_QUERY, { variables: { query: draftSearchQuery } }).then((r) => r.json()),
+          ]),
           ADMIN_TIMEOUT_MS,
         );
-
-        const draftData = await draftRes.json();
-        draftOrderNodes =
-          draftData?.data?.company?.draftOrders?.nodes || draftData?.data?.draftOrders?.nodes || [];
+        draftOrderNodes = mergeQuoteNodes(
+          companyData?.data?.company?.draftOrders?.nodes || [],
+          ownData?.data?.draftOrders?.nodes || [],
+        );
       } catch (err) {
         console.warn("[account] quotes query warning:", err?.message || err);
       }

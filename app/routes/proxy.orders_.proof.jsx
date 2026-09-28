@@ -16,7 +16,7 @@ export const action = async ({ request }) => {
   try {
     const url = new URL(request.url);
     const customerId = url.searchParams.get("logged_in_customer_id");
-    if (!customerId) return backToOrders({ error: "Please sign in to approve a proof." });
+    if (!customerId) return backToOrders({ error: "Please sign in to approve an Artwork Proof." });
 
     const form = await request.formData();
     const orderGid = String(form.get("order") || "");
@@ -41,7 +41,7 @@ export const action = async ({ request }) => {
     return backToOrders({
       notice:
         decision === "approve"
-          ? `Thank you — proof approved for ${result.orderName}. We'll start production.`
+          ? `Thank you — Artwork Proof approved for ${result.orderName}. We'll start production.`
           : `Thanks — we've passed your change request for ${result.orderName} to the team.`,
     });
   } catch (error) {

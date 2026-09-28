@@ -13,19 +13,21 @@
  * so opening one costs no round trip.
  */
 import { esc } from "./account-shell.server";
-import { ACCEPTED_EXTENSIONS, MAX_FILE_LABEL, isPreviewable } from "./artwork.server";
+import { MAX_FILE_LABEL, artworkRulesFor, isPreviewable } from "./artwork.server";
 import { VISIBLE_STATUSES, statusByKey } from "./portal.server";
 import { WHATSAPP_URL, SUPPORT_EMAIL } from "./customer-service.server";
 
-// F5 asks for the format and size limits to be stated before upload, so the
-// panel reads them from the same list the upload itself enforces.
-const ARTWORK_ACCEPT = ACCEPTED_EXTENSIONS.join(",");
-const ARTWORK_ACCEPT_LABEL = ACCEPTED_EXTENSIONS.map((e) => e.replace(".", "").toUpperCase()).join(", ");
+// F5 asks for the format and size limits to be stated before upload, so each
+// position reads them from the same rule the upload itself enforces
+// (artworkRulesFor): vector only for laser, as on the product page.
 const ARTWORK_MAX_LABEL = MAX_FILE_LABEL;
 
 export function orderModal(order, library = []) {
   const status = statusByKey(order.statusKey) || VISIBLE_STATUSES[0];
   const reachedIndex = VISIBLE_STATUSES.findIndex((s) => s.key === order.statusKey);
+  // A proof waiting on the buyer is the one thing they have to act on, so it
+  // is flagged beside the order number and decided at the top of the order.
+  const awaitingApproval = order.statusKey === "proof-sent" && Boolean(order.id);
 
   return `
     <div class="hyve-modal" id="order-${esc(order.name)}" data-order-modal hidden>
@@ -33,11 +35,15 @@ export function orderModal(order, library = []) {
 
       <div class="hyve-modal__panel" role="dialog" aria-modal="true" aria-label="Order ${esc(order.name)}">
         <header class="hyve-modal__head">
-          <h2 class="hyve-modal__title">Order ${esc(order.name)}</h2>
+          <div class="hyve-modal__title-row">
+            <h2 class="hyve-modal__title">Order ${esc(order.name)}</h2>
+            ${awaitingApproval ? `<span class="hyve-modal__badge">Approval required</span>` : ""}
+          </div>
           <button type="button" class="hyve-modal__close" aria-label="Close" data-modal-close>${icoClose()}</button>
         </header>
 
         <div class="hyve-modal__body">
+          ${awaitingApproval ? proofDecision(order) : ""}
           ${headerFacts(order, status)}
 
           <div class="hyve-modal__cols">
@@ -91,6 +97,7 @@ function headerFacts(order, status) {
     ["Payment Terms", order.paymentTerms],
     // The date the proof-approved email gave the buyer. The list row shows it too.
     ["Production Target", order.productionTarget],
+    ["Estimated Ship Date", order.shipDate],
   ].filter(([, v]) => v);
 
   return `
@@ -245,10 +252,19 @@ function artworkPanel(order, library = []) {
             ${icoUpload()}<span>Send Artwork</span>
           </button>
         </div>
-        <p class="hyve-art__limits">${esc(ARTWORK_ACCEPT_LABEL)}, up to ${esc(ARTWORK_MAX_LABEL)} per file.</p>
+        <p class="hyve-art__limits">${esc(limitsNote(lines))} Up to ${esc(ARTWORK_MAX_LABEL)} per file.</p>
       </form>
       ${savedArtworkPicker(library, order.name)}
     </section>`;
+}
+
+/** The formats line under the form: what each kind of position takes. */
+function limitsNote(lines) {
+  const zones = lines.flatMap((li) => li.zones || []).filter((zone) => !zone.url);
+  const laser = zones.some((zone) => artworkRulesFor(zone.key).isLaser);
+  const other = zones.some((zone) => !artworkRulesFor(zone.key).isLaser);
+  if (laser && other) return "Laser positions need AI, EPS, PDF or SVG. Other positions also take PNG or JPG.";
+  return laser ? artworkRulesFor("laser").note : artworkRulesFor("").note;
 }
 
 /** One decoration position: what is on it, or a way to supply it. */
@@ -274,9 +290,13 @@ function zoneSlot(zone, editable, orderName) {
       </div>`;
   }
 
+  const rules = artworkRulesFor(zone.key);
+
   return `
-    <div class="hyve-art__zone" data-art-zone data-zone-id="${esc(id)}">
+    <div class="hyve-art__zone" data-art-zone data-zone-id="${esc(id)}"
+      data-art-allowed="${esc(rules.accept)}" data-art-reject="${esc(rules.reject)}">
       <span class="hyve-art__zone-label">${esc(zone.label)}</span>
+      ${rules.isLaser ? `<p class="hyve-art__zone-note">${esc(rules.note)}</p>` : ""}
 
       <label class="hyve-art__drop" for="${esc(id)}-file" data-art-drop>
         ${icoUpload()}
@@ -290,7 +310,7 @@ function zoneSlot(zone, editable, orderName) {
       <p class="hyve-art__chosen" data-art-chosen hidden></p>
 
       <input type="file" id="${esc(id)}-file" name="${esc(field)}:file" class="hyve-art__hidden-input"
-        accept="${esc(ARTWORK_ACCEPT)}" data-art-file>
+        accept="${esc(rules.accept)}" data-art-file>
       <input type="hidden" name="${esc(field)}:saved" value="" data-art-saved>
     </div>`;
 }
@@ -363,13 +383,13 @@ function filenameOf(url) {
 
 function proofsPanel(order) {
   const items = [
-    order.proofUrl ? ["Artwork Proof", order.proofUrl, "Proof"] : null,
-    order.productionPhotoUrl ? ["Production Photo", order.productionPhotoUrl, "Free photo"] : null,
+    order.proofUrl ? ["Artwork Proof", order.proofUrl, "Latest version"] : null,
+    order.productionPhotoUrl ? ["Production Photo", order.productionPhotoUrl, "Included with your order"] : null,
   ].filter(Boolean);
 
   return `
     <section class="hyve-modal__panel-box">
-      <h3 class="hyve-modal__panel-title">${icoImage()} Proofs &amp; Photos</h3>
+      <h3 class="hyve-modal__panel-title">${icoImage()} Artwork Proof &amp; Production Photo</h3>
       ${
         items.length
           ? `<div class="hyve-tile-grid">
@@ -384,34 +404,52 @@ function proofsPanel(order) {
                 )
                 .join("")}
             </div>`
-          : `<p class="hyve-modal__muted">No proof or production photo on this order yet.</p>`
+          : `<p class="hyve-modal__muted">No Artwork Proof or Production Photo on this order yet.</p>`
       }
-      ${
-        // ART-03: the decision must be possible here as well as from the proof
-        // email. Most buyers use the email; internal sales staff use this.
-        order.statusKey === "proof-sent" && order.id
-          ? `<form method="post" action="/apps/account/orders/proof" class="hyve-modal__proof-actions">
-               <input type="hidden" name="order" value="${esc(order.id)}">
-               <label class="hyve-modal__proof-label" for="proof-msg-${esc(order.name)}">
-                 What needs changing? (only needed if you're requesting changes)
-               </label>
-               <textarea
-                 id="proof-msg-${esc(order.name)}"
-                 name="message"
-                 class="hyve-modal__proof-input"
-                 rows="2"
-                 placeholder="Move the logo lower, use the darker green…"></textarea>
-               <div class="hyve-modal__proof-buttons">
-                 <button type="submit" name="decision" value="approve" class="hyve-ord__btn hyve-ord__btn--primary">
-                   ${icoTick()}<span>Approve Proof</span>
-                 </button>
-                 <button type="submit" name="decision" value="changes" class="hyve-ord__btn hyve-ord__btn--ghost">
-                   ${icoNote()}<span>Request Changes</span>
-                 </button>
-               </div>
-             </form>`
-          : ""
-      }
+    </section>`;
+}
+
+/**
+ * The proof decision, at the top of an order waiting on it. ART-03: the
+ * decision must be possible here as well as from the proof email. Most buyers
+ * use the email; internal sales staff use this.
+ */
+function proofDecision(order) {
+  const by = order.proofDueBy ? ` by <strong>${esc(order.proofDueBy)}</strong>` : "";
+  return `
+    <section class="hyve-modal__approval">
+      <div class="hyve-modal__approval-head">
+        <span class="hyve-modal__approval-icon">${icoAlert()}</span>
+        <div>
+          <h3 class="hyve-modal__approval-title">Your Artwork Proof is ready</h3>
+          <p class="hyve-modal__approval-text">Check it, then approve it or request changes${by} to avoid delays.</p>
+        </div>
+        ${
+          order.proofUrl
+            ? `<a class="hyve-ord__btn hyve-ord__btn--ghost hyve-modal__approval-view" href="${esc(order.proofUrl)}" target="_blank" rel="noopener">${icoImage()}<span>View Artwork Proof</span></a>`
+            : ""
+        }
+      </div>
+      <form method="post" action="/apps/account/orders/proof" class="hyve-modal__proof-actions">
+        <input type="hidden" name="order" value="${esc(order.id)}">
+        <label class="hyve-modal__proof-label" for="proof-msg-${esc(order.name)}">
+          What needs changing? (only needed if you're requesting changes)
+        </label>
+        <textarea
+          id="proof-msg-${esc(order.name)}"
+          name="message"
+          class="hyve-modal__proof-input"
+          rows="2"
+          placeholder="Move the logo lower, use the darker green…"></textarea>
+        <div class="hyve-modal__proof-buttons">
+          <button type="submit" name="decision" value="approve" class="hyve-ord__btn hyve-ord__btn--primary">
+            ${icoTick()}<span>Approve Artwork Proof</span>
+          </button>
+          <button type="submit" name="decision" value="changes" class="hyve-ord__btn hyve-ord__btn--ghost">
+            ${icoNote()}<span>Request Changes</span>
+          </button>
+        </div>
+      </form>
     </section>`;
 }
 
@@ -498,6 +536,17 @@ export const MODAL_STYLES = `
   .hyve-modal__muted { font-size: 12px; color: var(--hyve-muted); margin: 0; word-break: break-all; }
   .hyve-modal__note { display: flex; gap: 7px; align-items: flex-start; font-size: 11.5px; color: #B45309; background: #FEF3C7; border-radius: 8px; padding: 8px 10px; margin: 12px 0 0; }
 
+  .hyve-modal__title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; }
+  .hyve-modal__badge { display: inline-flex; align-items: center; border-radius: 9999px; padding: 3px 10px; font-size: 11.5px; font-weight: 700; background: #FEF3C7; color: #B45309; white-space: nowrap; }
+  .hyve-modal__approval { border: 1px solid #FCD34D; background: #FFFBEB; border-radius: var(--hyve-radius); padding: 14px; margin-bottom: 14px; }
+  .hyve-modal__approval-head { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px 12px; }
+  .hyve-modal__approval-head > div { flex: 1 1 220px; min-width: 0; }
+  .hyve-modal__approval-icon { color: #B45309; display: inline-flex; margin-top: 1px; }
+  .hyve-modal__approval-icon svg { width: 20px; height: 20px; }
+  .hyve-modal__approval-title { font-family: var(--hyve-display); font-size: 15px; font-weight: 800; margin: 0 0 2px; color: var(--hyve-900); }
+  .hyve-modal__approval-text { margin: 0; font-size: 13px; color: #78350F; line-height: 1.5; }
+  .hyve-modal__approval .hyve-modal__proof-actions { border-top-color: #FDE68A; }
+  .hyve-modal__approval .hyve-modal__proof-input { background: #FFFFFF; }
   .hyve-modal__proof-actions { margin: 12px 0 0; border-top: 1px solid var(--hyve-border); padding-top: 12px; }
   .hyve-modal__proof-label { display: block; font-size: 11.5px; color: var(--hyve-muted); margin-bottom: 5px; }
   .hyve-modal__proof-input { width: 100%; border: 1px solid var(--hyve-border-strong); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 12.5px; color: var(--hyve-900); resize: vertical; }
@@ -530,6 +579,9 @@ export const MODAL_STYLES = `
 
   .hyve-art__chosen { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #15803D; margin: 8px 0 0; }
   .hyve-art__chosen[hidden] { display: none; }
+  .hyve-art__chosen.is-error { color: #B91C1C; font-weight: 500; line-height: 1.45; }
+  .hyve-art__zone-note { margin: 2px 0 8px; font-size: 11.5px; color: #B45309; }
+  .hyve-art__saved-item:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .hyve-art__picker { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 20px; }
   .hyve-art__picker[hidden] { display: none; }
@@ -647,8 +699,33 @@ export const MODAL_SCRIPT = `
     if (fromSaved && file) file.value = '';
     if (!fromSaved && saved) saved.value = '';
     if (chosen) {
+      chosen.classList.remove('is-error');
       chosen.textContent = label ? '\u2713 ' + label : '';
       chosen.hidden = !label;
+    }
+  }
+
+  // Each position states the file types it takes (vector only for laser, as
+  // on the product page). A file it can't take is refused on the spot rather
+  // than at Send Artwork, and nothing is kept for that position.
+  function extOf(name) {
+    var match = String(name || '').toLowerCase().match(/\\.[a-z0-9]+$/);
+    return match ? match[0] : '';
+  }
+  function takes(zone, name) {
+    var allowed = String(zone.getAttribute('data-art-allowed') || '').split(',');
+    return allowed.indexOf(extOf(name)) !== -1;
+  }
+  function refuse(zone) {
+    var chosen = zone.querySelector('[data-art-chosen]');
+    var file = zone.querySelector('[data-art-file]');
+    var saved = zone.querySelector('[data-art-saved]');
+    if (file) file.value = '';
+    if (saved) saved.value = '';
+    if (chosen) {
+      chosen.textContent = zone.getAttribute('data-art-reject') || 'That file type is not accepted.';
+      chosen.classList.add('is-error');
+      chosen.hidden = false;
     }
   }
 
@@ -656,7 +733,10 @@ export const MODAL_SCRIPT = `
     var file = event.target.closest && event.target.closest('[data-art-file]');
     if (!file) return;
     var zone = file.closest('[data-art-zone]');
-    if (zone) showChoice(zone, file.files && file.files[0] ? file.files[0].name : '', false);
+    if (!zone) return;
+    var picked = file.files && file.files[0];
+    if (picked && !takes(zone, picked.name)) return refuse(zone);
+    showChoice(zone, picked ? picked.name : '', false);
   });
 
   document.addEventListener('click', function (event) {
@@ -664,7 +744,15 @@ export const MODAL_SCRIPT = `
     if (pick) {
       pickingFor = pick.closest('[data-art-zone]');
       var picker = pick.closest('.hyve-modal__panel').querySelector('[data-art-picker]');
-      if (picker) picker.hidden = false;
+      if (picker) {
+        // Only the saved files this position can take can be picked.
+        picker.querySelectorAll('[data-art-choose]').forEach(function (item) {
+          var ok = takes(pickingFor, item.getAttribute('data-name') || item.getAttribute('data-url'));
+          item.disabled = !ok;
+          item.title = ok ? '' : (pickingFor.getAttribute('data-art-reject') || '');
+        });
+        picker.hidden = false;
+      }
       return;
     }
 
@@ -676,7 +764,7 @@ export const MODAL_SCRIPT = `
     }
 
     var choose = event.target.closest && event.target.closest('[data-art-choose]');
-    if (choose && pickingFor) {
+    if (choose && pickingFor && !choose.disabled) {
       var saved = pickingFor.querySelector('[data-art-saved]');
       if (saved) saved.value = choose.getAttribute('data-url') || '';
       showChoice(pickingFor, choose.getAttribute('data-name') || nameFromUrl(choose.getAttribute('data-url')), true);
@@ -711,6 +799,7 @@ export const MODAL_SCRIPT = `
     if (!dropped || !dropped.length) return;
     var input = zone.querySelector('[data-art-file]');
     if (!input) return;
+    if (!takes(zone, dropped[0].name)) return refuse(zone);
     input.files = dropped;
     showChoice(zone, dropped[0].name, false);
   });

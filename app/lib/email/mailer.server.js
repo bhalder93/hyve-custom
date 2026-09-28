@@ -54,6 +54,13 @@ export async function verifyMailer() {
   return mailer.verify();
 }
 
+/** Hyve customer service: where every email's replies go (HYV-110). */
+export const CUSTOMER_SERVICE_EMAIL = "support@hyve.promo";
+
+export function defaultReplyTo() {
+  return process.env.EMAIL_REPLY_TO || CUSTOMER_SERVICE_EMAIL;
+}
+
 export function getDefaultFrom() {
   const name =
     process.env.EMAIL_FROM_NAME ||

@@ -21,6 +21,7 @@
  * both must.
  */
 import { sendArtworkReceivedEmail, sendProofApprovedEmail } from "../utils/email.server";
+import { statusEmailWanted } from "./notification-preferences.server";
 
 const STATUS_TAG_PREFIX = "hyve-status:";
 const NOTIFIED_TAG_PREFIX = "hyve-notified:";
@@ -221,6 +222,7 @@ async function notifyCustomer(admin, order, status, productionDueAt) {
 
   const tag = `${NOTIFIED_TAG_PREFIX}${status}`;
   if ((order.tags || []).includes(tag)) return;
+  if (!(await statusEmailWanted(admin, order.customer?.id, status))) return;
 
   const customerEmail = order.customer?.defaultEmailAddress?.emailAddress || order.email || "";
   if (!customerEmail) throw new Error("Customer email address is missing.");
@@ -245,12 +247,20 @@ async function notifyCustomer(admin, order, status, productionDueAt) {
  * that skip weekends and the production market's holidays.
  */
 async function productionDueFrom(admin, changedAt, rush) {
+  return productionDueDate(await productionCalendar(admin), changedAt, rush);
+}
+
+/**
+ * What a production due date is counted from: the in-production service
+ * level and the production market's enabled holidays. Read once and reused
+ * when many orders are worked out together (production-reschedule.server.js).
+ */
+export async function productionCalendar(admin) {
   const data = await gql(admin, SERVICE_LEVELS);
 
   const rule = (data.rules?.nodes || []).find(
     (node) => node.status?.value === "in-production" && node.enabled?.value !== "false",
   );
-  const days = rush ? RUSH_PRODUCTION_DAYS : Number(rule?.duration?.value) || DEFAULT_PRODUCTION_DAYS;
 
   const holidays = new Set(
     (data.holidays?.nodes || [])
@@ -261,12 +271,18 @@ async function productionDueFrom(admin, changedAt, rush) {
       .map((node) => String(node.date.value).slice(0, 10)),
   );
 
-  const date = new Date(changedAt);
+  return { days: Number(rule?.duration?.value) || DEFAULT_PRODUCTION_DAYS, holidays };
+}
+
+/** The due date for a proof approved at `approvedAt`, on a given calendar. */
+export function productionDueDate(calendar, approvedAt, rush) {
+  const days = rush ? RUSH_PRODUCTION_DAYS : calendar.days;
+  const date = new Date(approvedAt);
   let added = 0;
   while (added < days) {
     date.setUTCDate(date.getUTCDate() + 1);
     const weekday = date.getUTCDay();
-    if (weekday !== 0 && weekday !== 6 && !holidays.has(date.toISOString().slice(0, 10))) added += 1;
+    if (weekday !== 0 && weekday !== 6 && !calendar.holidays.has(date.toISOString().slice(0, 10))) added += 1;
   }
   return date.toISOString();
 }

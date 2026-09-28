@@ -3,7 +3,13 @@ import { portalChrome } from "../lib/account-data.server";
 import { loadOrderForAction } from "../lib/order-action.server";
 import { changeProductionStatus, productionStatusOf } from "../lib/order-status.server";
 import { attachArtworkToOrder } from "../lib/order-artwork.server";
-import { uploadArtwork, recordOrderArtwork, artworkOwnerGid } from "../lib/artwork.server";
+import {
+  uploadArtwork,
+  recordOrderArtwork,
+  artworkOwnerGid,
+  artworkRulesFor,
+  extensionOf,
+} from "../lib/artwork.server";
 
 /**
  * Outstanding artwork supplied from the order.
@@ -43,24 +49,41 @@ export const action = async ({ request }) => {
     if (!found.ok) return backToOrders({ error: found.error });
     const { order } = found;
 
-    const supplied = [];
-
+    // Every file is checked against its position before anything is uploaded,
+    // so a refused file never leaves the others half sent. A laser position
+    // takes vector files only, as on the product page (artworkRulesFor).
+    const chosen = [];
     for (const [field, value] of form.entries()) {
       if (!field.startsWith("zone:")) continue;
       const zoneKey = field.slice("zone:".length).replace(/:(file|saved)$/, "");
 
       if (field.endsWith(":saved")) {
-        const chosen = String(value || "").trim();
-        if (chosen) supplied.push({ zone: zoneKey, url: chosen, filename: filenameOf(chosen) });
+        const url = String(value || "").trim();
+        if (url) chosen.push({ zone: zoneKey, url, filename: filenameOf(url) });
         continue;
       }
 
       // An untouched file input still posts, as an empty file.
       if (!value || typeof value.arrayBuffer !== "function" || !value.size) continue;
+      chosen.push({ zone: zoneKey, file: value, filename: String(value.name || "artwork") });
+    }
 
-      const uploaded = await uploadArtwork(admin, owner, value);
+    for (const item of chosen) {
+      const rules = artworkRulesFor(item.zone);
+      if (!rules.allowed.includes(extensionOf(item.filename))) {
+        return backToOrders({ error: `${zoneLabel(item.zone)}: ${rules.reject}` });
+      }
+    }
+
+    const supplied = [];
+    for (const item of chosen) {
+      if (!item.file) {
+        supplied.push({ zone: item.zone, url: item.url, filename: item.filename });
+        continue;
+      }
+      const uploaded = await uploadArtwork(admin, owner, item.file);
       if (!uploaded.ok) return backToOrders({ error: uploaded.error });
-      supplied.push({ zone: zoneKey, url: uploaded.url, filename: uploaded.filename });
+      supplied.push({ zone: item.zone, url: uploaded.url, filename: uploaded.filename });
     }
 
     if (!supplied.length) {
@@ -93,7 +116,7 @@ export const action = async ({ request }) => {
 
     const count = supplied.length;
     return backToOrders({
-      notice: `Thanks — ${count} file${count === 1 ? "" : "s"} received for ${order.name}. We'll prepare your proof.`,
+      notice: `Thanks — ${count} file${count === 1 ? "" : "s"} received for ${order.name}. We'll prepare your Artwork Proof.`,
     });
   } catch (error) {
     if (error instanceof Response) throw error;
@@ -101,6 +124,11 @@ export const action = async ({ request }) => {
     return backToOrders({ error: "We couldn't send that artwork. Please try again later." });
   }
 };
+
+/** "Artwork: Laser - Back" reads as "Laser — Back", as the order shows it. */
+function zoneLabel(zoneKey) {
+  return String(zoneKey).replace(/^Artwork:\s*/, "").replace(" - ", " — ") || "Artwork";
+}
 
 function filenameOf(url) {
   const path = String(url || "").split("?")[0];

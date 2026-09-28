@@ -222,7 +222,7 @@ function QuoteDoc({ inv, withImages }) {
         {inv.dutyNote ? <Text style={styles.dutyNote}>{inv.dutyNote}</Text> : null}
 
         <Text style={styles.foot}>
-          This is an estimate, not a tax invoice. Shipping is calculated at checkout.
+          This quote is an estimate, not a request for payment. Shipping is calculated at checkout.
           Prices valid until the date shown above. Thank you for choosing {shopName}.
         </Text>
       </Page>

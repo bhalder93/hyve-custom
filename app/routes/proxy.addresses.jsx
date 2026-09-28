@@ -3,6 +3,15 @@ import { accountShell } from "../lib/account-shell.server";
 import { portalChrome } from "../lib/account-data.server";
 import { mapAddresses, addressesPage } from "../lib/account-addresses.server";
 import { errorState } from "../lib/account-error.server";
+import {
+  loadCompanyAddressBook,
+  companyAddressCards,
+  addressInputFrom,
+  addCompanyLocation,
+  updateCompanyLocation,
+  deleteCompanyLocation,
+  setDefaultLocation,
+} from "../lib/company-addresses.server";
 
 /**
  * Customer Account Portal — Addresses Route.
@@ -39,6 +48,26 @@ export const loader = async ({ request }) => {
           <a href="${loginHref}" style="display:inline-block;margin-top:1rem;background:#16a34a;color:#fff;text-decoration:none;font-weight:700;padding:0.9rem 1.8rem;border-radius:0.7rem;">Sign in</a>
         </div>
       `);
+    }
+
+    // A distributor's addresses are its company's locations (HYV-109).
+    const chrome = await portalChrome(admin, customerId);
+    if (chrome.isDistributor) {
+      const book = await loadCompanyAddressBook(admin, customerId);
+      if (book) {
+        return liquid(
+          accountShell({
+            active: "addresses",
+            main: addressesPage({
+              addresses: companyAddressCards(book),
+              company: { canManage: book.canManage },
+              notice,
+              error: errorParam,
+            }),
+            ...chrome,
+          }),
+        );
+      }
     }
 
     const { customer, addressNodes, defaultAddressId, failed } =
@@ -129,6 +158,39 @@ export const action = async ({ request }) => {
     const formData = await request.formData();
     const intent = String(formData.get("intent") || "").trim();
     const addressId = formData.get("addressId");
+
+    // Company addresses. Each action re-checks that the caller is the
+    // company's admin and that the location is the company's own.
+    if (String(formData.get("scope") || "") === "company") {
+      const [locationId, cardType] = String(addressId || "").split("#");
+      const type = String(formData.get("addressType") || cardType || "shipping");
+      const setAsDefault = formData.get("setAsDefault") === "true";
+      const name = String(formData.get("label") || "").trim();
+      const results = {
+        create: () => addCompanyLocation(admin, customerId, { name, address: addressInputFrom(formData), setAsDefault }),
+        update: () =>
+          updateCompanyLocation(admin, customerId, {
+            locationId,
+            type,
+            name,
+            address: addressInputFrom(formData),
+            setAsDefault,
+          }),
+        delete: () => deleteCompanyLocation(admin, customerId, locationId),
+        setDefault: () => setDefaultLocation(admin, customerId, { locationId, type: cardType || type }),
+      };
+      const notices = {
+        create: "Address added",
+        update: "Address updated",
+        delete: "Address deleted",
+        setDefault: "Default address updated",
+      };
+      if (!results[intent]) return respond(isAjax, { error: "Invalid action intent" });
+      const result = await results[intent]();
+      return result.ok
+        ? respond(isAjax, { success: true, notice: notices[intent] })
+        : respond(isAjax, { error: result.error });
+    }
 
     // Handle demo / mockup cards in test preview gracefully
     if (addressId && String(addressId).startsWith("demo-")) {

@@ -17,7 +17,10 @@ const QUERY = `#graphql
     customer(id: $id) {
       companyContactProfiles {
         id
-        company { id }
+        company {
+          id
+          defaultShipping: metafield(namespace: "hyve", key: "default_shipping_location") { value }
+        }
         roleAssignments(first: 10) {
           edges { node { companyLocation { id } } }
         }
@@ -46,8 +49,13 @@ export async function purchasingCompanyFor(admin, customerId) {
 
     const profile = body?.data?.customer?.companyContactProfiles?.[0];
     const companyId = profile?.company?.id;
-    const companyLocationId =
-      profile?.roleAssignments?.edges?.[0]?.node?.companyLocation?.id;
+    // The company's default shipping address (set on the Addresses page) when
+    // this buyer may order for it, otherwise their first location.
+    const locationIds = (profile?.roleAssignments?.edges || [])
+      .map((edge) => edge?.node?.companyLocation?.id)
+      .filter(Boolean);
+    const preferred = profile?.company?.defaultShipping?.value;
+    const companyLocationId = locationIds.includes(preferred) ? preferred : locationIds[0];
 
     if (!companyId || !companyLocationId || !profile.id) return null;
 

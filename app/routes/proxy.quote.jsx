@@ -24,24 +24,20 @@ function adminDraftUrl(shop, draftGid) {
   return `https://admin.shopify.com/store/${String(shop).replace(/\.myshopify\.com$/, "")}/draft_orders/${draftGid.split("/").pop()}`;
 }
 
-/** The wording every quote date in the portal uses. */
-function formatDay(date) {
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(date);
-}
-
 /**
  * The reference and validity a quote should carry.
  *
  * The storefront invents both — the reference from the clock — so neither is
  * trusted. The reference is the draft order's own number, which is what the
  * Quotes list and the Retrieve a Quote page look it up by, and the validity
- * comes from the single constant the PDF, the copy and the expiry job share.
+ * is the draft's own valid-until day, the one the portal PDF and the expiry
+ * reminder use.
  */
-function quoteLabels(draftOrder, validDays) {
+function quoteLabels(draftOrder, quoteValidUntil) {
   const name = String(draftOrder?.name || "");
   return {
     ...(name ? { ref: name.replace(/^#D/, "Q-").replace(/^#(?!D)/, "Q-") } : {}),
-    validStr: formatDay(new Date(Date.now() + validDays * 86400000)),
+    validStr: quoteValidUntil(draftOrder.createdAt).label,
   };
 }
 
@@ -107,7 +103,7 @@ export const action = async ({ request }) => {
       `#graphql
       mutation QuoteDraftCreate($input: DraftOrderInput!) {
         draftOrderCreate(input: $input) {
-          draftOrder { id name invoiceUrl email }
+          draftOrder { id name invoiceUrl email createdAt }
           userErrors { field message }
         }
       }`,
@@ -122,8 +118,8 @@ export const action = async ({ request }) => {
     const draftOrder = result.draftOrder;
     const payUrl = draftOrder.invoiceUrl;
 
-    const { QUOTE_VALID_DAYS: validDays } = await import("../lib/quote-document.server");
-    const labels = quoteLabels(draftOrder, validDays);
+    const { quoteValidUntil } = await import("../lib/quote-document.server");
+    const labels = quoteLabels(draftOrder, quoteValidUntil);
 
     // Every quote is a sales lead, however it was raised.
     const source = { pdf: "Cart — downloaded", share: "Cart — shared link", email: "Cart — emailed" }[intent];
@@ -211,10 +207,10 @@ export const action = async ({ request }) => {
       const info = await sendQuoteEmail({
         to: recipient,
         subject,
-        html: quoteEmailHtml({ shopName, ref, payUrl, hasPdf: !!pdfBuffer }),
+        html: await quoteEmailHtml({ shopName, ref, payUrl, hasPdf: !!pdfBuffer }),
         text:
           `Your ${shopName} quote${ref ? " " + ref : ""} is ready.\n\n` +
-          `Review and pay securely: ${payUrl}\n\n` +
+          `Confirm your order: ${payUrl}\n\n` +
           (pdfBuffer ? "A PDF copy of your quote is attached.\n\n" : "") +
           `Thank you for choosing ${shopName}.`,
         pdfBuffer,
@@ -292,24 +288,30 @@ function buildLineItems(items, currencyCode) {
 }
 
 // Branded HTML body for the quote email (pay link + note about the attachment).
-function quoteEmailHtml({ shopName, ref, payUrl, hasPdf }) {
-  const esc = (s) =>
-    String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  return (
-    '<!doctype html><html><body style="margin:0;background:#f4f6f8;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a">' +
-    '<div style="max-width:560px;margin:0 auto;padding:32px 24px">' +
-    '<h1 style="font-size:20px;margin:0 0 8px">' + esc(shopName) + " — your quote is ready</h1>" +
-    '<p style="font-size:14px;line-height:1.6;color:#475569;margin:0 0 20px">' +
-    (ref ? "Reference <strong>" + esc(ref) + "</strong>. " : "") +
-    "Review the details and pay securely using the button below" +
-    (hasPdf ? ", or open the attached PDF" : "") + ".</p>" +
-    '<p style="margin:0 0 24px"><a href="' + esc(payUrl) +
-    '" style="display:inline-block;background:#16a34a;color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:13px 22px;border-radius:10px">Review &amp; pay</a></p>' +
-    '<p style="font-size:12px;color:#94a3b8;line-height:1.6;margin:0">If the button doesn\'t work, copy this link:<br>' +
-    '<a href="' + esc(payUrl) + '" style="color:#0ea5b7">' + esc(payUrl) + "</a></p>" +
-    '<p style="font-size:12px;color:#94a3b8;margin:24px 0 0">Thank you for choosing ' + esc(shopName) + ".</p>" +
-    "</div></body></html>"
-  );
+/** The buyer's quote email, on the same branded frame as the order emails (HYV-110). */
+async function quoteEmailHtml({ shopName, ref, payUrl, hasPdf }) {
+  const { brandedEmail, escapeHtml } = await import("../utils/email.server");
+  const paragraph = 'style="margin:0 0 14px; line-height:1.7; font-size:15px;"';
+  return brandedEmail({
+    title: "Your quote is ready",
+    body: `
+      <p ${paragraph}>
+        Check the details${hasPdf ? " in the attached PDF" : ""}, then confirm your order with the button below.
+      </p>
+      <div style="margin:22px 0;">
+        <a href="${escapeHtml(payUrl)}" style="display:inline-block; padding:14px 22px; background:#0f172a; color:#ffffff; text-decoration:none; border-radius:10px; font-size:14px; font-weight:700;">
+          Confirm Order
+        </a>
+      </div>
+      <p style="margin:0; font-size:12px; line-height:1.6; color:#6B7280;">
+        If the button doesn't work, copy this link:<br>
+        <a href="${escapeHtml(payUrl)}" style="color:#0f766e;">${escapeHtml(payUrl)}</a>
+      </p>`,
+    details: [
+      ...(ref ? [["Quote", escapeHtml(ref)]] : []),
+      ["From", escapeHtml(shopName)],
+    ],
+  });
 }
 
 // Safety for direct GETs (still signature-verified).

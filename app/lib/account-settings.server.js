@@ -8,6 +8,7 @@
  *   - Production-ready responsive layout matching the UI mockup
  */
 import { esc } from "./account-shell.server";
+import { SHIPPING_METHODS } from "./company-profile.server";
 
 /**
  * Format customer settings data with fallbacks matching the mockup.
@@ -59,10 +60,17 @@ export function mapCustomerSettings(customer = null) {
 /**
  * Settings Page Renderer.
  */
+/**
+ * @param {object} opts
+ * @param {?object} [opts.company] a distributor's company profile
+ *   (company-profile.server.js). Its fields move out of the personal section:
+ *   company details are the company's, editable by its admin only (PRF-02).
+ */
 export function settingsPage({
   settings = {},
   // eslint-disable-next-line no-unused-vars -- part of the page's signature; callers pass it
   customer = null,
+  company = null,
   notice = null,
   error = null,
 } = {}) {
@@ -77,6 +85,8 @@ export function settingsPage({
         <h1 class="hyve-settings__title">Account Settings</h1>
         <p class="hyve-settings__sub">Manage your profile and preferences</p>
       </header>
+
+      ${company ? companyCard(company) : ""}
 
       <form method="POST" action="/apps/account/settings" id="hyve-settings-form" class="hyve-settings__grid">
         <input type="hidden" name="intent" value="saveSettings">
@@ -112,9 +122,13 @@ export function settingsPage({
               readonly
               title="Email address is associated with your store login"
             >
+            <p class="hyve-settings__hint">You sign in with a one-time code sent to this email, so there's no password to manage.</p>
           </div>
 
-          <div class="hyve-settings__form-group">
+          ${
+            company
+              ? ""
+              : `<div class="hyve-settings__form-group">
             <label class="hyve-settings__label" for="settings-company">Company</label>
             <input
               type="text"
@@ -124,7 +138,8 @@ export function settingsPage({
               value="${esc(settings.company)}"
               placeholder="e.g. Acme Corp Pte. Ltd."
             >
-          </div>
+          </div>`
+          }
 
           <div class="hyve-settings__form-group">
             <label class="hyve-settings__label" for="settings-phone">Phone</label>
@@ -158,7 +173,7 @@ export function settingsPage({
             <div class="hyve-toggle-row">
               <div class="hyve-toggle-row__content">
                 <span class="hyve-toggle-row__title">Email Notifications</span>
-                <span class="hyve-toggle-row__sub">Order updates, proof approvals, shipping alerts</span>
+                <span class="hyve-toggle-row__sub">Order updates, Artwork Proofs, shipping alerts</span>
               </div>
               <label class="hyve-switch">
                 <input
@@ -215,6 +230,76 @@ export function settingsPage({
       </form>
     </div>
     ${SETTINGS_SCRIPT}`;
+}
+
+/**
+ * The company profile card: editable by the company's admin, read-only to
+ * everyone else on the account.
+ */
+function companyCard(company) {
+  const locked = !company.canManage;
+  const field = (id, label, value, placeholder, hint = "") => `
+          <div class="hyve-settings__form-group">
+            <label class="hyve-settings__label" for="company-${id}">${label}</label>
+            <input type="text" id="company-${id}" name="${id}" class="hyve-settings__input${locked ? " hyve-settings__input--disabled" : ""}"
+              value="${esc(value)}" placeholder="${esc(placeholder)}"${locked ? " readonly" : ""}${id === "companyName" ? " required" : ""}>
+            ${hint ? `<p class="hyve-settings__hint">${hint}</p>` : ""}
+          </div>`;
+
+  const current = esc(company.preferredCurrency);
+  // The store's own currencies, from the theme's localization, so the list
+  // always matches the markets Hyve sells in.
+  const currencyOptions = `
+              <option value="">Choose a currency</option>
+              {%- assign hyve_currencies = localization.available_countries | map: 'currency' | map: 'iso_code' | uniq | sort -%}
+              {%- for hyve_currency in hyve_currencies -%}
+                <option value="{{ hyve_currency }}"{% if hyve_currency == '${current}' %} selected{% endif %}>{{ hyve_currency }}</option>
+              {%- endfor -%}`;
+  const shippingOptions = ['<option value="">Choose a method</option>']
+    .concat(
+      SHIPPING_METHODS.map(
+        (method) => `<option value="${method}"${company.preferredShipping === method ? " selected" : ""}>${method}</option>`,
+      ),
+    )
+    .join("");
+
+  return `
+      <form method="POST" action="/apps/account/settings" class="hyve-settings__card hyve-settings__card--company" id="hyve-company-form">
+        <input type="hidden" name="intent" value="saveCompany">
+        <div class="hyve-settings__card-head">
+          <span class="hyve-settings__card-icon">${icoUserOutline()}</span>
+          <h2 class="hyve-settings__card-title">Company</h2>
+        </div>
+        ${locked ? `<p class="hyve-settings__hint hyve-settings__hint--note">Only your account admin can change company details.</p>` : ""}
+
+        <div class="hyve-settings__company-grid">
+          ${field("companyName", "Company name", company.name, "e.g. Acme Corp Pte. Ltd.")}
+          ${field("taxNumber", "Tax reg. no.", company.taxNumber, "e.g. 202509530E", "Printed on your invoices.")}
+          <div class="hyve-settings__form-group">
+            <label class="hyve-settings__label" for="company-preferredCurrency">Preferred currency</label>
+            <select id="company-preferredCurrency" name="preferredCurrency" class="hyve-settings__input"${locked ? " disabled" : ""}>${currencyOptions}
+            </select>
+          </div>
+          <div class="hyve-settings__form-group">
+            <label class="hyve-settings__label" for="company-preferredShipping">Preferred shipping method</label>
+            <select id="company-preferredShipping" name="preferredShipping" class="hyve-settings__input"${locked ? " disabled" : ""}>${shippingOptions}</select>
+          </div>
+          ${field("courierAccount", "Courier account number (EXW)", company.courierAccount, "e.g. DHL 123456789", "For orders you collect from the factory on your own courier.")}
+          ${field("forwarderName", "Freight forwarder (FOB Ningbo)", company.forwarderName, "e.g. Kuehne+Nagel")}
+          ${field("forwarderAccount", "Forwarder account number (FOB Ningbo)", company.forwarderAccount, "e.g. KN-00012345")}
+        </div>
+
+        ${
+          locked
+            ? ""
+            : `<div class="hyve-settings__card-foot">
+          <button type="submit" class="hyve-settings__btn-save">
+            ${icoCheck()}
+            <span>Save Company Details</span>
+          </button>
+        </div>`
+        }
+      </form>`;
 }
 
 /**
@@ -343,6 +428,13 @@ const SETTINGS_STYLES = `
     width: 16px;
     height: 16px;
   }
+
+  /* Company profile card (full width, above the two personal cards) */
+  .hyve-settings__card--company { margin-bottom: 24px; }
+  .hyve-settings__company-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; }
+  @media (max-width: 760px) { .hyve-settings__company-grid { grid-template-columns: 1fr; } }
+  .hyve-settings__hint { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: #64748B; }
+  .hyve-settings__hint--note { margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: #F1F5F9; color: #475569; font-size: 13px; }
 
   /* Two Column Grid */
   .hyve-settings__grid {

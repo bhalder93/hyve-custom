@@ -8,7 +8,7 @@
  *
  * This file adds what that one does not do: attachments.
  */
-import { getMailer, getDefaultFrom } from "./email/mailer.server";
+import { getMailer, getDefaultFrom, defaultReplyTo } from "./email/mailer.server";
 
 /**
  * @param {object} opts
@@ -28,6 +28,7 @@ export async function sendEmail({ to, subject, html, text, attachments = [] }) {
     text,
     html,
     attachments,
+    replyTo: defaultReplyTo(),
   });
 
   console.log("[EMAIL:SENT]", { to, subject, messageId: result.messageId });

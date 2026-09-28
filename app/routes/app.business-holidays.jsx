@@ -15,6 +15,7 @@ import {
 } from "react-router";
 
 import { authenticate } from "../shopify.server";
+import { rescheduleProductionDueDates } from "../lib/production-reschedule.server";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Constants                                 */
@@ -510,6 +511,30 @@ export async function loader({
 /*                                   Action                                   */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * A holiday moves the production due date on orders already in production
+ * (HYV-135), so each save or delete works those out again. The holiday is
+ * saved either way; the note says what moved, or that the dates need a look.
+ */
+async function rescheduleNote(admin) {
+  try {
+    const { moved, skipped } = await rescheduleProductionDueDates(admin);
+    const parts = [];
+    if (moved.length) {
+      parts.push(
+        ` Production due date moved on ${moved.length} order${moved.length === 1 ? "" : "s"}: ${moved.map((order) => order.name).join(", ")}.`,
+      );
+    }
+    if (skipped.length) {
+      parts.push(` No approval date found for ${skipped.join(", ")}, so their due dates were left as they were.`);
+    }
+    return parts.join("");
+  } catch (error) {
+    console.error("Production due date reschedule failed:", error);
+    return " Production due dates could not be updated, so check orders in production.";
+  }
+}
+
 export async function action({
   request,
 }) {
@@ -645,9 +670,10 @@ export async function action({
         tempId,
 
         message:
-          id
+          (id
             ? "Business holiday updated successfully."
-            : "Business holiday created successfully.",
+            : "Business holiday created successfully.") +
+          (await rescheduleNote(admin)),
 
         fieldErrors: {},
 
@@ -706,7 +732,8 @@ export async function action({
         tempId,
 
         message:
-          "Business holiday deleted successfully.",
+          "Business holiday deleted successfully." +
+          (await rescheduleNote(admin)),
 
         fieldErrors: {},
 

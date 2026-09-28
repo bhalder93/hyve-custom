@@ -4,6 +4,7 @@ import {
   sendInternalSlaAlert,
   sendProofReminderEmail,
 } from "./email.server";
+import { proofDecisionLinks } from "../lib/proof.server";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Constants                                 */
@@ -21,8 +22,21 @@ const NOTIFIED_TAG_PREFIX =
 const FREIGHT_CUSTOMER_ARRANGED =
   "hyve-freight:customer-arranged";
 
+/**
+ * Staff can pause one order's automatic messages on a known delay (HYV-110):
+ * the proof reminders, the day-10 On Hold and the late-order alerts. Status
+ * emails still go out. Set from the order's Production Orders page.
+ */
+export const NOTIFICATIONS_PAUSED_TAG = "hyve-notifications:paused";
+
+/**
+ * The day after a proof is sent on which an undecided order goes On Hold.
+ * The portal shows the buyer the same date as their deadline (HYV-102).
+ */
+export const PROOF_HOLD_DAY = 10;
+
 const ON_HOLD_REASON =
-  "No proof approval after day 10";
+  `No proof approval after day ${PROOF_HOLD_DAY}`;
 
 /**
  * Default SLA rules.
@@ -151,9 +165,9 @@ const PROOF_REMINDERS = [
   },
 
   {
-    day: 10,
+    day: PROOF_HOLD_DAY,
     tag:
-      "hyve-notified:proof-reminder-day-10",
+      `hyve-notified:proof-reminder-day-${PROOF_HOLD_DAY}`,
   },
 ];
 
@@ -1582,6 +1596,9 @@ async function processProofSent(
 
       proofVersion,
 
+      // Approve and Request changes straight from the reminder (HYV-110).
+      ...(await proofDecisionLinks(admin, order.id, proofVersion)),
+
       reminderDay:
         reminder.day,
 
@@ -1621,7 +1638,7 @@ async function processProofSent(
   /* ---------------------------------------------------------------------- */
 
   if (
-    elapsedDays < 10
+    elapsedDays < PROOF_HOLD_DAY
   ) {
     return result;
   }
@@ -1849,6 +1866,15 @@ async function processOrder(
   ) {
     summary.skipped +=
       1;
+
+    return;
+  }
+
+  /*
+   * Staff paused this order's automatic messages.
+   */
+  if (hasTag(order, NOTIFICATIONS_PAUSED_TAG)) {
+    summary.skipped += 1;
 
     return;
   }

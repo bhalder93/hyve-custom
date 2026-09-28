@@ -10,6 +10,7 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { ensureCommercialDefinitions } from "../lib/commercial-metafields.server";
 import { completeB2BOnboarding } from "../lib/b2b-onboarding.server";
+import { sendApplicationDecisionEmail } from "../lib/application-emails.server";
 import {
   getDistributorApplicationById,
   updateDistributorApplication,
@@ -345,6 +346,22 @@ export const action = async ({ request, params }) => {
         status: APPLICATION_STATUSES.PENDING,
         rejectionMessage,
       };
+    }
+
+    // HYV-110: the applicant hears the outcome. An approval waits until every
+    // setup step worked, so nobody is invited into an account without its
+    // pricing or terms; staff see that it was held back.
+    const setupComplete = onboardingSteps.every((step) => step.ok);
+    if (status === APPLICATION_STATUSES.REJECTED) {
+      await sendApplicationDecisionEmail(admin, application, { approved: false });
+    } else if (status === APPLICATION_STATUSES.APPROVED && setupComplete) {
+      await sendApplicationDecisionEmail(admin, application, { approved: true, salesRep, salesRepEmail });
+    } else if (status === APPLICATION_STATUSES.APPROVED) {
+      onboardingSteps.push({
+        name: "approval email",
+        ok: false,
+        detail: "Not sent, because a setup step above needs attention. Email the distributor once it's fixed.",
+      });
     }
 
     return {
