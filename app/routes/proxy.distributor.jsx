@@ -10,6 +10,7 @@ import {
 import { uploadToShopifyFiles } from "../lib/shopify-files.server";
 import { sendApplicationEmails } from "../lib/application-emails.server";
 import { supportedCurrencies } from "../lib/store-currencies.server";
+import { BUSINESS_TIME_ZONE } from "../lib/portal.server";
 
 /**
  * Customer Account Portal — Apply for Distributor Portal Route.
@@ -261,6 +262,7 @@ export const action = async ({ request }) => {
           year: "numeric",
           month: "short",
           day: "numeric",
+          timeZone: BUSINESS_TIME_ZONE,
         }),
       };
 

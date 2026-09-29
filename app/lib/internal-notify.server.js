@@ -21,7 +21,9 @@ export async function internalNotifyTarget(admin) {
     const response = await admin.graphql(SHOP_QUERY);
     const body = await response.json();
     const shop = body?.data?.shop;
-    return { shopName: shop?.name || "Hyve Promo", to: shop?.email || "" };
+    // Trimmed, so a space at the end of the store name can't double the space
+    // in "Application Received - Hyve.Promo  distributor programme".
+    return { shopName: String(shop?.name || "").trim() || "Hyve Promo", to: shop?.email || "" };
   } catch (error) {
     console.warn("[notify] could not read the shop address", error?.message || error);
     return { shopName: "Hyve Promo", to: "" };

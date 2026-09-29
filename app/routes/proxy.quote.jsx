@@ -2,22 +2,26 @@ import { authenticate } from "../shopify.server";
 import { purchasingCompanyFor, purchasingEntity } from "../lib/purchasing-company.server";
 import { notifyQuoteRaised } from "../lib/quote-notification.server";
 import { LEAD_TIME_ATTRIBUTE } from "../lib/quote-document.server";
+import { loadCommercialSettings } from "../lib/commercial-settings.server";
 
 /**
  * Quote endpoint — one route for all three cart actions.
  * Storefront:  POST /apps/account/quote  ->  <app>/proxy/quote  (this route)
  *
  * intent:
- *   "email"  -> create draft order + send invoice (payment link) to the customer
- *   "share"  -> create draft order + return invoiceUrl to the frontend
- *   "pdf"    -> return an HTML invoice (no draft order)
+ *   "email"  -> save the quote, then email the buyer its PDF and payment link
+ *   "share"  -> save the quote and return its payment link
+ *   "pdf"    -> save the quote and return its PDF
  *
- * Auth: the App Proxy signature (verified below) proves the request came from
- * Shopify. `logged_in_customer_id` tells us if the shopper is signed in; if not,
- * the frontend must supply an email.
+ * Auth: the App Proxy signature proves the request came through Shopify.
+ * `logged_in_customer_id` tells us if the shopper is signed in; if not, the
+ * frontend must supply an email.
  *
- * Chunk Q1: verifies the round-trip only (signature, cart payload, login state).
- * Draft-order creation / email / share / pdf land in Q2–Q4.
+ * Nothing the browser sends is priced (HYV-98). It sends only its cart token,
+ * and the quote is built from the store's own copy of that cart: its lines,
+ * the prices Shopify charges for them (catalog price and decoration fee), and
+ * its currency. Trusting the browser let a request with no prices save Q-38
+ * at SGD 0.00 with a checkout link to match.
  */
 /** A link straight to the quote in the Shopify admin, for whoever picks it up. */
 function adminDraftUrl(shop, draftGid) {
@@ -26,12 +30,9 @@ function adminDraftUrl(shop, draftGid) {
 }
 
 /**
- * The reference and validity a quote should carry.
- *
- * The storefront invents both — the reference from the clock — so neither is
- * trusted. The reference is the draft order's own number, which is what the
- * Quotes list and the Retrieve a Quote page look it up by, and the validity
- * is the draft's own valid-until day, the one the portal PDF and the expiry
+ * The reference and validity a quote should carry: the draft order's own
+ * number, which the Quotes list and the Retrieve a Quote page look it up by,
+ * and the draft's own valid-until day, the one the PDF and the expiry
  * reminder use.
  */
 function quoteLabels(draftOrder, quoteValidUntil) {
@@ -40,6 +41,57 @@ function quoteLabels(draftOrder, quoteValidUntil) {
     ...(name ? { ref: name.replace(/^#D/, "Q-").replace(/^#(?!D)/, "Q-") } : {}),
     validStr: quoteValidUntil(draftOrder.createdAt).label,
   };
+}
+
+/** A cart token as the storefront issues it: "hWN…" optionally with "?key=…". */
+const CART_TOKEN = /^[A-Za-z0-9_-]{8,}(\?key=[A-Za-z0-9]+)?$/;
+
+/**
+ * The buyer's cart as the store holds it, read from the storefront by its
+ * token: the same `/cart.js` the cart page reads, with every price already as
+ * Shopify charges it. Null when the token is missing or the store can't be
+ * read, and then no quote is made rather than one priced from the browser.
+ */
+async function readStoreCart(admin, token) {
+  if (!CART_TOKEN.test(String(token || ""))) return null;
+  try {
+    const shop = await (
+      await admin.graphql(`#graphql
+        query QuoteStorefront { shop { primaryDomain { url } } }`)
+    ).json();
+    const origin = shop?.data?.shop?.primaryDomain?.url;
+    if (!origin) return null;
+    const response = await fetch(new URL("/cart.js", origin), {
+      headers: { Accept: "application/json", Cookie: `cart=${encodeURIComponent(token)}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) {
+      console.warn("[quote] store cart unavailable", response.status);
+      return null;
+    }
+    return await response.json();
+  } catch (error) {
+    console.warn("[quote] store cart unavailable", error?.message || error);
+    return null;
+  }
+}
+
+/**
+ * The lead time a quote states, from Commercial Settings (HYV-133): the rush
+ * time when the cart has Rush Production, otherwise the standard one, as the
+ * cart page shows it.
+ */
+async function quoteLeadTime(admin, items) {
+  const { values } = await loadCommercialSettings(admin);
+  const rush = items.some(
+    (it) =>
+      String(it.properties?._hyve_rush || "") === "true" ||
+      Object.entries(it.properties || {}).some(
+        ([key, value]) => /rush/i.test(key) && /yes/i.test(String(value)),
+      ),
+  );
+  const days = rush ? values.production_days_rush : values.production_days_standard;
+  return days ? `${days} business days` : "";
 }
 
 export const action = async ({ request }) => {
@@ -57,23 +109,15 @@ export const action = async ({ request }) => {
 
   const intent = payload.intent || null; // 'email' | 'share' | 'pdf'
   const email = (payload.email || "").trim() || null;
-  const items = Array.isArray(payload.items) ? payload.items : [];
 
-  const validIntent = ["email", "share", "pdf"].includes(intent);
-  if (!validIntent) {
+  if (!["email", "share", "pdf"].includes(intent)) {
     return Response.json({ ok: false, error: "Invalid intent." }, { status: 400 });
   }
 
-  if (!items.length) {
-    return Response.json({ ok: false, error: "Your cart is empty." }, { status: 400 });
-  }
-
-  // Every quote is a tracked sales lead, so all three actions create a real
-  // draft order — the PDF included. That is what gives the quote a number the
-  // Quotes list and the Retrieve a Quote page can find it by. Retrieval is
-  // proved with the email it was sent to, so we need one either way.
-  const needEmail = !loggedInCustomerId && !email;
-  if (needEmail) {
+  // Every quote is a tracked sales lead, so all three actions save one — the
+  // PDF included. Retrieval is proved with the email it was sent to, so we
+  // need one either way.
+  if (!loggedInCustomerId && !email) {
     return Response.json({ ok: true, needEmail: true });
   }
 
@@ -81,12 +125,23 @@ export const action = async ({ request }) => {
     return Response.json({ ok: false, error: "Store session unavailable." }, { status: 500 });
   }
 
-  // ----- create the draft order this quote is -----
-  const currencyCode = (payload.currency || "USD").toUpperCase();
+  const cart = await readStoreCart(admin, payload.cart_token);
+  if (!cart) {
+    return Response.json(
+      { ok: false, error: "We couldn't read your cart. Please refresh the page and try again." },
+      { status: 422 },
+    );
+  }
+  const items = Array.isArray(cart.items) ? cart.items : [];
+  if (!items.length) {
+    return Response.json({ ok: false, error: "Your cart is empty." }, { status: 400 });
+  }
+
+  // ----- save the draft order this quote is -----
+  const currencyCode = String(cart.currency || "USD").toUpperCase();
+  const leadTime = await quoteLeadTime(admin, items);
   const draftInput = {
-    // Saved in the cart's currency, which the line prices are already in
-    // (HYV-98). Without it the draft took the shop's USD and converted them,
-    // so an SGD 276.33 quote read USD 216.40 on Retrieve a Quote and at checkout.
+    // Saved in the cart's currency, which its prices are in (HYV-98).
     presentmentCurrencyCode: currencyCode,
     note: "Quote created from cart",
     tags: ["storefront-quote"],
@@ -94,15 +149,16 @@ export const action = async ({ request }) => {
       { key: "Source", value: "Cart quote" },
       // The lead time the cart showed, so the quote read back from the account
       // or Retrieve a Quote states the same one (HYV-98).
-      ...(payload.invoice?.leadTime ? [{ key: LEAD_TIME_ATTRIBUTE, value: String(payload.invoice.leadTime) }] : []),
+      ...(leadTime ? [{ key: LEAD_TIME_ATTRIBUTE, value: leadTime }] : []),
     ],
     lineItems: buildLineItems(items, currencyCode),
   };
+  let company = null;
   if (loggedInCustomerId) {
     const customerGid = `gid://shopify/Customer/${loggedInCustomerId}`;
     // A quote raised by someone buying for a company belongs to that company,
     // so their colleagues see it and it is priced against their catalog.
-    const company = await purchasingCompanyFor(admin, loggedInCustomerId);
+    company = await purchasingCompanyFor(admin, loggedInCustomerId);
     draftInput.purchasingEntity = purchasingEntity(company, customerGid);
   } else {
     draftInput.email = email;
@@ -128,7 +184,7 @@ export const action = async ({ request }) => {
     const draftOrder = result.draftOrder;
     const payUrl = draftOrder.invoiceUrl;
 
-    const { quoteValidUntil } = await import("../lib/quote-document.server");
+    const { quoteValidUntil, loadQuoteDocument } = await import("../lib/quote-document.server");
     const labels = quoteLabels(draftOrder, quoteValidUntil);
 
     // Every quote is a sales lead, however it was raised.
@@ -136,12 +192,8 @@ export const action = async ({ request }) => {
     await notifyQuoteRaised(admin, {
       ref: labels.ref,
       email: email || draftOrder.email || "",
-      items: (payload.invoice?.merch || [])
-        .map((line) => `${line.title}${line.qty > 1 ? ` x${line.qty}` : ""}`)
-        .join(" + "),
-      total: payload.invoice?.grandTotal != null
-        ? `${(payload.currency || "USD").toUpperCase()} ${(payload.invoice.grandTotal / 100).toFixed(2)}`
-        : "",
+      items: items.map((line) => `${line.product_title || line.title}${line.quantity > 1 ? ` x${line.quantity}` : ""}`).join(" + "),
+      total: `${currencyCode} ${(Number(cart.total_price || 0) / 100).toFixed(2)}`,
       source,
       adminUrl: adminDraftUrl(session?.shop, draftOrder.id),
     });
@@ -150,15 +202,22 @@ export const action = async ({ request }) => {
       return Response.json({ ok: true, intent: "share", invoiceUrl: payUrl, ref: labels.ref });
     }
 
+    // The PDF is built from the saved quote, the same document the account and
+    // Retrieve a Quote give, so what it prints is what Shopify holds.
+    const doc = await loadQuoteDocument(
+      admin,
+      draftOrder.id,
+      loggedInCustomerId
+        ? { customerGid: `gid://shopify/Customer/${loggedInCustomerId}`, companyGid: company?.companyId || null }
+        : { email },
+    );
+
     if (intent === "pdf") {
-      const source = payload.invoice;
-      if (!source || !Array.isArray(source.merch) || !source.merch.length) {
-        return Response.json({ ok: false, error: "Nothing to quote." }, { status: 400 });
-      }
+      if (!doc) return Response.json({ ok: false, error: "Could not generate the PDF." }, { status: 500 });
       try {
         const { buildQuotePdf } = await import("../lib/quote-pdf.server.jsx");
-        const pdf = await buildQuotePdf({ ...source, ...labels });
-        const safeRef = String(labels.ref || "quote").replace(/[^A-Za-z0-9._-]/g, "");
+        const pdf = await buildQuotePdf(doc);
+        const safeRef = String(doc.ref || "quote").replace(/[^A-Za-z0-9._-]/g, "");
         return new Response(pdf, {
           status: 200,
           headers: {
@@ -174,12 +233,9 @@ export const action = async ({ request }) => {
       }
     }
 
-    // intent === "email" -> send OUR OWN email (Gmail SMTP) with the pay link +
-    // the quote PDF attached, instead of Shopify's native invoice email (which
-    // can't carry attachments). Skipping draftOrderInvoiceSend => a single email.
-
-    // Recipient: explicit email (logged-out flow) or the email carried on the
-    // draft (populated from the purchasingEntity customer — no read_customers needed).
+    // intent === "email" -> send OUR OWN email (SMTP) with the pay link and the
+    // quote PDF attached, instead of Shopify's native invoice email (which
+    // can't carry attachments).
     const recipient = email || draftOrder.email || null;
     if (!recipient) {
       return Response.json(
@@ -188,31 +244,23 @@ export const action = async ({ request }) => {
       );
     }
 
-    // Render the PDF from the display-ready invoice the storefront sent, but
-    // under the draft's own number and validity. The storefront makes both up —
-    // the reference from the clock — and a quote labelled with an invented
-    // number can never be found again on the Retrieve a Quote page.
     let pdfBuffer = null;
-    const inv = payload.invoice ? { ...payload.invoice, ...labels } : null;
-    if (inv && Array.isArray(inv.merch) && inv.merch.length) {
+    if (doc) {
       try {
         const { buildQuotePdf } = await import("../lib/quote-pdf.server.jsx");
-        pdfBuffer = await buildQuotePdf(inv);
+        pdfBuffer = await buildQuotePdf(doc);
       } catch (pdfErr) {
         console.error("[quote-email] PDF render failed:", pdfErr);
-        pdfBuffer = null; // fall back to a link-only email
+        pdfBuffer = null; // a link-only email
       }
-    } else {
-      console.warn("[quote-email] no invoice payload → sending link-only email");
     }
 
-    const shopName = (inv && inv.shopName) || "Hyve Promo";
-    const ref = (inv && inv.ref) || "";
+    const shopName = doc?.shopName || "Hyve Promo";
+    const ref = labels.ref || "";
     const subject = `Your ${shopName} quote${ref ? " " + ref : ""}`;
     const safeRef = ref ? String(ref).replace(/[^A-Za-z0-9._-]/g, "") : "quote";
 
     try {
-      console.log("[quote-email] sending", { to: recipient, hasPdf: !!pdfBuffer });
       const { sendQuoteEmail } = await import("../lib/mailer.server.js");
       const info = await sendQuoteEmail({
         to: recipient,
@@ -226,47 +274,28 @@ export const action = async ({ request }) => {
         pdfBuffer,
         filename: safeRef + ".pdf",
       });
-      console.log("[quote-email] sent", {
-        to: recipient,
-        messageId: info?.messageId,
-        accepted: info?.accepted,
-        rejected: info?.rejected,
-        response: info?.response,
-      });
+      console.log("[quote-email] sent", { messageId: info?.messageId, accepted: info?.accepted?.length });
     } catch (err) {
       console.error("[quote-email] send failed:", err);
       return Response.json(
-        {
-          ok: false,
-          // Surface the real reason (e.g. "Invalid login", "Email is not
-          // configured…") so it shows in the modal while we're wiring this up.
-          error: "Email send failed: " + (err?.message || "unknown error"),
-          invoiceUrl: payUrl,
-        },
+        { ok: false, error: "Email send failed: " + (err?.message || "unknown error"), invoiceUrl: payUrl },
         { status: 422 },
       );
     }
 
     return Response.json({ ok: true, intent: "email", sent: true });
   } catch (err) {
+    console.error("[quote] failed", err);
     return Response.json({ ok: false, error: "Something went wrong creating the quote." }, { status: 500 });
   }
 };
 
 /**
- * Map cart lines to draft-order line items as REAL STORE ITEMS.
- *
- * We link the actual variant (`variantId`) and set the price via `priceOverride`
- * — which "is used in place of the product variant's catalog price". This keeps
- * the "trust cart price" decision (priceOverride = the cart's final_price, which
- * already includes the Cart Transform imprint/decoration fee) while producing
- * catalog-linked line items instead of custom ones.
- *
- * Note: `originalUnitPriceWithCurrency` is IGNORED when a variantId is present —
- * passing it (as we did before) is what forced Shopify to create custom items.
- * Lines with no variant id fall back to a custom line.
- * Internal `_`-prefixed properties are omitted from customAttributes, except
- * the flags in KEPT_FLAGS.
+ * The store cart's lines as draft order lines: each one the real variant, at
+ * the unit price Shopify charges for it in that cart (`final_price`, catalog
+ * price plus the cart transform's decoration fee), set with `priceOverride`,
+ * which "is used in place of the product variant's catalog price". Hidden
+ * (`_`-prefixed) properties are left off, except the flags in KEPT_FLAGS.
  */
 /**
  * The cart's hidden flags a quote has to keep. Checkout lets a blank sample
@@ -292,18 +321,8 @@ function buildLineItems(items, currencyCode) {
     };
     if (customAttributes.length) line.customAttributes = customAttributes;
 
-    const variantId = it.variant_id ? `gid://shopify/ProductVariant/${it.variant_id}` : null;
-    if (variantId) {
-      // Store item: link the catalog variant, override the unit price to the
-      // cart's final price (base + Cart Transform decoration fee).
-      line.variantId = variantId;
-      line.priceOverride = { amount: unit, currencyCode };
-    } else {
-      // No variant id → fall back to a custom line.
-      line.title = String(it.title || it.product_title || "Item").slice(0, 250);
-      line.originalUnitPriceWithCurrency = { amount: unit, currencyCode };
-      if (it.sku) line.sku = String(it.sku).slice(0, 100);
-    }
+    line.variantId = `gid://shopify/ProductVariant/${it.variant_id}`;
+    line.priceOverride = { amount: unit, currencyCode };
     return line;
   });
 }

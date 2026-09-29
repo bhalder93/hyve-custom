@@ -37,6 +37,16 @@ export function distributorPage({
   /** `selected` for the option the applicant chose, else for the default. */
   const chosen = (field, option, fallback = false) =>
     (values?.[field] != null ? values[field] === option : fallback) ? " selected" : "";
+  /**
+   * Until the applicant picks one, the currency their market shops in, e.g.
+   * SGD for Singapore (HYV-78). Without a default the first of the store's
+   * currencies, CNY, was preselected. Shopify fills in the visitor's currency
+   * as it renders this page, which it does for every App Proxy page.
+   */
+  const currencyChoice = (code) =>
+    values?.preferredCurrency != null
+      ? chosen("preferredCurrency", code)
+      : `{% if cart.currency.iso_code == '${String(code).replace(/[^A-Z]/g, "")}' %} selected{% endif %}`;
   const toastHtml = renderNotificationToast(notice, error);
 
   if (application) {
@@ -145,8 +155,7 @@ export function distributorPage({
                 <option value="Thailand"${chosen("countryBased", "Thailand", false)}>Thailand</option>
                 <option value="Indonesia"${chosen("countryBased", "Indonesia", false)}>Indonesia</option>
                 <option value="Vietnam"${chosen("countryBased", "Vietnam", false)}>Vietnam</option>
-                <option value="Australia"${chosen("countryBased", "Australia", false)}>Australia</option>
-                <option value="United States"${chosen("countryBased", "United States", false)}>United States</option>
+                <option value="China"${chosen("countryBased", "China", false)}>China</option>
                 <option value="Other"${chosen("countryBased", "Other", false)}>Other</option>
               </select>
             </div>
@@ -180,7 +189,7 @@ export function distributorPage({
               <label class="hyve-dist__label" for="dist-currency">Preferred Currency <span class="hyve-dist__req">*</span></label>
               <select id="dist-currency" name="preferredCurrency" class="hyve-dist__select" required>
                 ${(currencies || [])
-                  .map((code) => `<option value="${esc(code)}"${chosen("preferredCurrency", code)}>${esc(code)}</option>`)
+                  .map((code) => `<option value="${esc(code)}"${currencyChoice(code)}>${esc(code)}</option>`)
                   .join("")}
               </select>
             </div>

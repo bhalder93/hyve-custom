@@ -577,8 +577,12 @@ export async function sendArtworkReceivedEmail({
         Our artwork team will now prepare your Artwork Proof for review.
       </p>
 
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        Your Artwork Proof will be prepared and sent to you within 48 hours for review and approval.
+      </p>
+
       <p style="margin:0; line-height:1.7; font-size:15px;">
-        We will contact you again when your Artwork Proof is ready for approval.
+        We will contact you again as soon as your Artwork Proof is ready.
       </p>
     `,
   });
@@ -587,7 +591,7 @@ export async function sendArtworkReceivedEmail({
     to: customerEmail,
     subject: `${customerStatusLabel("artwork-received")} - ${orderName}`,
     html,
-    text: `Artwork received for ${orderName}. Our team will now prepare your Artwork Proof.`,
+    text: `Artwork received for ${orderName}. Our team will prepare and send your Artwork Proof within 48 hours for review and approval.`,
   });
 }
 
@@ -805,6 +809,13 @@ export async function sendProofApprovedEmail({
     throw new Error("Production due date is required.");
   }
 
+  const productionDueDateOnly = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Singapore",
+  }).format(new Date(productionDueAt));
+
   const html = customerLayout({
     title: customerStatusLabel("proof-approved"),
     customerName,
@@ -848,7 +859,7 @@ export async function sendProofApprovedEmail({
             color:${BRAND.primaryText};
           "
         >
-          ${escapeHtml(formatDate(productionDueAt))}
+          ${escapeHtml(productionDueDateOnly)}
         </div>
       </div>
 
@@ -862,7 +873,7 @@ export async function sendProofApprovedEmail({
     to: customerEmail,
     subject: `${customerStatusLabel("proof-approved")} - ${orderName}`,
     html,
-    text: `Your Artwork Proof for ${orderName} has been approved. Production target: ${formatDate(productionDueAt)}.`,
+    text: `Your Artwork Proof for ${orderName} has been approved. Production target: ${productionDueDateOnly}.`,
   });
 }
 

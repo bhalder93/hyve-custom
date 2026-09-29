@@ -110,7 +110,8 @@ export function quoteDecision(node) {
 export const DRAFT_ORIGIN_FIELDS = `
   createdEvent: events(first: 1, query: "action:create") {
     nodes { ... on BasicEvent { author attributeToUser attributeToApp } }
-  }`;
+  }
+  purchasingEntity { ... on PurchasingCompany { company { id } } }`;
 
 function createdEvent(node) {
   return node?.createdEvent?.nodes?.[0] || null;
@@ -160,14 +161,24 @@ export function quoteStatus(node) {
 }
 
 /**
- * Map Shopify Admin API DraftOrder nodes to Quote objects.
- * Uses ONLY real data from Shopify — no dummy/sample data fallback.
+ * A distributor's quotes (HYV-99): their company's, plus drafts sales made for
+ * them personally without picking the company (HYV-135). Quotes follow the
+ * company, not the person, so neither another company's drafts nor the cart
+ * quotes they raised before they were a distributor show here: both came up
+ * under a buyer's name after they moved to a new company.
+ *
+ * @param {object[]} companyNodes the company's draft orders
+ * @param {object[]} ownNodes drafts where the buyer is the customer, read with
+ *   DRAFT_ORIGIN_FIELDS and tags
  */
-/**
- * A buyer's quotes: the company's, plus any that sales raised for them
- * personally without picking the company (HYV-135), so a draft made for the
- * customer shows up either way. Each quote once, most recently updated first.
- */
+export function buyerQuoteNodes(companyNodes = [], ownNodes = []) {
+  const personalFromSales = ownNodes.filter(
+    (node) => !node?.purchasingEntity?.company && !(node?.tags || []).includes("storefront-quote"),
+  );
+  return mergeQuoteNodes(companyNodes, personalFromSales);
+}
+
+/** Draft order lists joined: each quote once, most recently updated first. */
 export function mergeQuoteNodes(...lists) {
   const byId = new Map();
   for (const node of lists.flat()) {
@@ -177,6 +188,10 @@ export function mergeQuoteNodes(...lists) {
   return [...byId.values()].sort((a, b) => stamp(b).localeCompare(stamp(a)));
 }
 
+/**
+ * Map Shopify Admin API DraftOrder nodes to Quote objects.
+ * Uses ONLY real data from Shopify — no dummy/sample data fallback.
+ */
 export function mapDraftOrdersToQuotes(draftOrderNodes = []) {
   if (!Array.isArray(draftOrderNodes) || draftOrderNodes.length === 0) {
     return [];

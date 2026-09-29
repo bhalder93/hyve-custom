@@ -5,8 +5,8 @@ import { distributorOnly } from "../lib/account-error.server";
 import { portalChrome } from "../lib/account-data.server";
 import {
   DRAFT_ORIGIN_FIELDS,
+  buyerQuoteNodes,
   mapDraftOrdersToQuotes,
-  mergeQuoteNodes,
   expiredQuoteToRow,
   quotesPage,
 } from "../lib/account-quotes.server";
@@ -103,7 +103,7 @@ export const loader = async ({ request }) => {
           ]),
           ADMIN_TIMEOUT_MS,
         );
-        draftOrderNodes = mergeQuoteNodes(
+        draftOrderNodes = buyerQuoteNodes(
           companyData?.data?.company?.draftOrders?.nodes || [],
           ownData?.data?.draftOrders?.nodes || [],
         );

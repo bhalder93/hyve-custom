@@ -1,7 +1,8 @@
 import { Link, useLoaderData, useRouteError } from "react-router";
 import { authenticate } from "../shopify.server";
 import { getAllDistributorApplications } from "../lib/distributor-metaobject.server";
-import { quoteDecision } from "../lib/account-quotes.server";
+import { DRAFT_ORIGIN_FIELDS, QUOTE_STATUSES, quoteStatus, submittedForReview } from "../lib/account-quotes.server";
+import { formatMoney } from "../lib/portal.server";
 import {
   AdminTheme,
   Metric,
@@ -28,9 +29,14 @@ const QUOTES_QUERY = `#graphql
         id
         name
         createdAt
+        status
+        invoiceSentAt
+        tags
+        order { id name }
         totalPriceSet { presentmentMoney { amount currencyCode } }
         customer { displayName }
         hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
+        ${DRAFT_ORIGIN_FIELDS}
       }
     }
   }`;
@@ -44,7 +50,9 @@ export const loader = async ({ request }) => {
   try {
     const response = await admin.graphql(QUOTES_QUERY);
     const body = await response.json();
-    quotes = body?.data?.draftOrders?.nodes || [];
+    // A terms order waiting on its credit review is a draft too, but it is an
+    // order, not a quote (HYV-99), so it is not counted here.
+    quotes = (body?.data?.draftOrders?.nodes || []).filter((node) => !submittedForReview(node));
   } catch (error) {
     console.warn("[dashboard] quotes query failed:", error?.message || error);
   }
@@ -52,8 +60,9 @@ export const loader = async ({ request }) => {
   const isStatus = (application, value) =>
     String(application.status || "Pending Review").toLowerCase() === value;
 
-  // An unset metafield means nobody has decided yet.
-  const decision = (quote) => quoteDecision(quote);
+  // The same statuses the buyer sees in the portal: Accepted once the quote
+  // became an order, so Q-35 no longer read Awaiting after it became #1064.
+  const count = (status) => quotes.filter((q) => quoteStatus(q) === status).length;
 
   return {
     applications: {
@@ -70,9 +79,9 @@ export const loader = async ({ request }) => {
     },
     quotes: {
       total: quotes.length,
-      awaiting: quotes.filter((q) => decision(q) == null).length,
-      approved: quotes.filter((q) => decision(q) === true).length,
-      rejected: quotes.filter((q) => decision(q) === false).length,
+      awaiting: count(QUOTE_STATUSES.SENT),
+      approved: count(QUOTE_STATUSES.ACCEPTED),
+      rejected: count(QUOTE_STATUSES.DECLINED),
       recent: quotes.slice(0, 5).map((q) => ({
         id: q.id,
         // The quote detail route is keyed on the bare draft order number, the
@@ -81,27 +90,24 @@ export const loader = async ({ request }) => {
         numericId: String(q.id).replace("gid://shopify/DraftOrder/", ""),
         name: quoteReference(q.name),
         customer: q.customer?.displayName || "—",
-        total: money(q.totalPriceSet?.presentmentMoney),
-        decision: decision(q) === true ? "approved" : decision(q) === false ? "rejected" : "awaiting",
+        total: q.totalPriceSet?.presentmentMoney
+          ? formatMoney(q.totalPriceSet.presentmentMoney.amount, q.totalPriceSet.presentmentMoney.currencyCode)
+          : "—",
+        status: quoteStatus(q),
       })),
     },
   };
 };
+
+/** The dashboard's short form of the portal's quote statuses. */
+const QUOTE_LABELS = { created: "Created", sent: "Sent", accepted: "Accepted", declined: "Declined" };
+const QUOTE_TONES = { created: "info", sent: "info", accepted: "success", declined: "critical" };
 
 function quoteReference(name) {
   const raw = String(name || "");
   if (raw.startsWith("#D")) return `Q-${raw.slice(2)}`;
   if (raw.startsWith("#")) return `Q-${raw.slice(1)}`;
   return raw || "Quote";
-}
-
-function money(presentmentMoney) {
-  if (!presentmentMoney) return "—";
-  const amount = Number(presentmentMoney.amount) || 0;
-  return `${presentmentMoney.currencyCode} ${amount.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 function formatDate(value) {
@@ -238,20 +244,8 @@ export default function DashboardPage() {
                         sub={quote.customer}
                       >
                         <span className="hyv-row__value">{quote.total}</span>
-                        <Pill
-                          tone={
-                            quote.decision === "approved"
-                              ? "success"
-                              : quote.decision === "rejected"
-                                ? "critical"
-                                : "info"
-                          }
-                        >
-                          {quote.decision === "approved"
-                            ? "Accepted"
-                            : quote.decision === "rejected"
-                              ? "Declined"
-                              : "Awaiting"}
+                        <Pill tone={QUOTE_TONES[quote.status] || "info"}>
+                          {QUOTE_LABELS[quote.status] || "Sent"}
                         </Pill>
                       </Row>
                     ))

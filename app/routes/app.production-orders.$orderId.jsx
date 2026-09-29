@@ -26,7 +26,7 @@ import { statusEmailWanted } from "../lib/notification-preferences.server";
 import {
   CUSTOMER_EMAIL_STATUSES,
   STATUS_OPTIONS,
-  STATUS_TRANSITIONS,
+  allowedMoves,
 } from "../lib/production-statuses";
 import { ShopifyFileUpload } from "../components/ShopifyFileUpload";
 
@@ -92,6 +92,23 @@ function formatDate(value) {
   }).format(date);
 }
 
+/**
+ * A due date as the day alone, in Singapore time. The time of day it carries
+ * is only the time the proof was approved, which read as a deadline hour.
+ */
+function formatDay(value) {
+  const date = value ? new Date(value) : null;
+
+  if (!date || Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat("en-SG", {
+    dateStyle: "medium",
+    timeZone: "Asia/Singapore",
+  }).format(date);
+}
+
 function formatMoney(amount, currency) {
   const numeric = Number(amount);
 
@@ -119,12 +136,9 @@ function validateHttpUrl(value) {
   }
 }
 
-function canTransition(currentStatus, nextStatus) {
-  if (!currentStatus) {
-    return nextStatus === "order-placed";
-  }
-
-  return Boolean(STATUS_TRANSITIONS[currentStatus]?.includes(nextStatus));
+/** On Hold's moves depend on where it was held, so it takes the history (HYV-100). */
+function canTransition(currentStatus, nextStatus, history = []) {
+  return allowedMoves(currentStatus, history).includes(nextStatus);
 }
 
 function getCustomerEmail(order) {
@@ -1321,7 +1335,11 @@ export async function action({ request, params }) {
       };
     }
 
-    if (!canTransition(currentStatus, nextStatus)) {
+    // Where an order On Hold can go depends on the step it was held at, which
+    // the history records (HYV-100).
+    const history = currentStatus === "on-hold" ? await getStatusHistory(admin, orderId) : [];
+
+    if (!canTransition(currentStatus, nextStatus, history)) {
       return {
         success: false,
 
@@ -1653,12 +1671,8 @@ export default function ProductionOrderDetailsPage() {
       return [];
     }
 
-    if (!order.productionStatus) {
-      return ["order-placed"];
-    }
-
-    return STATUS_TRANSITIONS[order.productionStatus] ?? [];
-  }, [order]);
+    return allowedMoves(order.productionStatus, loaderData.history || []);
+  }, [order, loaderData.history]);
 
   function clearFieldError(field) {
     setClientErrors((current) => ({
@@ -1680,7 +1694,7 @@ export default function ProductionOrderDetailsPage() {
       productionPhotoUrl,
     });
 
-    if (nextStatus && !canTransition(order.productionStatus, nextStatus)) {
+    if (nextStatus && !canTransition(order.productionStatus, nextStatus, loaderData.history || [])) {
       errors.nextStatus = "This production status transition is not allowed.";
     }
 
@@ -1846,7 +1860,7 @@ export default function ProductionOrderDetailsPage() {
                 <s-stack direction="block" gap="small">
                   <s-text tone="subdued">Production due</s-text>
 
-                  <s-heading>{formatDate(order.productionDueAt)}</s-heading>
+                  <s-heading>{formatDay(order.productionDueAt)}</s-heading>
                 </s-stack>
               </s-box>
             </s-grid>
@@ -2259,7 +2273,7 @@ export default function ProductionOrderDetailsPage() {
                 <s-stack direction="block" gap="small">
                   <s-text tone="subdued">Production due</s-text>
 
-                  <s-text>{formatDate(order.productionDueAt)}</s-text>
+                  <s-text>{formatDay(order.productionDueAt)}</s-text>
                 </s-stack>
 
                 {order.onHoldReason && (

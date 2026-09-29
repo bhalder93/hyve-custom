@@ -297,10 +297,16 @@ function OrderRow({ order }) {
 
       <s-table-cell>
         <s-stack direction="block" gap="small">
-          <s-text>
-            {order.productionDueAt ? formatDate(order.productionDueAt) : "—"}
-          </s-text>
-          <s-text color="subdued">Production due</s-text>
+         <s-text>
+  {order.productionDueAt
+    ? new Intl.DateTimeFormat("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "Asia/Singapore",
+      }).format(new Date(order.productionDueAt))
+    : "—"}
+</s-text>
         </s-stack>
       </s-table-cell>
 

@@ -3,6 +3,8 @@
  * Manages metaobject definition, creation, queries, and status updates.
  */
 
+import { BUSINESS_TIME_ZONE } from "./portal.server";
+
 export const METAOBJECT_TYPE = "$app:distributor_application";
 export const FALLBACK_METAOBJECT_TYPE = "distributor_application";
 export const METAOBJECT_TYPES = [METAOBJECT_TYPE, FALLBACK_METAOBJECT_TYPE];
@@ -378,10 +380,12 @@ export async function createDistributorApplication(admin, fields = {}) {
     { key: "status", value: "Pending Review" },
     {
       key: "submitted_at",
+      // The day it was sent in Singapore, not on the server's UTC clock (HYV-128).
       value: new Date().toLocaleDateString("en-SG", {
         year: "numeric",
         month: "short",
         day: "numeric",
+        timeZone: BUSINESS_TIME_ZONE,
       }),
     },
   ];

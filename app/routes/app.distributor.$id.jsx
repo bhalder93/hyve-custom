@@ -203,6 +203,15 @@ export const action = async ({ request, params }) => {
       };
     }
 
+    // Every distributor buys at a tier (C3). Without one the company has no
+    // catalog of its own and the buyer sees retail prices (HYV-79).
+    if (status === APPLICATION_STATUSES.APPROVED && !catalogId) {
+      return {
+        success: false,
+        error: "Choose the distributor's pricing tier to approve.",
+      };
+    }
+
     /*
      * Finalized applications cannot be modified.
      * This is also enforced server-side for security.
@@ -716,6 +725,8 @@ export default function DistributorDetailPage() {
   // Every distributor gets a named contact, so approval waits for one.
   const repEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(salesRepEmail.trim());
   const repComplete = Boolean(salesRep.trim()) && repEmailValid;
+  // A pricing tier is required too (HYV-79).
+  const approvalComplete = repComplete && Boolean(catalogId);
 
   useEffect(() => {
     if (defaultTermsId && !selectedPaymentTerms) {
@@ -732,7 +743,7 @@ export default function DistributorDetailPage() {
   }, [application?.contact_person, application?.company_name]);
 
   const handleApprove = () => {
-    if (isSubmitting || !isPending || !repComplete) {
+    if (isSubmitting || !isPending || !approvalComplete) {
       return;
     }
 
@@ -1204,6 +1215,9 @@ export default function DistributorDetailPage() {
                     </s-text>
                     {formattedCompanyAddress ? (
                       <s-text>{formattedCompanyAddress}</s-text>
+                    ) : !cleanCompanyId ? (
+                      // No company yet: approving creates it with this address.
+                      <s-text color="subdued">Saved to the company when the application is approved.</s-text>
                     ) : (
                       <s-stack direction="block" gap="small">
                         <s-text tone="critical">No address saved in Shopify, so orders from this company have nowhere to ship.</s-text>
@@ -1385,11 +1399,11 @@ export default function DistributorDetailPage() {
                               onInput={(e) => setSalesRepPhone(e?.currentTarget?.value ?? e?.target?.value ?? "")}
                             />
                             <s-select
-                              label="Pricing tier"
+                              label="Pricing tier (required)"
+                              placeholder="Choose a tier"
                               value={catalogId}
                               onInput={(e) => setCatalogId(e?.currentTarget?.value ?? e?.target?.value ?? "")}
                             >
-                              <s-option value="">Retail pricing (no tier)</s-option>
                               {tierCatalogs.map((catalog) => (
                                 <s-option key={catalog.id} value={catalog.id}>
                                   {catalog.title}{catalog.status === "ACTIVE" ? "" : ` (${catalog.status.toLowerCase()})`}
@@ -1400,7 +1414,7 @@ export default function DistributorDetailPage() {
                           <s-text color="subdued" type="small">
                             {tierCatalogs.length
                               ? "The tier is the B2B catalog the distributor buys from, listed from Shopify."
-                              : "No B2B catalogs in Shopify yet, so the distributor gets retail pricing."}
+                              : "No B2B catalogs in Shopify yet. Create the tier catalogs under Markets → Catalogs, then approve."}
                           </s-text>
                         </s-stack>
 
@@ -1431,12 +1445,15 @@ export default function DistributorDetailPage() {
                               : "Add the sales representative's name and email to approve."}
                           </s-banner>
                         )}
+                        {repComplete && !catalogId && (
+                          <s-banner tone="warning">Choose the pricing tier to approve.</s-banner>
+                        )}
 
                         <s-stack direction="inline" gap="base">
                           <s-button
                             variant="primary"
                             onClick={handleApprove}
-                            disabled={isSubmitting || !repComplete}
+                            disabled={isSubmitting || !approvalComplete}
                           >
                             {isSubmitting ? "Approving & creating..." : "Approve application"}
                           </s-button>

@@ -177,7 +177,8 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
   const charges = lines.filter(isChargeLine);
 
   return {
-    shopName: body.data.shop?.name || "",
+    // Trimmed, so a space at the end of the store name can't read "Your Hyve.Promo  quote".
+    shopName: String(body.data.shop?.name || "").trim(),
     ref: quoteReference(draft.name),
     currency,
     dateStr: formatDate(draft.createdAt),

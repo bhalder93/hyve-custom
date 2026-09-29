@@ -374,9 +374,8 @@ function renderAddressModal(company = null) {
               <select class="hyve-select" id="addr-country" name="countryCode" required>
                 <option value="SG">Singapore</option>
                 <option value="MY">Malaysia</option>
-                <option value="US">United States</option>
+                <option value="CN">China</option>
                 <option value="GB">United Kingdom</option>
-                <option value="AU">Australia</option>
                 <option value="CA">Canada</option>
                 <option value="DE">Germany</option>
                 <option value="FR">France</option>

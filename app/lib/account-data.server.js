@@ -7,7 +7,7 @@
  * scopes, GraphQL errors or a timeout — so the caller shows the error panel
  * instead of an empty portal.
  */
-import { DRAFT_ORIGIN_FIELDS, mergeQuoteNodes, QUOTE_STATUSES, quoteStatus, submittedForReview } from "./account-quotes.server";
+import { buyerQuoteNodes, DRAFT_ORIGIN_FIELDS, QUOTE_STATUSES, quoteStatus, submittedForReview } from "./account-quotes.server";
 import {
   isDistributor,
   orderStatusKey,
@@ -90,7 +90,7 @@ const ACCOUNT_QUERY = `#graphql
               buyerExperienceConfiguration {
                 paymentTermsTemplate { name dueInDays }
               }
-              catalogs(first: 1) { nodes { id title } }
+              catalogs(first: 2) { nodes { id title status } }
               salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
               salesRepEmail: metafield(namespace: "hyve", key: "sales_rep_email") { value }
               salesRepPhone: metafield(namespace: "hyve", key: "sales_rep_phone") { value }
@@ -180,7 +180,7 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
     // An order carries no link back to the quote it came from, but the quote
     // records the order it became — so the pairing is read from that side and
     // hung on the order for the detail view to offer the quote PDF.
-    const quotes = mergeQuoteNodes(companyQuotes(c) || [], body?.data?.draftOrders?.nodes || []);
+    const quotes = buyerQuoteNodes(companyQuotes(c) || [], body?.data?.draftOrders?.nodes || []);
     // A terms order released after its credit review came from a draft too,
     // but that draft was the order, not a quote, so it offers no quote PDF.
     const quoteByOrder = new Map(
@@ -289,7 +289,7 @@ const CHROME_QUERY = `#graphql
               buyerExperienceConfiguration {
                 paymentTermsTemplate { name dueInDays }
               }
-              catalogs(first: 1) { nodes { id title } }
+              catalogs(first: 2) { nodes { id title status } }
               salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
               salesRepEmail: metafield(namespace: "hyve", key: "sales_rep_email") { value }
               salesRepPhone: metafield(namespace: "hyve", key: "sales_rep_phone") { value }
@@ -390,7 +390,7 @@ export async function portalChrome(admin, customerId) {
 
     // A quote needs the buyer's attention until staff mark it approved or
     // rejected, which they do with the hyve_status metafield on the draft order.
-    const awaitingQuotes = mergeQuoteNodes(companyQuotes(c) || [], body?.data?.draftOrders?.nodes || []).filter(
+    const awaitingQuotes = buyerQuoteNodes(companyQuotes(c) || [], body?.data?.draftOrders?.nodes || []).filter(
       (node) => quoteStatus(node) === QUOTE_STATUSES.SENT && !submittedForReview(node),
     ).length;
 
@@ -428,7 +428,7 @@ function companyOrders(customer) {
 
 /**
  * The company's quotes, on the same terms. The buyer's own drafts are read
- * alongside and merged in (mergeQuoteNodes), since sales can raise one for the
+ * alongside and merged in (buyerQuoteNodes), since sales can raise one for the
  * customer without picking the company.
  */
 function companyQuotes(customer) {
@@ -436,8 +436,13 @@ function companyQuotes(customer) {
   return company ? company.draftOrders?.nodes || [] : null;
 }
 
-/** The pricing tier a B2B buyer sees is the catalog on their company location (C3). */
+/**
+ * The pricing tier a B2B buyer sees is the catalog on their company location
+ * (C3): the active one. A location can also list its market's catalog, which
+ * may be a draft ("Hit Products" on a company approved without a tier), and
+ * that is not a tier (HYV-79).
+ */
 function catalogTier(customer) {
   const location = customer?.companyContactProfiles?.[0]?.company?.locations?.nodes?.[0];
-  return location?.catalogs?.nodes?.[0]?.title || "";
+  return (location?.catalogs?.nodes || []).find((catalog) => catalog?.status === "ACTIVE")?.title || "";
 }

@@ -42,7 +42,12 @@ const PORTAL_MOVES = {
   "proof-sent": ["proof-approved", "on-hold"],
 };
 
-const PRODUCTION_MARKET = "CN";
+/**
+ * The market whose holidays production and the artwork deadline skip:
+ * Singapore. Holidays set for other markets on the Holidays page are not
+ * counted.
+ */
+const PRODUCTION_MARKET = "SG";
 
 /**
  * What a move needs to know about the order. Order actions load it through
@@ -273,7 +278,7 @@ export async function productionCalendar(admin) {
 }
 
 /**
- * China, where production runs, is UTC+8 all year, as Singapore is. Business
+ * Singapore, and China where production runs, are UTC+8 all year. Business
  * days are counted as they fall there: counted in UTC, a proof approved early
  * on a Saturday in Singapore was still Friday, so the count started a day
  * early and the due date came out a day late (HYV-100, #1064).
@@ -282,7 +287,7 @@ const PRODUCTION_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 /** `days` business days after `from`, skipping weekends and the calendar's holidays. */
 function addBusinessDays(calendar, from, days) {
-  // Shifted to China time, so the UTC calendar methods read China's days.
+  // Shifted to UTC+8, so the UTC calendar methods read Singapore's days.
   const date = new Date(new Date(from).getTime() + PRODUCTION_UTC_OFFSET_MS);
   let added = 0;
   while (added < days) {

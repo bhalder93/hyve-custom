@@ -50,7 +50,7 @@ const DOCUMENT_QUERY = `#graphql
       createdAt
       poNumber
       customAttributes { key value }
-      currencyCode
+      presentmentCurrencyCode
       displayFinancialStatus
       displayFulfillmentStatus
       customer { id }
@@ -125,7 +125,9 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
   // Only an order on terms has a schedule; a prepaid one was settled at checkout.
   const schedule = order.paymentTerms?.paymentSchedules?.nodes?.[0] || null;
 
-  const currency = order.currencyCode || order.totalPriceSet?.presentmentMoney?.currencyCode || "";
+  // The currency the buyer paid in (HYV-103). `currencyCode` is the shop's
+  // own, which printed an SGD order in USD.
+  const currency = order.presentmentCurrencyCode || order.totalPriceSet?.presentmentMoney?.currencyCode || "";
   const amount = (set) => Number(set?.presentmentMoney?.amount ?? 0);
   const outstanding = amount(order.totalOutstandingSet);
   const paid = Boolean(schedule?.completedAt) || outstanding <= 0;

@@ -27,6 +27,11 @@ const OTHER_EMAIL = {
   shipped: "Only Shopify's shipping email, when you fulfil the order in Shopify",
 };
 
+/** Where the move list depends on the order, described rather than listed. */
+const MOVES_DESCRIBED = {
+  "on-hold": "Back to the step it was held at, or the step after it",
+};
+
 /** Moves the dropdown offers but the order page refuses until something is done. */
 const HELD_UNTIL = {
   "proof-approved": "In Production only once a paid Physical Sample is approved",
@@ -48,7 +53,7 @@ export const loader = async ({ request }) => {
       value,
       customerLabel: (customerStatusLabel(value) || "—") + (BUYER_SEES_TOO[value] || ""),
       email: emailFor(value),
-      next: (STATUS_TRANSITIONS[value] || []).map(labelOf),
+      next: MOVES_DESCRIBED[value] ? [MOVES_DESCRIBED[value]] : (STATUS_TRANSITIONS[value] || []).map(labelOf),
       heldUntil: HELD_UNTIL[value] || "",
     })),
     // The moves made for staff, outside the dropdown.

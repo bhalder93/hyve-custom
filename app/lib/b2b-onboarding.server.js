@@ -8,7 +8,9 @@
  *   2. an ordering role on the location  companyLocationAssignRoles
  *      -- without this the contact can see the company but cannot order for it
  *   3. payment terms on the location     companyLocationUpdate
- *      -- this is what makes Net 30 real; the portal reads it back
+ *      -- this is what makes Net 30 real; the portal reads it back. A company
+ *         on terms also submits its orders for review, so a terms order waits
+ *         at Credit Under Review until sales releases it (G6, HYV-100)
  *   4. the tier catalog on the location  catalogContextUpdate
  *      -- this is what gives them distributor pricing
  *   5. credit limit on the location      metafieldsSet (company-credit.server.js)
@@ -85,10 +87,10 @@ export async function completeB2BOnboarding(
           }
         }`, {
         companyLocationId: locationId,
-        input: { buyerExperienceConfiguration: { paymentTermsTemplateId: template.id } },
+        input: { buyerExperienceConfiguration: { paymentTermsTemplateId: template.id, checkoutToDraft: true } },
       });
       const err = res?.companyLocationUpdate?.userErrors?.[0];
-      record("payment terms", !err, err ? err.message : template.name);
+      record("payment terms", !err, err ? err.message : `${template.name}, orders submitted for review`);
     }
   }
 
@@ -140,7 +142,30 @@ export async function completeB2BOnboarding(
     record("sales rep", !err, err ? err.message : String(salesRep || salesRepEmail).trim());
   }
 
-  // 6. What the application already told us about the company, kept on it
+  // 6. Tax on the location (HYV-79). Hyve isn't registered for GST, so nothing
+  // is collected on a distributor's orders (HYV-93), and the location carries
+  // the distributor's own tax number, which Shopify shows as its Tax ID.
+  {
+    const taxId = String(taxRegistrationNumber || "").trim();
+    const res = await gql(admin, `#graphql
+      mutation SetLocationTax($companyLocationId: ID!, $taxRegistrationId: String, $taxExempt: Boolean) {
+        companyLocationTaxSettingsUpdate(
+          companyLocationId: $companyLocationId
+          taxRegistrationId: $taxRegistrationId
+          taxExempt: $taxExempt
+        ) {
+          userErrors { field message code }
+        }
+      }`, {
+      companyLocationId: locationId,
+      taxRegistrationId: taxId || null,
+      taxExempt: true,
+    });
+    const err = res?.companyLocationTaxSettingsUpdate?.userErrors?.[0];
+    record("location tax", !err, err ? err.message : `Don't collect tax${taxId ? `, Tax ID ${taxId}` : ""}`);
+  }
+
+  // 7. What the application already told us about the company, kept on it
   // as its profile (company-profile.server.js), so Settings starts filled in:
   //  - the tax registration number, which the invoice PDF prints (K3), since a
   //    distributor's own tax number has to appear on what they file

@@ -19,6 +19,13 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 
+/**
+ * Under the totals on every quote. Duties are worked out at checkout, once the
+ * destination is known, so the quote says they are still to come (HYV-93). The
+ * cart page carries the same sentence (duty_note_text in main-cart-items).
+ */
+const DUTY_NOTE = "Import duties and taxes are added at checkout — once paid, there are no customs fees on delivery.";
+
 function money(cents, currency) {
   try {
     // Always the code, "USD 216.40" not "$216.40": the store sells in several
@@ -222,7 +229,7 @@ function QuoteDoc({ inv, withImages }) {
           </View>
         </View>
 
-        {inv.dutyNote ? <Text style={styles.dutyNote}>{inv.dutyNote}</Text> : null}
+        <Text style={styles.dutyNote}>{DUTY_NOTE}</Text>
 
         <Text style={styles.foot}>
           This quote is an estimate, not a request for payment. Shipping is calculated at checkout.
