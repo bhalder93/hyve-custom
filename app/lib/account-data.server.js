@@ -1,34 +1,15 @@
-/**
- * One Admin API read backing every account-portal page.
- *
- * Returns the signed-in customer, whether they are an approved distributor
- * (A2, by customer tag), their commercial terms (M2/M3) and their recent
- * orders. `failed` is true when the data could not be trusted — missing
- * scopes, GraphQL errors or a timeout — so the caller shows the error panel
- * instead of an empty portal.
- */
+
 import { buyerQuoteNodes, DRAFT_ORIGIN_FIELDS, QUOTE_STATUSES, quoteStatus, submittedForReview } from "./account-quotes.server";
 import {
   isDistributor,
   orderStatusKey,
   AWAITING_DISTRIBUTOR,
   CUSTOMER_METAFIELDS,
-  formatMoney,
-  formatDate,
+  orderBelongsTo,
 } from "./portal.server";
 
-/** Give up before Shopify gives up on the proxy response. */
 const ADMIN_TIMEOUT_MS = 4000;
 
-/**
- * Order fields.
- *
- * Everything about where an order is in production — its status, proof,
- * production photo, on-hold reason, production target and when the status last
- * changed — is written by the SLA engine and the Production Orders screen under
- * the app's own namespace, declared in shopify.app.toml, so it is read from
- * `$app` and nowhere else. The PO number is Shopify's own field.
- */
 const PORTAL_ORDER_FIELDS = `#graphql
   fragment PortalOrder on Order {
           id
@@ -38,6 +19,8 @@ const PORTAL_ORDER_FIELDS = `#graphql
           poNumber
           statusPageUrl
           displayFulfillmentStatus
+          customer { id }
+          purchasingEntity { ... on PurchasingCompany { company { id } location { id } } }
           totalPriceSet { presentmentMoney { amount currencyCode } }
           paymentTerms { paymentTermsName }
           productionStatus: metafield(namespace: "$app", key: "production_status") { value }
@@ -174,7 +157,7 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
     const initials =
       ((first_[0] || "") + (last[0] || "")).toUpperCase() || (name ? name[0].toUpperCase() : "");
 
-    const orderNodes = companyOrders(c) || c.orders?.nodes || [];
+    const orderNodes = companyOrders(c) || personalOrders(c, customerId);
     const distributor = isDistributor(c);
 
     // An order carries no link back to the quote it came from, but the quote
@@ -217,24 +200,12 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
     return empty;
   }
 }
-
-/**
- * Commercial terms for the sidebar panel (M2).
- *
- * No credit figure is shown for launch (HYV-135): credit limits and balances
- * will come from NetSuite, so none are read here.
- */
 function buildTerms(customer) {
-  // Everything here is real Shopify data. Payment terms come from the company
-  // location's buyer experience configuration, and the tier is the catalog
-  // assigned to that location.
+
   const profiles = customer.companyContactProfiles || [];
   const location = profiles[0]?.company?.locations?.nodes?.[0] || null;
 
-  // A buyer can be a contact on several companies, and a company can trade from
-  // several locations. Orders are placed against one specific location, so
-  // anything that lists a buyer's orders has to look at all of them — reading
-  // only the first silently hid every order placed against any other location.
+
   const locationIds = profiles
     .flatMap((profile) => profile?.company?.locations?.nodes || [])
     .map((node) => node?.id)
@@ -242,20 +213,15 @@ function buildTerms(customer) {
 
   return {
     locationIds,
-    // The saved artwork library hangs off the company, so it is shared by
-    // everyone on it rather than trapped on one person's record (F4).
     companyId: profiles[0]?.company?.id || null,
     company: location ? profiles[0].company.name : "",
     paymentTerms: location?.buyerExperienceConfiguration?.paymentTermsTemplate?.name || "",
     salesRep: location?.salesRep?.value || "",
-    // The rep's own contact details, so "Email Representative" and the WhatsApp
-    // button reach the person named above rather than a general inbox.
     salesRepEmail: location?.salesRepEmail?.value || "",
     salesRepPhone: location?.salesRepPhone?.value || "",
   };
 }
 
-/** Reject rather than let a slow Admin API hold the proxy response open. */
 function withTimeout(promise, ms) {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -264,10 +230,7 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-/** Namespace/keys the setup guide documents, re-exported for convenience. */
 export { CUSTOMER_METAFIELDS };
-
-/* -------------------------------------------------------------------------- */
 
 const CHROME_QUERY = `#graphql
   query PortalChrome($id: ID!, $draftQuery: String!) {
@@ -305,6 +268,7 @@ const CHROME_QUERY = `#graphql
               displayFulfillmentStatus
               totalPriceSet { presentmentMoney { currencyCode } }
               productionStatus: metafield(namespace: "$app", key: "production_status") { value }
+              customAttributes { key value }
               lineItems(first: 10) { nodes { customAttributes { key value } } }
             }
           }
@@ -327,6 +291,9 @@ const CHROME_QUERY = `#graphql
           displayFulfillmentStatus
           totalPriceSet { presentmentMoney { currencyCode } }
           productionStatus: metafield(namespace: "$app", key: "production_status") { value }
+          customAttributes { key value }
+          customer { id }
+          purchasingEntity { ... on PurchasingCompany { company { id } location { id } } }
           lineItems(first: 10) { nodes { customAttributes { key value } } }
         }
       }
@@ -347,20 +314,7 @@ const CHROME_QUERY = `#graphql
     }
   }`;
 
-/**
- * Everything the shell needs, for pages that fetch their own content.
- *
- * Without this a page can't know the customer is a distributor, so the shell
- * falls back to the B2C nav — which is what happened on the pages that render
- * their own data. Deliberately lighter than `loadAccount`: it pulls only what
- * the two nav badges need, not full order or quote detail.
- *
- * Both counts are worked out here so every page shows both badges. A page that
- * computed its own only ever lit up its own tab.
- *
- * Returns an object safe to spread into `accountShell({...})`, and `{}` when
- * anything is missing so the caller's own values stand.
- */
+
 export async function portalChrome(admin, customerId) {
   if (!admin || !customerId) return {};
 
@@ -381,16 +335,14 @@ export async function portalChrome(admin, customerId) {
     const first = c.firstName || "";
     const last = c.lastName || "";
     const name = c.displayName || `${first} ${last}`.trim();
-    const orderNodes = companyOrders(c) || c.orders?.nodes || [];
+    const orderNodes = companyOrders(c) || personalOrders(c, customerId);
     const distributor = isDistributor(c);
 
     const awaiting = orderNodes.filter((node) =>
       AWAITING_DISTRIBUTOR.includes(orderStatusKey(node)),
     ).length;
 
-    // A quote needs the buyer's attention until staff mark it approved or
-    // rejected, which they do with the hyve_status metafield on the draft order.
-    const awaitingQuotes = buyerQuoteNodes(companyQuotes(c) || [], body?.data?.draftOrders?.nodes || []).filter(
+      const awaitingQuotes = buyerQuoteNodes(companyQuotes(c) || [], body?.data?.draftOrders?.nodes || []).filter(
       (node) => quoteStatus(node) === QUOTE_STATUSES.SENT && !submittedForReview(node),
     ).length;
 
@@ -414,34 +366,21 @@ export async function portalChrome(admin, customerId) {
   }
 }
 
-/**
- * The company's orders, or null when this shopper has no company.
- *
- * Everyone on a company works from the same records, so the company's list is
- * the list. Returning null rather than [] keeps "no company" separate from "a
- * company with no orders yet".
- */
 function companyOrders(customer) {
   const company = customer?.companyContactProfiles?.[0]?.company;
   return company ? company.orders?.nodes || [] : null;
 }
 
-/**
- * The company's quotes, on the same terms. The buyer's own drafts are read
- * alongside and merged in (buyerQuoteNodes), since sales can raise one for the
- * customer without picking the company.
- */
 function companyQuotes(customer) {
   const company = customer?.companyContactProfiles?.[0]?.company;
   return company ? company.draftOrders?.nodes || [] : null;
 }
 
-/**
- * The pricing tier a B2B buyer sees is the catalog on their company location
- * (C3): the active one. A location can also list its market's catalog, which
- * may be a draft ("Hit Products" on a company approved without a tier), and
- * that is not a tier (HYV-79).
- */
+function personalOrders(customer, customerId) {
+  const customerGid = `gid://shopify/Customer/${String(customerId).replace(/\D/g, "")}`;
+  return (customer?.orders?.nodes || []).filter((order) => orderBelongsTo(order, { customerGid }));
+}
+
 function catalogTier(customer) {
   const location = customer?.companyContactProfiles?.[0]?.company?.locations?.nodes?.[0];
   return (location?.catalogs?.nodes || []).find((catalog) => catalog?.status === "ACTIVE")?.title || "";

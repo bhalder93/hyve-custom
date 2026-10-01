@@ -10,6 +10,7 @@
  * that follows doesn't have to load it again.
  */
 import { gql, PRODUCTION_ORDER_FRAGMENT } from "./order-status.server";
+import { orderBelongsTo } from "./portal.server";
 
 const ORDER_QUERY = `#graphql
   query OrderForAction($id: ID!) {
@@ -43,9 +44,7 @@ export async function loadOrderForAction(admin, orderGid, by = {}) {
   if (!order) return { ok: false, error: "We couldn't find that order." };
 
   const locations = (by.locationGids || []).filter(Boolean);
-  const ownedByCustomer = by.customerGid && order.customer?.id === by.customerGid;
-  const ownedByCompany = locations.includes(order.purchasingEntity?.location?.id);
-  if (!ownedByCustomer && !ownedByCompany) {
+  if (!orderBelongsTo(order, { customerGid: by.customerGid, locationGids: locations })) {
     return { ok: false, error: "That order isn't on your account." };
   }
 

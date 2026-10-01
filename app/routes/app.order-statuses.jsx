@@ -30,11 +30,13 @@ const OTHER_EMAIL = {
 /** Where the move list depends on the order, described rather than listed. */
 const MOVES_DESCRIBED = {
   "on-hold": "Back to the step it was held at, or the step after it",
+  "production-complete": "Shipped, or Ready For Collection on a customer-arranged freight (FOB) order, and On Hold",
 };
 
 /** Moves the dropdown offers but the order page refuses until something is done. */
 const HELD_UNTIL = {
   "proof-approved": "In Production only once a paid Physical Sample is approved",
+  "production-complete": "Shipped or Ready For Collection only once the production photo is approved",
 };
 
 export const loader = async ({ request }) => {

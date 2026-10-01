@@ -296,7 +296,8 @@ export function ErrorBoundary() {
     <s-page heading="Hyve distributor portal">
       <s-section>
         <s-banner tone="critical" heading="We couldn't load the dashboard">
-          <s-paragraph>{error?.message || "Please reload the page."}</s-paragraph>
+          
+          <s-paragraph> {error?.message || "Please reload the page."}</s-paragraph>
         </s-banner>
       </s-section>
     </s-page>

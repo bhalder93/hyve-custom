@@ -1,0 +1,26 @@
+query CartDeliveryOptionsTransformRunInput {
+  cart {
+    buyerIdentity {
+      purchasingCompany{
+        company{
+          name
+        }
+      }
+      customer {
+        id
+        
+        hasTags(tags: ["B2B_DDP", "B2B_FOB"]) {
+          hasTag
+          tag
+        }
+      }
+    }
+    deliveryGroups {
+      id
+      deliveryOptions {
+        handle
+        title
+      }
+    }
+  }
+}

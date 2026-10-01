@@ -23,6 +23,8 @@ const INVOICES_QUERY = `#graphql
           poNumber
           displayFinancialStatus
           displayFulfillmentStatus
+          # The ship date customer service gives, as on the order (HYV-102).
+          estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
           totalPriceSet { presentmentMoney { amount currencyCode } }
           totalOutstandingSet { presentmentMoney { amount currencyCode } }
           lineItems(first: 3) { nodes { title quantity } }
@@ -131,6 +133,7 @@ function toInvoice(order) {
     issuedLabel: formatDate(schedule.issuedAt || order.createdAt),
     dueLabel: formatDate(schedule.dueAt),
     paidLabel: formatDate(schedule.completedAt),
+    shipDateLabel: formatDate(order.estimatedShipDate?.value),
     daysUntilDue: days,
     termsName: order.paymentTerms?.paymentTermsName || "",
     // Shopify has no invoice PDF, so we render one from the order.

@@ -12,6 +12,8 @@
  * deleted line can't be bought again, so the caller is told what was dropped.
  */
 
+import { orderBelongsTo } from "./portal.server";
+
 const SOURCE_QUERY = `#graphql
   query ReorderSource($id: ID!) {
     order(id: $id) {
@@ -70,10 +72,12 @@ const NOTIFY = `#graphql
 /**
  * @param {string} orderGid the order being repeated
  * @param {string} customerGid the signed-in buyer, who must own that order
+ * @param {string[]} [locationGids] their company's locations: an order placed
+ *   for a company they have left can't be repeated (HYV-76)
  * @returns {Promise<{ok:boolean, error?:string, name?:string, href?:string,
  *   skipped?:number, emailed?:boolean}>}
  */
-export async function reorder(admin, orderGid, customerGid) {
+export async function reorder(admin, orderGid, customerGid, locationGids = []) {
   if (!admin || !orderGid || !customerGid) {
     return { ok: false, error: "We couldn't work out which order to repeat." };
   }
@@ -82,8 +86,9 @@ export async function reorder(admin, orderGid, customerGid) {
   const order = source?.order;
   if (!order) return { ok: false, error: "We couldn't find that order." };
 
-  // A buyer may only repeat their own order.
-  if (order.customer?.id !== customerGid) {
+  // A buyer may only repeat their own order, and a company order only while
+  // they're still on that company.
+  if (order.customer?.id !== customerGid || !orderBelongsTo(order, { customerGid, locationGids })) {
     return { ok: false, error: "We couldn't find that order." };
   }
 

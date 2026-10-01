@@ -29,7 +29,12 @@ export const action = async ({ request }) => {
       return backToOrders({ error: "Reordering is for distributor accounts." });
     }
 
-    const result = await reorder(admin, orderGid, `gid://shopify/Customer/${customerId}`);
+    const result = await reorder(
+      admin,
+      orderGid,
+      `gid://shopify/Customer/${customerId}`,
+      chrome.terms?.locationIds || [],
+    );
     if (!result.ok) return backToOrders({ error: result.error });
 
     const dropped = result.skipped

@@ -1,0 +1,17 @@
+api_version = "2026-07"
+
+[[extensions]]
+description = "t:description"
+handle = "b2b-fob-ddp-delivery-customization"
+name = "t:name"
+type = "function"
+uid = "6836061a-80de-78d8-27af-9514f173681ea459b7ef"
+
+[[extensions.targeting]]
+export = "cart-delivery-options-transform-run"
+input_query = "src/cart_delivery_options_transform_run.graphql"
+target = "cart.delivery-options.transform.run"
+
+[extensions.build]
+command = ""
+path = "dist/function.wasm"

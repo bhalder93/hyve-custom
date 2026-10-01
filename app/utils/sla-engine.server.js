@@ -5,6 +5,8 @@ import {
   sendProofReminderEmail,
 } from "./email.server";
 import { proofDecisionLinks } from "../lib/proof.server";
+import { productionStatusOf, recordStatusHistory, SOURCES } from "../lib/order-status.server";
+import { customerArrangesFreight } from "../lib/production-statuses";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Constants                                 */
@@ -18,9 +20,6 @@ const BREACH_TAG_PREFIX =
 
 const NOTIFIED_TAG_PREFIX =
   "hyve-notified:";
-
-const FREIGHT_CUSTOMER_ARRANGED =
-  "hyve-freight:customer-arranged";
 
 /**
  * Staff can pause one order's automatic messages on a known delay (HYV-110):
@@ -454,6 +453,10 @@ async function getOrdersByStatus(
                 updatedAt
                 email
                 tags
+
+                shippingLine {
+                  title
+                }
 
                 customer {
                   displayName
@@ -1300,6 +1303,9 @@ async function moveOrderToOnHold(
   admin,
   order,
 ) {
+  // Read before the move, for the timeline entry below.
+  const fromStatus = productionStatusOf(order);
+
   const statusTags =
     (
       order.tags ||
@@ -1418,6 +1424,21 @@ async function moveOrderToOnHold(
       ?.userErrors,
     "MoveOrderToOnHold",
   );
+
+  // The hold stands even if its timeline entry can't be written.
+  try {
+    await recordStatusHistory(admin, {
+      order,
+      from: fromStatus,
+      to: "on-hold",
+      changedAt,
+      changedBy: "System",
+      source: SOURCES.sla,
+      note: ON_HOLD_REASON,
+    });
+  } catch (error) {
+    console.error(`[sla] timeline entry for the automatic hold on ${order.name} failed`, error);
+  }
 
   order.tags =
     (
@@ -1746,9 +1767,8 @@ async function processShipped(
   }
 
   if (
-    hasTag(
+    customerArrangesFreight(
       order,
-      FREIGHT_CUSTOMER_ARRANGED,
     )
   ) {
     return {

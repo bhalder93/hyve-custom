@@ -1,6 +1,7 @@
 // app/routes/webhooks.fulfillments.create.jsx
 
 import { authenticate } from "../shopify.server";
+import { customerArrangesFreight } from "../lib/production-statuses";
 
 const SHIPPED_STATUS = "shipped";
 const SHIPPED_TAG = `hyve-status:${SHIPPED_STATUS}`;
@@ -87,6 +88,10 @@ async function getFulfillment(admin, fulfillmentId) {
               tags
 
               displayFulfillmentStatus
+
+              shippingLine {
+                title
+              }
 
               productionStatus: metafield(
                 namespace: "$app"
@@ -619,9 +624,7 @@ export async function action({ request }) {
     /* Customer-arranged freight                                           */
     /* -------------------------------------------------------------------- */
 
-    const customerArrangedFreight = (order.tags ?? []).includes(
-      "hyve-freight:customer-arranged",
-    );
+    const customerArrangedFreight = customerArrangesFreight(order);
 
     console.log(`Order ${order.name} moved to shipped.`, {
       orderId: order.id,

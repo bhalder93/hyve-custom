@@ -8,7 +8,9 @@
  *  - J3  six customer-visible statuses (see portal.server.js for the mapping
  *        from the stored production status).
  *  - J10 the chain ends at Shipped. There is no Delivered filter or state, so
- *        the mockup's "Delivery Confirmed" row is deliberately absent.
+ *        the mockup's "Delivery Confirmed" row is deliberately absent. An
+ *        order whose freight the buyer arranges (FOB) ends at Ready For
+ *        Collection instead.
  *  - J9  each row carries the action that fits its status.
  *  - J12 an order waiting on the distributor shows what is needed and by when.
  *
@@ -20,9 +22,11 @@ import { artworkDueDate, productionCalendar } from "./order-status.server";
 import { PROOF_HOLD_DAY } from "../utils/sla-engine.server";
 import { artworkSupplied, zonesFromAttributes } from "./artwork-zones.server";
 import { orderModal, MODAL_STYLES, MODAL_SCRIPT } from "./account-order-modal.server";
+import { customerArrangesFreight } from "./production-statuses";
 import {
   ARTWORK_PENDING,
   VISIBLE_STATUSES,
+  COLLECTION_STATUS,
   AWAITING_DISTRIBUTOR,
   orderStatusKey,
   statusByKey,
@@ -57,6 +61,9 @@ export function mapOrders(nodes = []) {
         ? `/apps/account/quotes/pdf?draft=${encodeURIComponent(node.quoteDraftId)}`
         : "",
       statusKey,
+      // The buyer arranges the freight (FOB): the order ends at Ready For
+      // Collection instead of Shipped.
+      collection: customerArrangesFreight(node),
       items: itemsSummary(lineItems),
       placedAt: node?.createdAt || "",
       date: formatDate(node?.createdAt),
@@ -225,7 +232,11 @@ export function awaitingActionCount(orders = []) {
  * @param {boolean} [opts.showDistributorPromo]  only for non-distributor accounts
  */
 export function ordersPage({ orders = [], library = [], showDistributorPromo = false, notice = "", error = "" } = {}) {
-  const tabs = [{ key: "all", label: "All" }, ...VISIBLE_STATUSES]
+  // Ready For Collection is a filter only while an order is at it, so a buyer
+  // who never collects keeps the six.
+  const collecting = orders.some((o) => o.statusKey === COLLECTION_STATUS.key);
+  const statuses = VISIBLE_STATUSES.flatMap((s) => (collecting && s.key === "shipped" ? [COLLECTION_STATUS, s] : [s]));
+  const tabs = [{ key: "all", label: "All" }, ...statuses]
     .map(
       (tab, i) => `
         <button type="button" class="hyve-ord__tab${i === 0 ? " is-active" : ""}" data-filter="${tab.key}">
@@ -336,7 +347,7 @@ function rowActions(order, statusKey) {
       ),
     );
   }
-  if (["shipped", "production-completed"].includes(statusKey) && order.id) {
+  if (["shipped", "ready-for-collection", "production-completed"].includes(statusKey) && order.id) {
     // Reorder places a real order, so it posts rather than following a link.
     actions.push(`
       <form method="post" action="/apps/account/orders/reorder" class="hyve-ord__reorder">
@@ -371,7 +382,7 @@ function metaLine(order, statusKey) {
     const number = order.trackingNumber ? `Tracking: <strong>${esc(order.trackingNumber)}</strong>` : "";
     return `<p class="hyve-ord__meta">${icoTruck()}<span>${[carrier, number].filter(Boolean).join(" &middot; ")}</span></p>`;
   }
-  if (["in-production", "production-completed"].includes(statusKey) && order.shipDate) {
+  if (["in-production", "production-completed", "ready-for-collection"].includes(statusKey) && order.shipDate) {
     return `<p class="hyve-ord__meta">${icoCalendar()}<span>Estimated ship date: <strong>${esc(order.shipDate)}</strong></span></p>`;
   }
   if (statusKey === "in-production" && order.productionTarget) {
@@ -396,8 +407,8 @@ function promoCard() {
         <p class="hyve-promo__sub">Unlock enterprise benefits by joining the Hyve distributor network. Perfect for marketing agencies, wholesalers, and corporate procurement teams.</p>
         <ul class="hyve-promo__perks">
           <li>${icoCard()}<span>Special Commercial Payment Terms (Net 30)</span></li>
-          <li>${icoTag()}<span>Exclusive Tier Pricing (Up to Platinum)</span></li>
-          <li>${icoTruck()}<span>Flexible Shipping Terms (FOB/EXW)</span></li>
+          <li>${icoTag()}<span>Exclusive Tier Pricing (Up to Diamond)</span></li>
+          <li>${icoTruck()}<span>Flexible Shipping Terms (FOB/DDP)</span></li>
         </ul>
       </div>
       <a class="hyve-promo__cta" href="/apps/account/distributor">Apply Now ${icoArrow()}</a>

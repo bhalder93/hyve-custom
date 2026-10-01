@@ -1,33 +1,11 @@
-/**
- * Addresses page for the account portal (the `main` half of the account shell).
- *
- * Renders customer shipping and billing addresses in an aesthetic card grid
- * matching the portal design:
- *   - Highlighted default card with green border and "✓ DEFAULT" badge
- *   - Category badge with truck icon for "SHIPPING" or credit card icon for "BILLING"
- *   - Formatted recipient name, company/department, street lines, city, postal, country, phone and tax reg. no.
- *   - Action buttons: "Edit", "Set Default" (for non-defaults), and delete icon button
- *   - Dashed card for "+ Add New Address"
- *   - Interactive modals for Add, Edit, and Delete confirmation
- */
+
 import { esc } from "./account-shell.server";
 
-/**
- * Format and normalize Shopify Customer addresses for display.
- *
- * A customer with none saved gets an empty list and the page says so. It used
- * to invent three addresses from the mockup — a fictional person, company and
- * phone number — and show them as the customer's own, which risked a shipment
- * going to an address nobody had ever entered.
- */
 export function mapAddresses(rawAddresses = [], defaultAddressId = null, customer = null) {
   return rawAddresses.map((addr, index) => {
     const isDefault =
       addr.id === defaultAddressId ||
       (!defaultAddressId && index === 0);
-
-    // Determine if billing or shipping
-    // In Shopify, addresses can be identified by company, note, or user preference
     const isBilling =
       addr.company?.toLowerCase().includes("finance") ||
       addr.company?.toLowerCase().includes("billing") ||
@@ -97,18 +75,9 @@ export function mapAddresses(rawAddresses = [], defaultAddressId = null, custome
   });
 }
 
-/**
- * Main renderer for the Addresses page.
- */
-/**
- * @param {object} opts
- * @param {?{canManage:boolean}} [opts.company] set for a distributor, whose
- *   addresses are the company's locations (company-addresses.server.js); only
- *   a company admin can change them.
- */
+
 export function addressesPage({
   addresses = [],
-  // eslint-disable-next-line no-unused-vars -- part of the page's signature; callers pass it
   customer = null,
   company = null,
   notice = null,
@@ -160,9 +129,6 @@ export function addressesPage({
     ${ADDRESSES_SCRIPT}`;
 }
 
-/**
- * Render an individual address card.
- */
 function renderAddressCard(addr) {
   const typeBadge =
     addr.type === "both"
@@ -225,9 +191,6 @@ function renderAddressCard(addr) {
     </article>`;
 }
 
-/**
- * Render the dashed "Add New Address" card.
- */
 function renderAddCard() {
   return `
     <button type="button" class="hyve-addr-card hyve-addr-card--add" data-open-add-modal>
@@ -238,9 +201,7 @@ function renderAddCard() {
     </button>`;
 }
 
-/**
- * Render notifications toast (e.g. on redirect after create, update, delete).
- */
+
 function renderNotificationToast(notice, error) {
   if (!notice && !error) return "";
 
@@ -259,9 +220,6 @@ function renderNotificationToast(notice, error) {
     </div>`;
 }
 
-/**
- * Modal dialog for Creating and Editing addresses.
- */
 function renderAddressModal(company = null) {
   const companyMode = Boolean(company);
   return `
@@ -429,9 +387,6 @@ function renderAddressModal(company = null) {
     </dialog>`;
 }
 
-/**
- * Delete confirmation dialog.
- */
 function renderDeleteModal(company = null) {
   return `
     <dialog class="hyve-modal hyve-modal--confirm" id="hyve-delete-modal" aria-labelledby="hyve-delete-title">
@@ -459,7 +414,6 @@ function renderDeleteModal(company = null) {
     </dialog>`;
 }
 
-/* ---------- SVG icons ---------- */
 function svg(inner) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
 }
@@ -510,7 +464,6 @@ function icoAlert() {
   );
 }
 
-/* ---------- Styles ---------- */
 const ADDRESSES_STYLES = `
 <style>
   .hyve-addr__note { margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: #F1F5F9; color: #475569; font-size: 13px; }
@@ -1177,7 +1130,6 @@ const ADDRESSES_STYLES = `
   }
 </style>`;
 
-/* ---------- Client Script ---------- */
 const ADDRESSES_SCRIPT = `
 <script>
 (() => {

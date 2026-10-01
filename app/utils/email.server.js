@@ -974,6 +974,59 @@ ${photo ? `
 }
 
 /* -------------------------------------------------------------------------- */
+/* Ready For Collection                                                       */
+/* -------------------------------------------------------------------------- */
+
+/** A customer-arranged freight (FOB) order, in place of the Shipped email. */
+export async function sendReadyForCollectionEmail({
+  customerEmail,
+  customerName,
+  orderName,
+  orderDate,
+  lineItems = [],
+}) {
+  const html = customerLayout({
+    title: customerStatusLabel("ready-for-collection"),
+    customerName,
+    orderName,
+    orderDate,
+    lineItems,
+    body: `
+      <div style="padding:16px; background:#ecfeff; border:1px solid #c7f9f1; border-radius:12px; margin-bottom:20px;">
+        <div style="font-size:15px; line-height:1.6; color:${BRAND.primaryText};">
+          <strong>Your order is ready for collection.</strong>
+        </div>
+      </div>
+
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        Production for your order has been completed and your order is now ready for collection.
+      </p>
+
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        As freight for this order is customer-arranged, please coordinate collection with your nominated carrier.
+      </p>
+
+      <p style="margin:0; line-height:1.7; font-size:15px;">
+        If your carrier needs collection details or assistance, please contact our customer service team.
+      </p>
+    `,
+  });
+
+  return sendEmail({
+    to: customerEmail,
+    subject: `${customerStatusLabel("ready-for-collection")} - ${orderName}`,
+    html,
+    text:
+      `Your order ${orderName} is ready for collection.\n\n` +
+      `Production has been completed. ` +
+      `As freight for this order is customer-arranged, ` +
+      `please coordinate collection with your nominated carrier.\n\n` +
+      `If your carrier needs collection details or assistance, ` +
+      `please contact our customer service team.`,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
 /* Internal alert                                                             */
 /* -------------------------------------------------------------------------- */
 

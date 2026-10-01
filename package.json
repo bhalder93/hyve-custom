@@ -33,6 +33,7 @@
     "@shopify/app-bridge-react": "^4.2.4",
     "@shopify/shopify-app-react-router": "^1.2.1",
     "@shopify/shopify-app-session-storage-prisma": "^9.0.0",
+    "country-state-city": "^3.2.1",
     "isbot": "^5.1.31",
     "nodemailer": "^10.0.10",
     "prisma": "^6.16.3",
@@ -59,7 +60,7 @@
     "graphql-config": "^5.1.1",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3",
-    "vite": "^6.3.6"
+    "vite": "^6.4.3"
   },
   "workspaces": [
     "extensions/*"

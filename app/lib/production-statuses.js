@@ -18,6 +18,10 @@ export const STATUS_OPTIONS = [
   { label: "Proof Approved", value: "proof-approved" },
   { label: "In Production", value: "in-production" },
   { label: "Production Complete", value: "production-complete" },
+  // In place of Shipped for a customer-arranged freight (FOB) order, once its
+  // production photo is approved. Not in STATUS_TRANSITIONS: the order page
+  // offers it only for those orders.
+  { label: "Ready For Collection", value: "ready-for-collection" },
   { label: "Shipped", value: "shipped" },
   { label: "Delivered", value: "delivered" },
   { label: "On Hold", value: "on-hold" },
@@ -76,4 +80,16 @@ export const CUSTOMER_EMAIL_STATUSES = new Set([
   "proof-sent",
   "proof-approved",
   "production-complete",
+  "ready-for-collection",
 ]);
+
+/**
+ * True when the buyer arranges the order's freight: the FOB rate was chosen at
+ * checkout ("FOB (Freight Arranged Separately)"). Such an order ends at Ready
+ * For Collection instead of Shipped, and has no delivery-scan check.
+ *
+ * @param {{shippingLine?:{title?:string}}} order
+ */
+export function customerArrangesFreight(order) {
+  return /^FOB\b/i.test(String(order?.shippingLine?.title || "").trim());
+}

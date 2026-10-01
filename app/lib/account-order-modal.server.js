@@ -7,14 +7,16 @@
  *
  * Layout follows the approved mockup: a timeline and the proofs panel on the
  * left, product and shipping detail on the right, actions in the footer.
- * The timeline shows the six J3 statuses only — no Delivered step (J10).
+ * The timeline shows the six J3 statuses only — no Delivered step (J10). An
+ * order whose freight the buyer arranges (FOB) ends at Ready For Collection
+ * instead of Shipped.
  *
  * One modal is rendered per order alongside the list and toggled client-side,
  * so opening one costs no round trip.
  */
 import { esc } from "./account-shell.server";
 import { MAX_FILE_LABEL, artworkRulesFor, isPreviewable } from "./artwork.server";
-import { VISIBLE_STATUSES, statusByKey } from "./portal.server";
+import { VISIBLE_STATUSES, statusByKey, statusChain } from "./portal.server";
 import { WHATSAPP_URL, SUPPORT_EMAIL } from "./customer-service.server";
 
 // F5 asks for the format and size limits to be stated before upload, so each
@@ -24,7 +26,8 @@ const ARTWORK_MAX_LABEL = MAX_FILE_LABEL;
 
 export function orderModal(order, library = []) {
   const status = statusByKey(order.statusKey) || VISIBLE_STATUSES[0];
-  const reachedIndex = VISIBLE_STATUSES.findIndex((s) => s.key === order.statusKey);
+  const chain = statusChain(order);
+  const reachedIndex = chain.findIndex((s) => s.key === order.statusKey);
   // A proof waiting on the buyer is the one thing they have to act on, so it
   // is flagged beside the order number and decided at the top of the order.
   const awaitingApproval = order.statusKey === "proof-sent" && Boolean(order.id);
@@ -48,7 +51,7 @@ export function orderModal(order, library = []) {
 
           <div class="hyve-modal__cols">
             <div class="hyve-modal__col">
-              ${timeline(order, reachedIndex)}
+              ${timeline(order, chain, reachedIndex)}
               ${artworkPanel(order, library)}
               ${proofsPanel(order)}
             </div>
@@ -79,7 +82,7 @@ export function orderModal(order, library = []) {
           ${
             // Reorder once the order is made, as on the order row: offering it
             // while artwork is still to come read as an order already done (HYV-101).
-            order.id && ["shipped", "production-completed"].includes(order.statusKey)
+            order.id && ["shipped", "ready-for-collection", "production-completed"].includes(order.statusKey)
               ? `<form method="post" action="/apps/account/orders/reorder" class="hyve-ord__reorder">
                    <input type="hidden" name="order" value="${esc(order.id)}">
                    <button type="submit" class="hyve-ord__btn hyve-ord__btn--primary">${icoRepeat()}<span>Reorder Now</span></button>
@@ -113,10 +116,10 @@ function headerFacts(order, status) {
 }
 
 /** The J3 chain. Branch states (On Hold, Awaiting Artwork) show as a callout. */
-function timeline(order, reachedIndex) {
+function timeline(order, chain, reachedIndex) {
   const isBranch = reachedIndex === -1;
 
-  const steps = VISIBLE_STATUSES.map((s, i) => {
+  const steps = chain.map((s, i) => {
     const state = isBranch ? (i === 0 ? "done" : "todo") : i < reachedIndex ? "done" : i === reachedIndex ? "current" : "todo";
     return `
       <li class="hyve-tl__step is-${state}">
@@ -215,7 +218,12 @@ function artworkPanel(order, library = []) {
   const lines = (order.lines || []).filter((li) => (li.zones || []).length);
   if (!lines.length) return "";
 
-  const editable = order.statusKey === "awaiting-artwork" && order.id;
+  // Only while a position is still empty: with every file in, the form would
+  // have nothing to send and only answer "Choose or upload a file".
+  const editable =
+    order.statusKey === "awaiting-artwork" &&
+    order.id &&
+    lines.some((li) => li.zones.some((zone) => !zone.url));
 
   const blocks = lines
     .map((li) => {

@@ -31,7 +31,7 @@ const NOTIFIED_TAG_PREFIX = "hyve-notified:";
  * Recorded on the history entry, next to the webhooks' and the admin screen's:
  * a move made signed in to the portal, or from a link in the proof email.
  */
-export const SOURCES = { portal: "CUSTOMER_PORTAL", proofEmail: "PROOF_EMAIL" };
+export const SOURCES = { portal: "CUSTOMER_PORTAL", proofEmail: "PROOF_EMAIL", sla: "SLA_CHECK", manualSla: "MANUAL_SLA" };
 
 /**
  * The only moves a buyer makes, each allowed by the Production Orders screen's
@@ -186,20 +186,7 @@ export async function changeProductionStatus(
     );
   }
 
-  const fields = [
-    { key: "order_id", value: order.id },
-    { key: "order_name", value: order.name },
-    { key: "from_status", value: from },
-    { key: "to_status", value: to },
-    { key: "changed_at", value: changedAt },
-    { key: "changed_by", value: changedBy || "Customer" },
-    { key: "source", value: source },
-  ];
-  if (note.trim()) fields.push({ key: "note", value: note.trim() });
-  check(
-    await gql(admin, HISTORY_CREATE, { metaobject: { type: "$app:order_status_history", fields } }),
-    "metaobjectCreate",
-  );
+  await recordStatusHistory(admin, { order, from, to, changedAt, changedBy: changedBy || "Customer", source, note });
 
   // The move stands even if the email fails, as it does on the admin screen.
   let emailError;
@@ -214,6 +201,29 @@ export async function changeProductionStatus(
 }
 
 /** The emails the admin screen sends for the same two statuses. */
+/**
+ * One entry on the order's Production timeline, the audit trail staff see.
+ * Every move that isn't made on the Production Orders screen writes it here:
+ * the buyer in the portal or from the proof email, and the automatic day-10
+ * hold, which used to leave no entry at all.
+ */
+export async function recordStatusHistory(admin, { order, from, to, changedAt, changedBy, source, note = "" }) {
+  const fields = [
+    { key: "order_id", value: order.id },
+    { key: "order_name", value: order.name },
+    { key: "from_status", value: from },
+    { key: "to_status", value: to },
+    { key: "changed_at", value: changedAt },
+    { key: "changed_by", value: changedBy },
+    { key: "source", value: source },
+  ];
+  if (String(note).trim()) fields.push({ key: "note", value: String(note).trim() });
+  check(
+    await gql(admin, HISTORY_CREATE, { metaobject: { type: "$app:order_status_history", fields } }),
+    "metaobjectCreate",
+  );
+}
+
 async function notifyCustomer(admin, order, status, productionDueAt) {
   if (status !== "artwork-received" && status !== "proof-approved") return;
 

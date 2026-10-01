@@ -9,7 +9,7 @@ name = "Hyve Custom"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_fulfillments,write_customers,write_companies,read_orders,read_payment_terms,read_store_credit_accounts,read_store_credit_account_transactions,write_orders,write_files,write_products,write_metaobjects,write_metaobject_definitions,write_draft_orders"
+scopes = "write_assigned_fulfillment_orders,write_third_party_fulfillment_orders , write_assigned_fulfillment_orders,read_fulfillments,write_customers,write_companies,read_orders,read_payment_terms,read_store_credit_accounts,read_store_credit_account_transactions,write_orders,write_files,write_products,write_metaobjects,write_metaobject_definitions,write_draft_orders"
 [metaobjects.app.distributor_application]
 name = "Distributor Application"
 description = "Distributor portal application and commercial credit requests"
@@ -86,6 +86,13 @@ description = "Distributor portal application and commercial credit requests"
   [metaobjects.app.distributor_application.fields.registered_address]
   name = "Registered Address"
   type = "multi_line_text_field"
+
+
+  [metaobjects.app.distributor_application.fields.registered_address_json]
+  name = "Registered Address"
+  type = "json"
+
+
 
   [metaobjects.app.distributor_application.fields.status]
   name = "Status"
@@ -205,6 +212,48 @@ admin = "merchant_read_write"
 name = "Production Photo URL"
 description = "URL of the production-complete photo"
 type = "url"
+
+
+# ============================================================
+# PRODUCTION PHOTO APPROVAL
+# ============================================================
+
+[order.metafields.app.production_approval_status]
+name = "Production Approval Status"
+description = "Customer decision for the current production-complete photo"
+type = "single_line_text_field"
+
+[order.metafields.app.production_approval_status.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.production_approval_at]
+name = "Production Approval At"
+description = "Date and time the customer approved the production photo"
+type = "date_time"
+
+[order.metafields.app.production_approval_at.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.production_approval_note]
+name = "Production Approval Note"
+description = "Customer feedback when production images are declined or changes are requested"
+type = "multi_line_text_field"
+
+[order.metafields.app.production_approval_note.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.production_photo_version]
+name = "Production Photo Version"
+description = "Current production photo approval version"
+type = "number_integer"
+
+[order.metafields.app.production_photo_version.access]
+admin = "merchant_read_write"
+
+
 
 
 [order.metafields.app.production_photo_url.access]

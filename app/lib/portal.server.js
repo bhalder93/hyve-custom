@@ -5,16 +5,20 @@
  *  - The production chain the SLA engine and the Production Orders screen run
  *    on: `$app.production_status`, mirrored by one `hyve-status:*` tag, with
  *    the values order-placed, artwork-received, proof-sent, proof-approved,
- *    in-production, production-complete, shipped, delivered and on-hold.
+ *    in-production, production-complete, ready-for-collection, shipped,
+ *    delivered and on-hold.
  *  - "Distributor Portal Requirements" v1.6 defines what the customer sees:
  *    six statuses (J3), no delivery status (J10), and J6 requires the wording
  *    to match J3 exactly.
  *
- * So: nine statuses are stored, six are shown, plus two branch states.
+ * So: ten statuses are stored, six are shown, plus two branch states.
  * `delivered` is recorded for the internal clocks but displayed as Shipped, per
  * J10. Awaiting Artwork (F11) is not stored at all: it is an Order Placed order
- * whose buyer chose to send artwork later.
+ * whose buyer chose to send artwork later. Ready For Collection takes Shipped's
+ * place on an order whose freight the buyer arranges (FOB).
  */
+
+import { artworkSupplied } from "./artwork-zones.server";
 
 /**
  * A distributor is a customer who belongs to a B2B company.
@@ -52,6 +56,13 @@ export const VISIBLE_STATUSES = [
 ];
 
 /**
+ * The last step of a customer-arranged freight (FOB) order, in place of
+ * Shipped: staff set it once the production photo is approved, and the
+ * buyer's carrier collects. A filter only while an order is at it.
+ */
+export const COLLECTION_STATUS = { key: "ready-for-collection", label: "Ready For Collection", tone: "ok" };
+
+/**
  * Branch states. They are shown on a row but are not filters — J1 says the
  * filters are the six words in J3 and nothing else.
  */
@@ -63,7 +74,7 @@ export const BRANCH_STATUSES = [
   { key: "credit-review", label: "Credit Under Review", tone: "warn" },
 ];
 
-const ALL_STATUSES = [...VISIBLE_STATUSES, ...BRANCH_STATUSES];
+const ALL_STATUSES = [...VISIBLE_STATUSES, COLLECTION_STATUS, ...BRANCH_STATUSES];
 const STATUS_BY_KEY = Object.fromEntries(ALL_STATUSES.map((s) => [s.key, s]));
 
 /** Stored status -> displayed status key. */
@@ -74,6 +85,7 @@ const STORED_TO_DISPLAY = {
   "proof-approved": "in-production",
   "in-production": "in-production",
   "production-complete": "production-completed",
+  "ready-for-collection": "ready-for-collection",
   shipped: "shipped",
   // Recorded for the internal clocks, but never shown as its own state: under
   // EXW and FOB the last leg is the buyer's freight (J10).
@@ -94,6 +106,19 @@ export const AWAITING_DISTRIBUTOR = ["proof-sent", "awaiting-artwork"];
 /** @param {object} customer Admin API customer with companyContactProfiles */
 export function isDistributor(customer) {
   return Boolean(customer?.companyContactProfiles?.length);
+}
+
+/**
+ * The steps an order's timeline runs through. A customer-arranged freight
+ * order ends at Ready For Collection instead of Shipped, unless fulfilling it
+ * in Shopify has since marked it Shipped.
+ *
+ * @param {{statusKey?:string, collection?:boolean}} order a mapped portal order
+ */
+export function statusChain(order) {
+  const collects =
+    order?.statusKey === COLLECTION_STATUS.key || (order?.collection && order?.statusKey !== "shipped");
+  return collects ? VISIBLE_STATUSES.map((s) => (s.key === "shipped" ? COLLECTION_STATUS : s)) : VISIBLE_STATUSES;
 }
 
 /** Look up a displayed status by key. */
@@ -117,6 +142,7 @@ export function customerStatusLabel(stored) {
  * blank one.
  *
  * @param {{productionStatus?:{value?:string}, tags?:string[], displayFulfillmentStatus?:string,
+ *   customAttributes?:Array<{key?:string, value?:string}>,
  *   lineItems?:{nodes?:Array<{customAttributes?:Array<{key?:string, value?:string}>}>}}} order
  */
 export function orderStatusKey(order) {
@@ -138,15 +164,36 @@ export function orderStatusKey(order) {
 }
 
 /**
- * True when any line was ordered with its artwork to follow. Such an order is
- * held at Awaiting Artwork until the artwork arrives, here and on the
- * Production Orders screen.
+ * Whether the signed-in person may see or act on an order (HYV-76). An order
+ * placed for a company belongs to the company, so only people on it now can
+ * reach it: someone who leaves stops seeing its orders and invoices. Any other
+ * order is the customer's own.
+ *
+ * @param {{customer?:{id?:string}, purchasingEntity?:{company?:{id?:string}, location?:{id?:string}}}} order
+ * @param {{customerGid?:string, locationGids?:string[]}} by the person, and
+ *   their company's locations
+ */
+export function orderBelongsTo(order, { customerGid = "", locationGids = [] } = {}) {
+  const entity = order?.purchasingEntity;
+  if (entity?.company?.id || entity?.location?.id) {
+    return Boolean(entity.location?.id && locationGids.includes(entity.location.id));
+  }
+  return Boolean(customerGid && order?.customer?.id === customerGid);
+}
+
+/**
+ * True when a line was ordered with its artwork to follow and a position on it
+ * still has no file. Such an order is held at Awaiting Artwork until the
+ * artwork arrives. Files already on the order count, as the order window reads
+ * them (artworkSupplied): #1069 came from a draft that carried its files over,
+ * and read Awaiting Artwork with nothing left to send.
  */
 export function artworkPending(order) {
-  return (order?.lineItems?.nodes || []).some((line) =>
-    (line?.customAttributes || []).some(
-      (attr) => attr?.key === "Artwork" && String(attr.value || "").trim() === ARTWORK_PENDING,
-    ),
+  return (order?.lineItems?.nodes || []).some(
+    (line) =>
+      (line?.customAttributes || []).some(
+        (attr) => attr?.key === "Artwork" && String(attr.value || "").trim() === ARTWORK_PENDING,
+      ) && !artworkSupplied(line.customAttributes, order?.customAttributes),
   );
 }
 

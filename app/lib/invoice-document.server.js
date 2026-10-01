@@ -11,7 +11,7 @@
  * An order without payment terms still gets a document — it was simply paid at
  * checkout rather than on terms, and the buyer may still want the paperwork.
  */
-import { ARTWORK_PENDING, formatMoney, formatDate } from "./portal.server";
+import { ARTWORK_PENDING, formatMoney, formatDate, orderBelongsTo } from "./portal.server";
 import { artworkSupplied } from "./artwork-zones.server";
 
 /**
@@ -53,6 +53,8 @@ const DOCUMENT_QUERY = `#graphql
       presentmentCurrencyCode
       displayFinancialStatus
       displayFulfillmentStatus
+      # The ship date customer service gives, as on the order (HYV-102).
+      estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
       customer { id }
       billingAddress { company name address1 address2 city province zip country }
       purchasingEntity {
@@ -117,10 +119,8 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
   const order = body?.data?.order;
   if (!order) return null;
 
-  // Theirs either personally or through the company they buy for.
-  const ownedByCustomer = customerGid && order.customer?.id === customerGid;
-  const ownedByCompany = locations.includes(order.purchasingEntity?.location?.id);
-  if (!ownedByCustomer && !ownedByCompany) return null;
+  // A company's invoice is only for people on that company now (HYV-76).
+  if (!orderBelongsTo(order, { customerGid, locationGids: locations })) return null;
 
   // Only an order on terms has a schedule; a prepaid one was settled at checkout.
   const schedule = order.paymentTerms?.paymentSchedules?.nodes?.[0] || null;
@@ -153,6 +153,7 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
     dueLabel: formatDate(schedule?.dueAt) || "on receipt",
     paidLabel: formatDate(schedule?.completedAt) || formatDate(order.createdAt),
     termsName: order.paymentTerms?.paymentTermsName || "",
+    shipDateLabel: formatDate(order.estimatedShipDate?.value),
     status: paid ? "PAID" : overdue ? "OVERDUE" : "DUE",
 
     lines: (order.lineItems?.nodes || []).map((li) => ({

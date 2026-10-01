@@ -17,14 +17,19 @@ import {
   sendProofSentEmail,
   sendProofApprovedEmail,
   sendProductionCompleteEmail,
+  sendReadyForCollectionEmail,
 } from "../utils/email.server";
 import { proofDecisionLinks } from "../lib/proof.server";
-import { productionCalendar, productionDueDate } from "../lib/order-status.server";
+import {
+  productionCalendar,
+  productionDueDate,
+} from "../lib/order-status.server";
 import { staffMemberLabel } from "../lib/staff-member.server";
 import { NOTIFICATIONS_PAUSED_TAG } from "../utils/sla-engine.server";
 import { statusEmailWanted } from "../lib/notification-preferences.server";
 import {
   CUSTOMER_EMAIL_STATUSES,
+  customerArrangesFreight,
   STATUS_OPTIONS,
   allowedMoves,
 } from "../lib/production-statuses";
@@ -32,6 +37,7 @@ import { ShopifyFileUpload } from "../components/ShopifyFileUpload";
 
 /** Set once a paid physical sample has been approved (ORS-03, HYV-102). */
 const SAMPLE_APPROVED_TAG = "hyve-sample:approved";
+const READY_FOR_COLLECTION_STATUS = "ready-for-collection";
 
 /** An order carrying the paid physical sample charge, chosen at checkout. */
 function hasPhysicalSample(order) {
@@ -54,6 +60,7 @@ function getStatusLabel(value) {
 function statusTone(status) {
   switch (status) {
     case "production-complete":
+    case READY_FOR_COLLECTION_STATUS:
     case "shipped":
     case "delivered":
       return "success";
@@ -138,6 +145,13 @@ function validateHttpUrl(value) {
 
 /** On Hold's moves depend on where it was held, so it takes the history (HYV-100). */
 function canTransition(currentStatus, nextStatus, history = []) {
+  if (
+    currentStatus === "production-complete" &&
+    nextStatus === READY_FOR_COLLECTION_STATUS
+  ) {
+    return true;
+  }
+
   return allowedMoves(currentStatus, history).includes(nextStatus);
 }
 
@@ -150,9 +164,17 @@ function getCustomerEmail(order) {
   );
 }
 
-function getCustomerNotificationTag(status, proofVersion) {
+function getCustomerNotificationTag(
+  status,
+  proofVersion,
+  productionPhotoVersion,
+) {
   if (status === "proof-sent") {
     return `hyve-notified:proof-sent-v${proofVersion}`;
+  }
+
+  if (status === "production-complete") {
+    return `hyve-notified:production-complete-v${productionPhotoVersion || 1}`;
   }
 
   return `hyve-notified:${status}`;
@@ -236,8 +258,10 @@ async function getOrder(admin, orderId) {
 
             displayFinancialStatus
             displayFulfillmentStatus
-
-            totalPriceSet {
+            shippingLine {
+              title
+            }
+totalPriceSet {
               presentmentMoney {
                 amount
                 currencyCode
@@ -375,6 +399,34 @@ async function getOrder(admin, orderId) {
             productionPhotoUrl: metafield(
               namespace: "$app"
               key: "production_photo_url"
+            ) {
+              value
+            }
+
+            productionPhotoVersion: metafield(
+              namespace: "$app"
+              key: "production_photo_version"
+            ) {
+              value
+            }
+
+            productionApprovalStatus: metafield(
+              namespace: "$app"
+              key: "production_approval_status"
+            ) {
+              value
+            }
+
+            productionApprovalAt: metafield(
+              namespace: "$app"
+              key: "production_approval_at"
+            ) {
+              value
+            }
+
+            productionApprovalNote: metafield(
+              namespace: "$app"
+              key: "production_approval_note"
             ) {
               value
             }
@@ -637,6 +689,104 @@ async function deleteOnHoldReason(admin, orderId) {
   );
 }
 
+async function setProductionApprovalDecision(
+  admin,
+  { orderId, status, note = "", approvedAt = null },
+) {
+  const metafields = [
+    {
+      ownerId: orderId,
+      namespace: "$app",
+      key: "production_approval_status",
+      type: "single_line_text_field",
+      value: status,
+    },
+  ];
+
+  if (approvedAt) {
+    metafields.push({
+      ownerId: orderId,
+      namespace: "$app",
+      key: "production_approval_at",
+      type: "date_time",
+      value: approvedAt,
+    });
+  }
+
+  if (note?.trim()) {
+    metafields.push({
+      ownerId: orderId,
+      namespace: "$app",
+      key: "production_approval_note",
+      type: "multi_line_text_field",
+      value: note.trim(),
+    });
+  }
+
+  const response = await admin.graphql(
+    `#graphql
+      mutation SetProductionApprovalDecision(
+        $metafields: [MetafieldsSetInput!]!
+      ) {
+        metafieldsSet(metafields: $metafields) {
+          userErrors {
+            field
+            message
+            code
+          }
+        }
+      }
+    `,
+    { variables: { metafields } },
+  );
+
+  const data = await parseGraphQL(response, "SetProductionApprovalDecision");
+
+  throwUserErrors(
+    data.data?.metafieldsSet?.userErrors,
+    "SetProductionApprovalDecision",
+  );
+}
+
+async function clearProductionApprovalDecision(admin, orderId) {
+  const response = await admin.graphql(
+    `#graphql
+      mutation ClearProductionApprovalDecision(
+        $metafields: [MetafieldIdentifierInput!]!
+      ) {
+        metafieldsDelete(metafields: $metafields) {
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `,
+    {
+      variables: {
+        metafields: [
+          {
+            ownerId: orderId,
+            namespace: "$app",
+            key: "production_approval_at",
+          },
+          {
+            ownerId: orderId,
+            namespace: "$app",
+            key: "production_approval_note",
+          },
+        ],
+      },
+    },
+  );
+
+  const data = await parseGraphQL(response, "ClearProductionApprovalDecision");
+
+  throwUserErrors(
+    data.data?.metafieldsDelete?.userErrors,
+    "ClearProductionApprovalDecision",
+  );
+}
 
 async function setOrderMetafields(
   admin,
@@ -649,6 +799,7 @@ async function setOrderMetafields(
     proofUrl,
     proofVersion,
     productionPhotoUrl,
+    productionPhotoVersion,
   },
 ) {
   const metafields = [
@@ -718,17 +869,29 @@ async function setOrderMetafields(
   }
 
   if (status === "production-complete" && productionPhotoUrl?.trim()) {
-    metafields.push({
-      ownerId: orderId,
-
-      namespace: "$app",
-
-      key: "production_photo_url",
-
-      type: "url",
-
-      value: productionPhotoUrl.trim(),
-    });
+    metafields.push(
+      {
+        ownerId: orderId,
+        namespace: "$app",
+        key: "production_photo_url",
+        type: "url",
+        value: productionPhotoUrl.trim(),
+      },
+      {
+        ownerId: orderId,
+        namespace: "$app",
+        key: "production_photo_version",
+        type: "number_integer",
+        value: String(productionPhotoVersion || 1),
+      },
+      {
+        ownerId: orderId,
+        namespace: "$app",
+        key: "production_approval_status",
+        type: "single_line_text_field",
+        value: "pending",
+      },
+    );
   }
 
   if (status === "on-hold" && onHoldReason?.trim()) {
@@ -896,6 +1059,7 @@ async function sendCustomerStatusEmail({
   proofVersion,
   productionDueAt,
   productionPhotoUrl,
+  productionPhotoVersion,
 }) {
   const customerEmail = getCustomerEmail(order);
 
@@ -944,6 +1108,12 @@ async function sendCustomerStatusEmail({
         ...common,
 
         productionPhotoUrl,
+        productionPhotoVersion,
+      });
+
+    case READY_FOR_COLLECTION_STATUS:
+      return sendReadyForCollectionEmail({
+        ...common,
       });
 
     default:
@@ -960,6 +1130,7 @@ async function sendCurrentCustomerStatusEmail({
   proofVersion,
   productionDueAt,
   productionPhotoUrl,
+  productionPhotoVersion,
 }) {
   if (!CUSTOMER_EMAIL_STATUSES.has(status)) {
     return {
@@ -970,7 +1141,11 @@ async function sendCurrentCustomerStatusEmail({
     };
   }
 
-  const notificationTag = getCustomerNotificationTag(status, proofVersion);
+  const notificationTag = getCustomerNotificationTag(
+    status,
+    proofVersion,
+    productionPhotoVersion,
+  );
 
   const alreadySent = await hasOrderTag(admin, orderId, notificationTag);
 
@@ -1003,6 +1178,7 @@ async function sendCurrentCustomerStatusEmail({
     proofVersion,
     productionDueAt,
     productionPhotoUrl,
+    productionPhotoVersion,
   });
 
   if (!result) {
@@ -1080,13 +1256,27 @@ export async function loader({ request, params }) {
         // HYV-102 / HYV-110 staff controls.
         estimatedShipDate: order.estimatedShipDate?.value || "",
 
-        notificationsPaused: (order.tags ?? []).includes(NOTIFICATIONS_PAUSED_TAG),
+        notificationsPaused: (order.tags ?? []).includes(
+          NOTIFICATIONS_PAUSED_TAG,
+        ),
+
+        customerArrangedFreight: customerArrangesFreight(order),
 
         hasPhysicalSample: hasPhysicalSample(order),
 
         sampleApproved: (order.tags ?? []).includes(SAMPLE_APPROVED_TAG),
 
         productionPhotoUrl: order.productionPhotoUrl?.value || "",
+
+        productionPhotoVersion: Number(
+          order.productionPhotoVersion?.value || 0,
+        ),
+
+        productionApprovalStatus: order.productionApprovalStatus?.value || "",
+
+        productionApprovalAt: order.productionApprovalAt?.value || "",
+
+        productionApprovalNote: order.productionApprovalNote?.value || "",
 
         onHoldReason: order.onHoldReason?.value || "",
       },
@@ -1146,7 +1336,11 @@ export async function action({ request, params }) {
       if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
         return { success: false, formError: "Enter the ship date as a date." };
       }
-      const identifier = { ownerId: orderId, namespace: "hyve", key: "estimated_ship_date" };
+      const identifier = {
+        ownerId: orderId,
+        namespace: "hyve",
+        key: "estimated_ship_date",
+      };
       const response = await admin.graphql(
         value
           ? `#graphql
@@ -1157,7 +1351,13 @@ export async function action({ request, params }) {
             mutation ShipDateClear($metafields: [MetafieldIdentifierInput!]!) {
               metafieldsDelete(metafields: $metafields) { userErrors { field message } }
             }`,
-        { variables: { metafields: [value ? { ...identifier, type: "date", value } : identifier] } },
+        {
+          variables: {
+            metafields: [
+              value ? { ...identifier, type: "date", value } : identifier,
+            ],
+          },
+        },
       );
       const body = await response.json();
       const error =
@@ -1167,7 +1367,9 @@ export async function action({ request, params }) {
       if (error) return { success: false, formError: error };
       return {
         success: true,
-        message: value ? "Estimated ship date saved." : "Estimated ship date cleared; the calculated date shows again.",
+        message: value
+          ? "Estimated ship date saved."
+          : "Estimated ship date cleared; the calculated date shows again.",
       };
     }
 
@@ -1175,7 +1377,196 @@ export async function action({ request, params }) {
     // production run can start.
     if (intent === "approve_sample") {
       await addTags(admin, orderId, [SAMPLE_APPROVED_TAG]);
-      return { success: true, message: "Sample approved. The order can now move into production." };
+      return {
+        success: true,
+        message: "Sample approved. The order can now move into production.",
+      };
+    }
+
+    if (intent === "approve_production") {
+      const order = await getOrder(admin, orderId);
+      const currentStatus = order.productionStatus?.value || "";
+
+      if (currentStatus !== "production-complete") {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError:
+            "Production can only be approved while the order is Production Complete.",
+        };
+      }
+
+      if (!order.productionPhotoUrl?.value) {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError: "A production photo is required before approval.",
+        };
+      }
+
+      const approvedAt = new Date().toISOString();
+
+      await setProductionApprovalDecision(admin, {
+        orderId,
+        status: "approved",
+        approvedAt,
+      });
+
+      const changedBy =
+        (await staffMemberLabel(request, sessionToken)) || "Shopify Admin";
+
+      await createHistory(admin, {
+        orderId,
+        orderName: order.name,
+        fromStatus: "production-complete",
+        toStatus: "production-complete",
+        changedAt: approvedAt,
+        changedBy,
+        note: "Production photo approved. Order may proceed to shipping.",
+      });
+
+      return {
+        success: true,
+        message:
+          "Production photo approved. The order can now proceed to shipping.",
+      };
+    }
+
+    if (intent === "decline_production") {
+      const order = await getOrder(admin, orderId);
+      const currentStatus = order.productionStatus?.value || "";
+      const approvalNote = String(
+        formData.get("productionApprovalNote") || "",
+      ).trim();
+
+      if (currentStatus !== "production-complete") {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError:
+            "Production changes can only be requested while the order is Production Complete.",
+        };
+      }
+
+      if (!approvalNote) {
+        return {
+          success: false,
+          fieldErrors: {
+            productionApprovalNote: "Enter the requested production changes.",
+          },
+          formError: "Please enter why the production photo was declined.",
+        };
+      }
+
+      const declinedAt = new Date().toISOString();
+
+      await setProductionApprovalDecision(admin, {
+        orderId,
+        status: "declined",
+        note: approvalNote,
+      });
+
+      const changedBy =
+        (await staffMemberLabel(request, sessionToken)) || "Shopify Admin";
+
+      await createHistory(admin, {
+        orderId,
+        orderName: order.name,
+        fromStatus: "production-complete",
+        toStatus: "production-complete",
+        changedAt: declinedAt,
+        changedBy,
+        note: `Production photo declined: ${approvalNote}`,
+      });
+
+      return {
+        success: true,
+        message:
+          "Production changes requested. The order remains Production Complete.",
+      };
+    }
+
+    if (intent === "resubmit_production_photo") {
+      const order = await getOrder(admin, orderId);
+      const currentStatus = order.productionStatus?.value || "";
+      const revisedPhotoUrl = String(
+        formData.get("productionPhotoUrl") || "",
+      ).trim();
+
+      if (currentStatus !== "production-complete") {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError:
+            "A revised production photo can only be submitted while the order is Production Complete.",
+        };
+      }
+
+      if (!revisedPhotoUrl || !validateHttpUrl(revisedPhotoUrl)) {
+        return {
+          success: false,
+          fieldErrors: {
+            productionPhotoUrl: "Enter a valid production photo URL.",
+          },
+          formError: "A valid production photo is required.",
+        };
+      }
+
+      const nextProductionPhotoVersion =
+        Number(order.productionPhotoVersion?.value || 0) + 1;
+
+      await setOrderMetafields(admin, {
+        orderId,
+        status: "production-complete",
+        changedAt: order.statusChangedAt?.value || new Date().toISOString(),
+        productionDueAt: null,
+        onHoldReason: null,
+        proofUrl: null,
+        proofVersion: null,
+        productionPhotoUrl: revisedPhotoUrl,
+        productionPhotoVersion: nextProductionPhotoVersion,
+      });
+
+      await clearProductionApprovalDecision(admin, orderId);
+
+      const changedBy =
+        (await staffMemberLabel(request, sessionToken)) || "Shopify Admin";
+
+      await createHistory(admin, {
+        orderId,
+        orderName: order.name,
+        fromStatus: "production-complete",
+        toStatus: "production-complete",
+        changedAt: new Date().toISOString(),
+        changedBy,
+        note: `Production photo version ${nextProductionPhotoVersion} submitted for approval: ${revisedPhotoUrl}`,
+      });
+
+      let emailWarning = null;
+      try {
+        await sendCurrentCustomerStatusEmail({
+          admin,
+          order,
+          orderId,
+          status: "production-complete",
+          proofUrl: order.proofUrl?.value || "",
+          proofVersion: Number(order.proofVersion?.value || 0),
+          productionDueAt: order.productionDueAt?.value || null,
+          productionPhotoUrl: revisedPhotoUrl,
+          productionPhotoVersion: nextProductionPhotoVersion,
+        });
+      } catch (error) {
+        emailWarning =
+          error instanceof Error
+            ? `Revised production photo saved, but the customer email could not be sent: ${error.message}`
+            : "Revised production photo saved, but the customer email could not be sent.";
+      }
+
+      return {
+        success: true,
+        message: `Production photo version ${nextProductionPhotoVersion} submitted for approval.`,
+        emailWarning,
+      };
     }
 
     if (intent === "retry_proof_email") {
@@ -1226,6 +1617,7 @@ export async function action({ request, params }) {
           productionDueAt: null,
 
           productionPhotoUrl: null,
+          productionPhotoVersion: null,
         });
 
         if (result.alreadySent) {
@@ -1323,6 +1715,57 @@ export async function action({ request, params }) {
       productionTags[0]?.replace("hyve-status:", "") ||
       "";
 
+    const customerArrangedFreight = customerArrangesFreight(order);
+
+    if (
+      currentStatus === "production-complete" &&
+      customerArrangedFreight &&
+      nextStatus === "shipped"
+    ) {
+      return {
+        success: false,
+        fieldErrors: {
+          nextStatus:
+            "Customer-arranged freight orders must be marked Ready For Collection instead of Shipped.",
+        },
+        formError:
+          "This order uses customer-arranged freight. Move it to Ready For Collection.",
+      };
+    }
+
+    if (
+      nextStatus === READY_FOR_COLLECTION_STATUS &&
+      (!customerArrangedFreight || currentStatus !== "production-complete")
+    ) {
+      return {
+        success: false,
+        fieldErrors: {
+          nextStatus:
+            "Ready For Collection is only available for customer-arranged freight orders after Production Complete.",
+        },
+        formError: "Ready For Collection is not valid for this order.",
+      };
+    }
+
+    if (
+      currentStatus === "production-complete" &&
+      [
+        customerArrangedFreight ? READY_FOR_COLLECTION_STATUS : "shipped",
+      ].includes(nextStatus) &&
+      order.productionApprovalStatus?.value !== "approved"
+    ) {
+      return {
+        success: false,
+        fieldErrors: {
+          nextStatus: customerArrangedFreight
+            ? "Production photo approval is required before the order can be marked Ready For Collection."
+            : "Production photo approval is required before the order can be marked Shipped.",
+        },
+        formError:
+          "The production photo must be approved before this order can proceed.",
+      };
+    }
+
     if (currentStatus === nextStatus) {
       return {
         success: false,
@@ -1337,7 +1780,8 @@ export async function action({ request, params }) {
 
     // Where an order On Hold can go depends on the step it was held at, which
     // the history records (HYV-100).
-    const history = currentStatus === "on-hold" ? await getStatusHistory(admin, orderId) : [];
+    const history =
+      currentStatus === "on-hold" ? await getStatusHistory(admin, orderId) : [];
 
     if (!canTransition(currentStatus, nextStatus, history)) {
       return {
@@ -1346,8 +1790,8 @@ export async function action({ request, params }) {
         fieldErrors: {
           nextStatus: currentStatus
             ? `Cannot move directly from ${getStatusLabel(
-              currentStatus,
-            )} to ${getStatusLabel(nextStatus)}.`
+                currentStatus,
+              )} to ${getStatusLabel(nextStatus)}.`
             : "The first production status must be Order Received.",
         },
 
@@ -1379,11 +1823,18 @@ export async function action({ request, params }) {
     let productionDueAt = null;
 
     let nextProofVersion = null;
+    let nextProductionPhotoVersion = null;
+
     if (nextStatus === "proof-sent") {
       const currentVersion = Number(order.proofVersion?.value || 0);
 
       nextProofVersion = currentVersion + 1;
     }
+    if (nextStatus === "production-complete") {
+      nextProductionPhotoVersion =
+        Number(order.productionPhotoVersion?.value || 0) + 1;
+    }
+
     if (nextStatus === "proof-approved") {
       // The same production time and holiday calendar as a proof the buyer
       // approves from the email or the portal: the standard or rush time in
@@ -1394,7 +1845,6 @@ export async function action({ request, params }) {
         order.rush?.value === "true",
       );
     }
-
     await removeTags(admin, orderId, productionTags);
 
     await addTags(admin, orderId, [`hyve-status:${nextStatus}`]);
@@ -1416,11 +1866,21 @@ export async function action({ request, params }) {
 
       productionPhotoUrl:
         nextStatus === "production-complete" ? productionPhotoUrl : null,
+
+      productionPhotoVersion:
+        nextStatus === "production-complete"
+          ? nextProductionPhotoVersion
+          : null,
     });
+
+    if (nextStatus === "production-complete") {
+      await clearProductionApprovalDecision(admin, orderId);
+    }
 
     // The staff member making the move (HYV-100). "Shopify Admin" only when
     // Shopify can't say who.
-    const changedBy = (await staffMemberLabel(request, sessionToken)) || "Shopify Admin";
+    const changedBy =
+      (await staffMemberLabel(request, sessionToken)) || "Shopify Admin";
 
     let historyNote = note;
 
@@ -1434,6 +1894,15 @@ export async function action({ request, params }) {
       const photoAudit = `Production photo: ${productionPhotoUrl}`;
 
       historyNote = historyNote ? `${historyNote}\n${photoAudit}` : photoAudit;
+    }
+
+    if (nextStatus === READY_FOR_COLLECTION_STATUS) {
+      const collectionAudit =
+        "Customer-arranged freight order marked Ready For Collection. Customer collection email triggered.";
+      historyNote = historyNote
+        ? `${historyNote}
+${collectionAudit}`
+        : collectionAudit;
     }
 
     await createHistory(admin, {
@@ -1487,6 +1956,11 @@ export async function action({ request, params }) {
             nextStatus === "production-complete"
               ? productionPhotoUrl
               : order.productionPhotoUrl?.value || "",
+
+          productionPhotoVersion:
+            nextStatus === "production-complete"
+              ? nextProductionPhotoVersion
+              : Number(order.productionPhotoVersion?.value || 0),
         });
 
         emailSent = result.sent;
@@ -1517,7 +1991,6 @@ export async function action({ request, params }) {
     if (nextStatus === "production-complete") {
       message += " Production photo saved.";
     }
-
     if (productionDueAt) {
       message += ` Production due ${formatDate(productionDueAt)}.`;
     }
@@ -1646,6 +2119,10 @@ export default function ProductionOrderDetailsPage() {
 
   const [clientErrors, setClientErrors] = useState({});
 
+  const [productionApprovalNote, setProductionApprovalNote] = useState(
+    order?.productionApprovalNote || "",
+  );
+
   const [shipDate, setShipDate] = useState(order?.estimatedShipDate || "");
   useEffect(() => {
     setProofUrl(order?.proofUrl || "");
@@ -1656,12 +2133,17 @@ export default function ProductionOrderDetailsPage() {
   }, [order?.productionPhotoUrl]);
 
   useEffect(() => {
+    setProductionApprovalNote(order?.productionApprovalNote || "");
+  }, [order?.productionApprovalNote]);
+
+  useEffect(() => {
     if (actionData?.success && actionData?.message) {
       shopify.toast.show(actionData.message);
 
       setNextStatus("");
       setNote("");
       setOnHoldReason("");
+      setProductionApprovalNote("");
     }
   }, [actionData]);
 
@@ -1671,7 +2153,28 @@ export default function ProductionOrderDetailsPage() {
       return [];
     }
 
-    return allowedMoves(order.productionStatus, loaderData.history || []);
+    const moves = allowedMoves(
+      order.productionStatus,
+      loaderData.history || [],
+    );
+
+    if (order.productionStatus === "production-complete") {
+      if (order.customerArrangedFreight) {
+        const withoutShipped = moves.filter((status) => status !== "shipped");
+
+        if (order.productionApprovalStatus === "approved") {
+          return [...new Set([...withoutShipped, READY_FOR_COLLECTION_STATUS])];
+        }
+
+        return withoutShipped;
+      }
+
+      if (order.productionApprovalStatus !== "approved") {
+        return moves.filter((status) => status !== "shipped");
+      }
+    }
+
+    return moves;
   }, [order, loaderData.history]);
 
   function clearFieldError(field) {
@@ -1694,7 +2197,14 @@ export default function ProductionOrderDetailsPage() {
       productionPhotoUrl,
     });
 
-    if (nextStatus && !canTransition(order.productionStatus, nextStatus, loaderData.history || [])) {
+    if (
+      nextStatus &&
+      !canTransition(
+        order.productionStatus,
+        nextStatus,
+        loaderData.history || [],
+      )
+    ) {
       errors.nextStatus = "This production status transition is not allowed.";
     }
 
@@ -1728,7 +2238,6 @@ export default function ProductionOrderDetailsPage() {
     });
   }
 
-
   function retryProofEmail() {
     const formData = new FormData();
 
@@ -1736,6 +2245,40 @@ export default function ProductionOrderDetailsPage() {
 
     submit(formData, {
       method: "post",
+    });
+  }
+
+  function approveProduction() {
+    submitIntent("approve_production");
+  }
+
+  function declineProduction() {
+    if (!productionApprovalNote.trim()) {
+      setClientErrors((current) => ({
+        ...current,
+        productionApprovalNote: "Enter the requested production changes.",
+      }));
+      return;
+    }
+
+    clearFieldError("productionApprovalNote");
+    submitIntent("decline_production", {
+      productionApprovalNote: productionApprovalNote.trim(),
+    });
+  }
+
+  function resubmitProductionPhoto() {
+    if (!productionPhotoUrl || !validateHttpUrl(productionPhotoUrl)) {
+      setClientErrors((current) => ({
+        ...current,
+        productionPhotoUrl: "Enter a valid production photo URL.",
+      }));
+      return;
+    }
+
+    clearFieldError("productionPhotoUrl");
+    submitIntent("resubmit_production_photo", {
+      productionPhotoUrl,
     });
   }
 
@@ -1779,7 +2322,9 @@ export default function ProductionOrderDetailsPage() {
 
   return (
     <s-page heading={order.name} inlineSize="large">
-      <s-link slot="breadcrumb-actions" href="/app/production-orders">Production Orders</s-link>
+      <s-link slot="breadcrumb-actions" href="/app/production-orders">
+        Production Orders
+      </s-link>
 
       {actionData?.success === false && actionData?.formError && (
         <s-banner tone="critical" heading="Unable to complete action">
@@ -1814,6 +2359,10 @@ export default function ProductionOrderDetailsPage() {
 
               <s-stack direction="inline" gap="small">
                 {order.rush && <s-badge tone="critical">Rush</s-badge>}
+
+                {order.customerArrangedFreight && (
+                  <s-badge tone="info">Customer-arranged freight</s-badge>
+                )}
 
                 {order.artworkRequired && (
                   <s-badge tone="info">Artwork required</s-badge>
@@ -2017,6 +2566,7 @@ export default function ProductionOrderDetailsPage() {
                 {nextStatus === "on-hold" && (
                   <s-text-field
                     label="On hold reason"
+                    details="The customer sees this reason on the order in their account."
                     value={onHoldReason}
                     error={
                       clientErrors.onHoldReason ||
@@ -2131,7 +2681,6 @@ export default function ProductionOrderDetailsPage() {
             </s-section>
           </s-stack>
           <s-stack direction="block" gap="base">
-
             <s-section heading="Customer">
               <s-stack direction="block" gap="small">
                 <s-text>
@@ -2210,16 +2759,27 @@ export default function ProductionOrderDetailsPage() {
 
                 {order.hasPhysicalSample && (
                   <s-stack direction="block" gap="small">
-                    <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+                    <s-stack
+                      direction="inline"
+                      justifyContent="space-between"
+                      alignItems="center"
+                    >
                       <s-text>Paid physical sample</s-text>
 
-                      <s-badge tone={order.sampleApproved ? "success" : "warning"}>
-                        {order.sampleApproved ? "Approved" : "Awaiting approval"}
+                      <s-badge
+                        tone={order.sampleApproved ? "success" : "warning"}
+                      >
+                        {order.sampleApproved
+                          ? "Approved"
+                          : "Awaiting approval"}
                       </s-badge>
                     </s-stack>
 
                     {!order.sampleApproved && (
-                      <s-button variant="secondary" onClick={() => submitIntent("approve_sample")}>
+                      <s-button
+                        variant="secondary"
+                        onClick={() => submitIntent("approve_sample")}
+                      >
                         Mark sample approved
                       </s-button>
                     )}
@@ -2238,27 +2798,43 @@ export default function ProductionOrderDetailsPage() {
 
                   <s-button
                     variant="secondary"
-                    onClick={() => submitIntent("set_ship_date", { estimatedShipDate: shipDate })}
+                    onClick={() =>
+                      submitIntent("set_ship_date", {
+                        estimatedShipDate: shipDate,
+                      })
+                    }
                   >
                     Save ship date
                   </s-button>
                 </s-stack>
 
                 <s-stack direction="block" gap="small">
-                  <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+                  <s-stack
+                    direction="inline"
+                    justifyContent="space-between"
+                    alignItems="center"
+                  >
                     <s-text>Automatic messages</s-text>
 
-                    <s-badge tone={order.notificationsPaused ? "warning" : "success"}>
+                    <s-badge
+                      tone={order.notificationsPaused ? "warning" : "success"}
+                    >
                       {order.notificationsPaused ? "Paused" : "On"}
                     </s-badge>
                   </s-stack>
 
                   <s-text tone="subdued">
-                    Proof reminders, the day-10 On Hold and late-order alerts. Status emails are not affected.
+                    Proof reminders, the day-10 On Hold and late-order alerts.
+                    Status emails are not affected.
                   </s-text>
 
-                  <s-button variant="secondary" onClick={() => submitIntent("toggle_notifications")}>
-                    {order.notificationsPaused ? "Resume automatic messages" : "Pause automatic messages"}
+                  <s-button
+                    variant="secondary"
+                    onClick={() => submitIntent("toggle_notifications")}
+                  >
+                    {order.notificationsPaused
+                      ? "Resume automatic messages"
+                      : "Pause automatic messages"}
                   </s-button>
                 </s-stack>
 
@@ -2340,9 +2916,154 @@ export default function ProductionOrderDetailsPage() {
                 <s-divider />
 
                 {order.productionPhotoUrl ? (
-                  <s-button href={order.productionPhotoUrl} target="_blank">
-                    View production photo
-                  </s-button>
+                  <s-stack direction="block" gap="small">
+                    <s-button href={order.productionPhotoUrl} target="_blank">
+                      View production photo
+                    </s-button>
+
+                    <s-stack
+                      direction="inline"
+                      justifyContent="space-between"
+                      alignItems="center"
+                    >
+                      <s-text>Production approval</s-text>
+
+                      <s-badge
+                        tone={
+                          order.productionApprovalStatus === "approved"
+                            ? "success"
+                            : order.productionApprovalStatus === "declined"
+                              ? "critical"
+                              : "warning"
+                        }
+                      >
+                        {order.productionApprovalStatus === "approved"
+                          ? "Approved"
+                          : order.productionApprovalStatus === "declined"
+                            ? "Changes requested"
+                            : "Pending"}
+                      </s-badge>
+                    </s-stack>
+
+                    <s-text tone="subdued">
+                      Production photo version{" "}
+                      {order.productionPhotoVersion || 1}
+                    </s-text>
+
+                    {order.productionApprovalAt && (
+                      <s-text tone="subdued">
+                        Approved {formatDate(order.productionApprovalAt)}
+                      </s-text>
+                    )}
+
+                    {order.productionApprovalNote && (
+                      <s-banner
+                        tone="warning"
+                        heading="Requested production changes"
+                      >
+                        <s-paragraph>
+                          {order.productionApprovalNote}
+                        </s-paragraph>
+                      </s-banner>
+                    )}
+
+                    {order.productionStatus === "production-complete" &&
+                      order.productionApprovalStatus !== "approved" && (
+                        <>
+                          <s-divider />
+
+                          <s-text-area
+                            label="Approval / change note"
+                            value={productionApprovalNote}
+                            placeholder="Enter requested changes when declining"
+                            error={
+                              clientErrors.productionApprovalNote ||
+                              actionData?.fieldErrors?.productionApprovalNote ||
+                              undefined
+                            }
+                            onInput={(event) => {
+                              setProductionApprovalNote(
+                                event.currentTarget.value,
+                              );
+                              clearFieldError("productionApprovalNote");
+                            }}
+                          />
+
+                          <s-stack direction="inline" gap="small">
+                            <s-button
+                              variant="primary"
+                              disabled={busy}
+                              onClick={approveProduction}
+                            >
+                              {busy ? "Updating..." : "Approve production"}
+                            </s-button>
+
+                            <s-button
+                              tone="critical"
+                              disabled={busy}
+                              onClick={declineProduction}
+                            >
+                              Request changes
+                            </s-button>
+                          </s-stack>
+
+                          {order.productionApprovalStatus === "declined" && (
+                            <s-box
+                              padding="base"
+                              border="base"
+                              borderRadius="base"
+                            >
+                              <s-stack direction="block" gap="small">
+                                <s-heading>
+                                  Submit revised production photo
+                                </s-heading>
+
+                                <ShopifyFileUpload
+                                  label="Upload Revised Production Photo"
+                                  prefix={`${order.name}-photo-v${
+                                    Number(order.productionPhotoVersion || 0) +
+                                    1
+                                  }`}
+                                  onUploaded={(url) => {
+                                    setProductionPhotoUrl(url);
+                                    clearFieldError("productionPhotoUrl");
+                                  }}
+                                />
+
+                                <s-text-field
+                                  label="Revised Production Photo URL"
+                                  type="url"
+                                  placeholder="https://..."
+                                  value={productionPhotoUrl}
+                                  error={
+                                    clientErrors.productionPhotoUrl ||
+                                    actionData?.fieldErrors
+                                      ?.productionPhotoUrl ||
+                                    undefined
+                                  }
+                                  onInput={(event) => {
+                                    setProductionPhotoUrl(
+                                      event.currentTarget.value,
+                                    );
+                                    clearFieldError("productionPhotoUrl");
+                                  }}
+                                />
+
+                                <s-button
+                                  variant="secondary"
+                                  disabled={busy}
+                                  onClick={resubmitProductionPhoto}
+                                >
+                                  {busy
+                                    ? "Submitting..."
+                                    : "Send revised photo for approval"}
+                                </s-button>
+                              </s-stack>
+                            </s-box>
+                          )}
+                        </>
+                      )}
+                  </s-stack>
                 ) : (
                   <s-text tone="subdued">No production photo uploaded.</s-text>
                 )}

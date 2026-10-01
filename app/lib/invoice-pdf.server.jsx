@@ -180,6 +180,11 @@ function InvoiceDoc({ doc }) {
                 Due <Text style={styles.metaB}>{doc.dueLabel}</Text>
               </Text>
             )}
+            {doc.shipDateLabel ? (
+              <Text style={styles.metaRow}>
+                Est. ship date <Text style={styles.metaB}>{doc.shipDateLabel}</Text>
+              </Text>
+            ) : null}
           </View>
         </View>
 

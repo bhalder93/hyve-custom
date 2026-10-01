@@ -17,6 +17,8 @@ import {
 } from "../utils/email.server";
 import { proofDecisionLinks } from "../lib/proof.server";
 import { NOTIFICATIONS_PAUSED_TAG, PROOF_HOLD_DAY } from "../utils/sla-engine.server";
+import { productionStatusOf, recordStatusHistory, SOURCES } from "../lib/order-status.server";
+import { customerArrangesFreight } from "../lib/production-statuses";
 
 
 const STATUS_TAG_PREFIX = "hyve-status:";
@@ -201,6 +203,10 @@ async function getOrdersByStatus(admin, status) {
               createdAt
               tags
               email
+
+              shippingLine {
+                title
+              }
 
               customer {
                 displayName
@@ -742,6 +748,9 @@ async function processProofSent(admin, order) {
 }
 
 async function moveOrderToOnHold(admin, order) {
+  // Read before the move, for the timeline entry below.
+  const fromStatus = productionStatusOf(order);
+
   const currentStatusTags = (order.tags ?? []).filter((tag) =>
     tag.startsWith(STATUS_TAG_PREFIX),
   );
@@ -811,12 +820,27 @@ async function moveOrderToOnHold(admin, order) {
   const data = await parseGraphQL(response, "PutOrderOnHold");
 
   throwUserErrors(data.data?.metafieldsSet?.userErrors, "PutOrderOnHold");
+
+  // The hold stands even if its timeline entry can't be written.
+  try {
+    await recordStatusHistory(admin, {
+      order,
+      from: fromStatus,
+      to: "on-hold",
+      changedAt,
+      changedBy: "System",
+      source: SOURCES.manualSla,
+      note: ON_HOLD_REASON,
+    });
+  } catch (error) {
+    console.error(`[manual-sla] timeline entry for the hold on ${order.name} failed`, error);
+  }
 }
 
 async function processShipped(admin, order) {
   const rule = SLA_RULES.shipped;
 
-  if (hasTag(order, "hyve-freight:customer-arranged")) {
+  if (customerArrangesFreight(order)) {
     return {
       skipped: true,
       reason: "Customer-arranged freight",
