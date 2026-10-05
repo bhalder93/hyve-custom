@@ -13,30 +13,7 @@
  */
 import { ARTWORK_PENDING, formatMoney, formatDate, orderBelongsTo } from "./portal.server";
 import { artworkSupplied } from "./artwork-zones.server";
-
-/**
- * The legal entity that issues the invoice, confirmed by Hyve on 22 September.
- *
- * All three are stated here rather than read from the store. Shopify's
- * `shop.name` is the trading name ("Hyve.Promo"), and `shop.shopAddress` is the
- * trading address — which is the Orchard Road one Hyve has said must not appear
- * on customer-facing documents. A commercial document carries the registered
- * company, so the registered details are the source.
- */
-const LEGAL_NAME = "HYVE PROMO PTE. LTD.";
-
-/** Hyve's business registration number (UEN). */
-const BUSINESS_REGISTRATION_NUMBER = "202509530E";
-
-/**
- * The registered business address. It doubles as the remit-to address: Hyve
- * confirmed there is no separate one.
- */
-const LEGAL_ADDRESS = [
-  "2 Venture Drive, #11-05",
-  "Vision Exchange",
-  "Singapore 608526",
-];
+import { LEGAL_NAME, BUSINESS_REGISTRATION_NUMBER, LEGAL_ADDRESS } from "./legal-entity.server";
 
 const DOCUMENT_QUERY = `#graphql
   query InvoiceDocument($id: ID!) {
@@ -102,12 +79,14 @@ const DOCUMENT_QUERY = `#graphql
 
 /**
  * @param {string} orderGid the order the invoice belongs to
- * @param {{customerGid?:string, locationGids?:string[]}} owner who is asking
+ * @param {{customerGid?:string, locationGids?:string[], system?:boolean}} owner who
+ *   is asking: the buyer, or the app itself emailing the invoice once the order
+ *   is paid (HYV-144)
  * @returns {Promise<?object>} null when the order is missing or isn't theirs
  */
-export async function loadInvoiceDocument(admin, orderGid, { customerGid, locationGids } = {}) {
+export async function loadInvoiceDocument(admin, orderGid, { customerGid, locationGids, system } = {}) {
   const locations = (Array.isArray(locationGids) ? locationGids : [locationGids]).filter(Boolean);
-  if (!admin || !orderGid || (!customerGid && !locations.length)) return null;
+  if (!admin || !orderGid || (!system && !customerGid && !locations.length)) return null;
 
   const response = await admin.graphql(DOCUMENT_QUERY, { variables: { id: orderGid } });
   const body = await response.json();
@@ -120,7 +99,7 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
   if (!order) return null;
 
   // A company's invoice is only for people on that company now (HYV-76).
-  if (!orderBelongsTo(order, { customerGid, locationGids: locations })) return null;
+  if (!system && !orderBelongsTo(order, { customerGid, locationGids: locations })) return null;
 
   // Only an order on terms has a schedule; a prepaid one was settled at checkout.
   const schedule = order.paymentTerms?.paymentSchedules?.nodes?.[0] || null;

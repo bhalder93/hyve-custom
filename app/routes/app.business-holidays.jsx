@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 // app/routes/app.business-holidays.jsx
 
 import {
@@ -557,6 +558,31 @@ export async function action({
       ).trim();
 
     /* ====================================================================== */
+    /* Recalculate / Sync Due Dates                                           */
+    /* ====================================================================== */
+
+    if (intent === "recalculate" || intent === "sync") {
+      const { checked, moved, skipped } =
+        await rescheduleProductionDueDates(admin);
+      let message = `Checked ${checked} orders in production.`;
+      if (moved.length) {
+        message += ` Updated ${moved.length} order${moved.length === 1 ? "" : "s"}: ${moved.map((o) => o.name).join(", ")}.`;
+      } else {
+        message += " All production due dates are up to date.";
+      }
+      if (skipped.length) {
+        message += ` Skipped ${skipped.join(", ")} (no proof approval date found).`;
+      }
+      return {
+        success: true,
+        intent,
+        message,
+        fieldErrors: {},
+        formError: null,
+      };
+    }
+
+    /* ====================================================================== */
     /* Save                                                                   */
     /* ====================================================================== */
 
@@ -1071,15 +1097,15 @@ export default function BusinessHolidaysPage() {
     busy &&
     editingHoliday &&
     submittingTempId ===
-      editingHoliday.tempId;
+    editingHoliday.tempId;
 
   const deleting =
     busy &&
     submittingIntent ===
-      "delete" &&
+    "delete" &&
     deleteTarget &&
     submittingTempId ===
-      deleteTarget.tempId;
+    deleteTarget.tempId;
 
   /* ---------------------------------------------------------------------- */
   /* Action result                                                          */
@@ -1221,7 +1247,7 @@ export default function BusinessHolidaysPage() {
         if (
           !current ||
           current.tempId !==
-            tempId
+          tempId
         ) {
           return current;
         }
@@ -1247,7 +1273,7 @@ export default function BusinessHolidaysPage() {
         [tempId]: {
           ...(
             current[
-              tempId
+            tempId
             ] || {}
           ),
 
@@ -1319,13 +1345,13 @@ export default function BusinessHolidaysPage() {
     formData.set(
       "id",
       holiday.id ||
-        "",
+      "",
     );
 
     formData.set(
       "handle",
       holiday.handle ||
-        "",
+      "",
     );
 
     formData.set(
@@ -1464,26 +1490,36 @@ export default function BusinessHolidaysPage() {
 
     const local =
       clientErrors[
-        holiday.tempId
+      holiday.tempId
       ] ?? {};
 
     const server =
       actionData?.success ===
         false &&
-      actionData?.intent ===
+        actionData?.intent ===
         "save" &&
-      actionData?.tempId ===
+        actionData?.tempId ===
         holiday.tempId
         ? (
-            actionData.fieldErrors ??
-            {}
-          )
+          actionData.fieldErrors ??
+          {}
+        )
         : {};
 
     return {
       ...server,
       ...local,
     };
+  }
+
+  function syncDueDates() {
+    if (busy) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("intent", "recalculate");
+    submit(formData, { method: "post" });
   }
 
   return (
@@ -1508,24 +1544,34 @@ export default function BusinessHolidaysPage() {
         Add holiday
       </s-button>
 
+      {/* <s-button
+        slot="secondary-action"
+        disabled={busy}
+        onClick={syncDueDates}
+      >
+        {busy && navigation.formData?.get("intent") === "recalculate"
+          ? "Syncing due dates..."
+          : "Sync Due Dates"}
+      </s-button> */}
+
       {/* ================================================================ */}
       {/* Loader error                                                     */}
       {/* ================================================================ */}
 
       {loaderData
         ?.loaderError && (
-        <s-banner
-          tone="critical"
-          heading="Unable to load holidays"
-        >
-          <s-paragraph>
-            {
-              loaderData
-                .loaderError
-            }
-          </s-paragraph>
-        </s-banner>
-      )}
+          <s-banner
+            tone="critical"
+            heading="Unable to load holidays"
+          >
+            <s-paragraph>
+              {
+                loaderData
+                  .loaderError
+              }
+            </s-paragraph>
+          </s-banner>
+        )}
 
       {/* ================================================================ */}
       {/* Action error                                                     */}
@@ -1541,7 +1587,7 @@ export default function BusinessHolidaysPage() {
             heading={
               actionData
                 ?.intent ===
-              "delete"
+                "delete"
                 ? "Unable to delete holiday"
                 : "Unable to save holiday"
             }
@@ -1575,7 +1621,7 @@ export default function BusinessHolidaysPage() {
           </s-paragraph>
 
           {items.length ===
-          0 ? (
+            0 ? (
             <s-box
               padding="large"
               border="base"
@@ -1721,7 +1767,7 @@ export default function BusinessHolidaysPage() {
             ?.isNew
             ? "Add business holiday"
             : editingHoliday
-                ?.name
+              ?.name
               ? `Edit ${editingHoliday.name}`
               : "Edit business holiday"
         }

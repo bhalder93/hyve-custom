@@ -639,6 +639,13 @@ api_version = "2026-10"
   uri = "/webhooks/fulfillments/create"
   topics = [ "fulfillments/create" ]
 
+
+  # Emails the buyer their invoice PDF once the order is paid (HYV-144).
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/orders/paid"
+  topics = [ "orders/paid" ]
+
+  
 [app_proxy]
 # Storefront /apps/account/quote  ->  https://hyve-custom-app.onrender.com/proxy/quote
 # NOTE: `shopify app dev` rewrites this to the dev tunnel; re-deploy to restore production.

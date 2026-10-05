@@ -59,7 +59,7 @@ export const COMMERCIAL_SETTINGS = [
     section: "production",
     kind: "days",
     name: "Standard production",
-    description: "Business days from Artwork Proof approval, weekends and Singapore holidays excluded. The product page, cart and quote show it, and each order's production due date is counted from it.",
+    description: "Business days from Artwork Proof approval, weekends and China holidays excluded. The product page, cart and quote show it, and each order's production due date is counted from it.",
     placeholder: "5",
   },
   {
@@ -76,7 +76,7 @@ export const COMMERCIAL_SETTINGS = [
     kind: "days",
     optional: true,
     name: "Artwork deadline",
-    description: "Business days after an order is placed that artwork sent later is due, weekends and Singapore holidays excluded. The buyer sees the date on an order waiting for artwork. Leave blank for no deadline.",
+    description: "Business days after an order is placed that artwork sent later is due, weekends and China holidays excluded. The buyer sees the date on an order waiting for artwork. Leave blank for no deadline.",
     placeholder: "",
   },
 ];

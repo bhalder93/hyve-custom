@@ -44,10 +44,10 @@ const PORTAL_MOVES = {
 
 /**
  * The market whose holidays production and the artwork deadline skip:
- * Singapore. Holidays set for other markets on the Holidays page are not
+ * China. Holidays set for other markets on the Holidays page are not
  * counted.
  */
-const PRODUCTION_MARKET = "SG";
+const PRODUCTION_MARKET = "CN";
 
 /**
  * What a move needs to know about the order. Order actions load it through
@@ -269,11 +269,18 @@ async function productionDueFrom(admin, changedAt, rush) {
 export async function productionCalendar(admin) {
   const [data, { values }] = await Promise.all([gql(admin, PRODUCTION_HOLIDAYS), loadCommercialSettings(admin)]);
 
+  const isChinaHoliday = (market) => {
+    const m = String(market || "").trim().toUpperCase();
+    return m === PRODUCTION_MARKET || m === "CHINA";
+  };
+
   const holidays = new Set(
     (data.holidays?.nodes || [])
       .filter(
         (node) =>
-          node.enabled?.value !== "false" && node.market?.value === PRODUCTION_MARKET && node.date?.value,
+          node.enabled?.value !== "false" &&
+          isChinaHoliday(node.market?.value) &&
+          node.date?.value,
       )
       .map((node) => String(node.date.value).slice(0, 10)),
   );

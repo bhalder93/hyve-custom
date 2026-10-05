@@ -441,6 +441,30 @@ export default function QuoteDetailPage() {
     [fetcher, quote.id],
   );
 
+  // The quotation PDF (HYV-116), fetched with the session App Bridge adds and
+  // handed to the browser as a download.
+  const [downloading, setDownloading] = useState(false);
+  const downloadQuotation = useCallback(async () => {
+    setDownloading(true);
+    try {
+      const response = await fetch(`/app/quote-pdf/${cleanDraftOrderId(quote.id)}`);
+      if (!response.ok) throw new Error(`${response.status}`);
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Quotation-${String(quote.name || "").replace(/^#D/, "Q-")}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (error) {
+      shopify?.toast?.show?.("The quotation couldn't be generated. Please try again.", { isError: true });
+      console.error("[quote] quotation download failed", error);
+    } finally {
+      setDownloading(false);
+    }
+  }, [quote.id, quote.name, shopify]);
+
   const isSubmitting = fetcher.state !== "idle";
   const shopifyAdminUrl = useMemo(
     () => getShopifyAdminDraftOrderUrl(quote.id, shop),
@@ -470,6 +494,9 @@ export default function QuoteDetailPage() {
     <s-page heading={`Quote ${quote.name}`} inlineSize="large">
       <s-button slot="primary-action" href={shopifyAdminUrl} target="_blank" variant="primary">
         Open in Shopify
+      </s-button>
+      <s-button slot="secondary-actions" onClick={downloadQuotation} disabled={downloading || undefined}>
+        {downloading ? "Preparing PDF…" : "Download quotation"}
       </s-button>
       {quote.invoiceUrl ? (
         <s-button slot="secondary-actions" href={quote.invoiceUrl} target="_blank">

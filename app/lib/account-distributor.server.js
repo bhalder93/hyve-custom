@@ -1,6 +1,5 @@
-
 import { esc } from "./account-shell.server";
-import { State } from "country-state-city";
+import { ADDRESS_FORMATS } from "./address-formats.data";
 
 const DISTRIBUTOR_COUNTRIES = [
   { name: "Singapore", code: "SG" },
@@ -12,29 +11,6 @@ const DISTRIBUTOR_COUNTRIES = [
   { name: "Vietnam", code: "VN" },
   { name: "China", code: "CN" },
 ];
-
-
-const DISTRIBUTOR_STATES = Object.fromEntries(
-  DISTRIBUTOR_COUNTRIES.map((country) => {
-    const states = State.getStatesOfCountry(country.code) || [];
-
-    return [
-      country.name,
-      states.length
-        ? states.map((state) => ({
-            name: state.name,
-            code: state.isoCode || country.code,
-          }))
-        : [
-            {
-              name: country.name,
-              code: country.code,
-            },
-          ],
-    ];
-  }),
-);
-
 
 export function distributorPage({
   customer = null,
@@ -51,8 +27,8 @@ export function distributorPage({
 
   const registeredAddress =
     values?.registeredAddress &&
-    typeof values.registeredAddress === "object" &&
-    !Array.isArray(values.registeredAddress)
+      typeof values.registeredAddress === "object" &&
+      !Array.isArray(values.registeredAddress)
       ? values.registeredAddress
       : {};
 
@@ -76,9 +52,9 @@ export function distributorPage({
     values?.preferredCurrency != null
       ? chosen("preferredCurrency", code)
       : `{% if cart.currency.iso_code == '${String(code).replace(
-          /[^A-Z]/g,
-          "",
-        )}' %} selected{% endif %}`;
+        /[^A-Z]/g,
+        "",
+      )}' %} selected{% endif %}`;
 
   const toastHtml = renderNotificationToast(notice, error);
 
@@ -113,8 +89,6 @@ export function distributorPage({
         </p>
       </header>
 
-      <!-- Main Form Card -->
-
       <form
         method="POST"
         action="/apps/account/distributor"
@@ -146,8 +120,6 @@ export function distributorPage({
         </div>
 
         <div class="hyve-dist__grid-2">
-
-          <!-- Left Column -->
 
           <div class="hyve-dist__col">
 
@@ -183,13 +155,15 @@ export function distributorPage({
                 <span class="hyve-dist__req">*</span>
               </label>
 
-              <input
-                type="url"
+            <input
+                type="text"
                 id="dist-website"
                 name="companyWebsite"
                 class="hyve-dist__input"
                 required
-                placeholder="e.g. https://acmecorp.sg"
+                inputmode="url"
+                autocomplete="url"
+                placeholder="e.g. abcc.domain or https://hyve.promo"
                 value="${typed("companyWebsite")}"
               >
 
@@ -236,8 +210,6 @@ export function distributorPage({
             </div>
 
           </div>
-
-          <!-- Right Column -->
 
           <div class="hyve-dist__col">
 
@@ -466,15 +438,15 @@ export function distributorPage({
                 id="dist-currency"
                 name="preferredCurrency"
                 class="hyve-dist__select"
-                required
+                required${values?.preferredCurrency != null ? ' data-chosen="true"' : ""}
               >
 
                 ${(currencies || [])
-                  .map(
-                    (code) =>
-                      `<option value="${esc(code)}"${currencyChoice(                         code,                       )}>${esc(code)}</option>`,
-                  )
-                  .join("")}
+      .map(
+        (code) =>
+          `<option value="${esc(code)}"${currencyChoice(code,)}>${esc(code)}</option>`,
+      )
+      .join("")}
 
               </select>
 
@@ -483,8 +455,6 @@ export function distributorPage({
           </div>
 
         </div>
-
-        <!-- Markets -->
 
         <div
           class="
@@ -515,53 +485,53 @@ export function distributorPage({
           >
 
             ${renderMarketOption(
-              "Singapore",
-              "SG",
-              true,
-              values?.markets ?? null,
-            )}
+        "Singapore",
+        "SG",
+        true,
+        values?.markets ?? null,
+      )}
 
             ${renderMarketOption(
-              "Hong Kong",
-              "HK",
-              false,
-              values?.markets ?? null,
-            )}
+        "Hong Kong",
+        "HK",
+        false,
+        values?.markets ?? null,
+      )}
 
             ${renderMarketOption(
-              "Malaysia",
-              "MY",
-              false,
-              values?.markets ?? null,
-            )}
+        "Malaysia",
+        "MY",
+        false,
+        values?.markets ?? null,
+      )}
 
             ${renderMarketOption(
-              "Philippines",
-              "PH",
-              false,
-              values?.markets ?? null,
-            )}
+        "Philippines",
+        "PH",
+        false,
+        values?.markets ?? null,
+      )}
 
             ${renderMarketOption(
-              "Thailand",
-              "TH",
-              false,
-              values?.markets ?? null,
-            )}
+        "Thailand",
+        "TH",
+        false,
+        values?.markets ?? null,
+      )}
 
             ${renderMarketOption(
-              "Indonesia",
-              "ID",
-              false,
-              values?.markets ?? null,
-            )}
+        "Indonesia",
+        "ID",
+        false,
+        values?.markets ?? null,
+      )}
 
             ${renderMarketOption(
-              "Vietnam",
-              "VN",
-              false,
-              values?.markets ?? null,
-            )}
+        "Vietnam",
+        "VN",
+        false,
+        values?.markets ?? null,
+      )}
 
             ${renderMarketOption("China", "CN", false, values?.markets ?? null)}
 
@@ -570,8 +540,6 @@ export function distributorPage({
           </div>
 
         </div>
-
-        <!-- Commercial Credit Terms -->
 
         <div class="hyve-dist__section-terms">
 
@@ -610,8 +578,6 @@ export function distributorPage({
 
           </div>
 
-          <!-- Credit Fields -->
-
           <div
             class="
               hyve-dist__grid-2
@@ -620,8 +586,6 @@ export function distributorPage({
             id="dist-credit-fields"
             style="${isCreditRequired ? "" : "display: none;"}"
           >
-
-            <!-- Left Subcolumn -->
 
             <div class="hyve-dist__col">
 
@@ -642,7 +606,7 @@ export function distributorPage({
                   id="dist-uen"
                   name="registrationNumber"
                   class="hyve-dist__input js-credit-field"
-                  placeholder="e.g. 201912345G"
+                  placeholder="Business Registration Number"
                   value="${typed("registrationNumber")}"
                   ${isCreditRequired ? "required" : ""}
                   ${fieldError("registrationNumber") ? 'aria-invalid="true"' : ""}
@@ -720,35 +684,35 @@ export function distributorPage({
                   </option>
 
                   <option
-                    value="Under SGD 10,000"
-                    ${chosen("expectedVolume", "Under SGD 10,000", false)}
+                    value="Under USD 10,000"
+                    ${chosen("expectedVolume", "Under USD 10,000", false)}
                   >
-                    Under SGD 10,000
+                    Under USD 10,000
                   </option>
 
                   <option
-                    value="SGD 10,000 - SGD 50,000"
-                    ${chosen("expectedVolume", "SGD 10,000 - SGD 50,000", false)}
+                    value="USD 10,000 - USD 50,000"
+                    ${chosen("expectedVolume", "USD 10,000 - USD 50,000", false)}
                   >
-                    SGD 10,000 - SGD 50,000
+                    USD 10,000 - USD 50,000
                   </option>
 
                   <option
-                    value="SGD 50,000 - SGD 200,000"
+                    value="USD 50,000 - USD 200,000"
                     ${chosen(
-                      "expectedVolume",
-                      "SGD 50,000 - SGD 200,000",
-                      false,
-                    )}
+        "expectedVolume",
+        "USD 50,000 - USD 200,000",
+        false,
+      )}
                   >
-                    SGD 50,000 - SGD 200,000
+                    USD 50,000 - USD 200,000
                   </option>
 
                   <option
-                    value="SGD 200,000+"
-                    ${chosen("expectedVolume", "SGD 200,000+", false)}
+                    value="USD 200,000+"
+                    ${chosen("expectedVolume", "USD 200,000+", false)}
                   >
-                    SGD 200,000+
+                    USD 200,000+
                   </option>
 
                 </select>
@@ -763,8 +727,6 @@ export function distributorPage({
                 </div>
 
               </div>
-
-              <!-- Registered Business Address -->
 
               <div
                 class="
@@ -813,47 +775,41 @@ export function distributorPage({
                   "
                 >
 
-                  <!-- Address Line 1 -->
-
                   <div
                     class="
                       hyve-dist__field
                       hyve-dist__field--address-full
                     "
+                    id="dist-address1-field"
                   >
 
                     <label
                       class="hyve-dist__label"
                       for="dist-address1"
                     >
-                      Address Line 1
-
+                      <span id="dist-address1-label">Address</span>
                       <span
-                        class="hyve-dist__req dist-credit-req"
+                        class="hyve-dist__req dist-address-required"
                         ${isCreditRequired ? "" : 'style="display:none;"'}
                       >
                         *
                       </span>
-
                     </label>
 
                     <input
                       type="text"
                       id="dist-address1"
                       name="registeredAddress.address1"
-                      class="hyve-dist__input js-credit-field"
+                      class="hyve-dist__input js-address-field"
                       autocomplete="address-line1"
-                      placeholder="Street address, building name, unit"
+                      placeholder="Street address, building name"
                       value="${addressValue("address1")}"
-                      ${isCreditRequired ? "required" : ""}
                       ${addressError("address1") ? 'aria-invalid="true"' : ""}
                       aria-describedby="dist-address1-error"
                     >
 
                     <div
-                      class="
-                        hyve-dist__field-error
-                      "
+                      class="hyve-dist__field-error"
                       id="dist-address1-error"
                       data-error-for="registeredAddress.address1"
                       ${addressError("address1") ? "" : "hidden"}
@@ -863,43 +819,35 @@ export function distributorPage({
 
                   </div>
 
-                  <!-- Address Line 2 -->
-
                   <div
                     class="
                       hyve-dist__field
                       hyve-dist__field--address-full
                     "
+                    id="dist-address2-field"
                   >
 
                     <label
                       class="hyve-dist__label"
                       for="dist-address2"
                     >
-                      Address Line 2
-
-                      <span
-                        class="hyve-dist__opt"
-                      >
-                        (Optional)
-                      </span>
-
+                      <span id="dist-address2-label">Apartment, suite, etc (optional)</span>
                     </label>
 
                     <input
                       type="text"
                       id="dist-address2"
                       name="registeredAddress.address2"
-                      class="hyve-dist__input"
+                      class="hyve-dist__input js-address-field"
                       autocomplete="address-line2"
-                      placeholder="Suite, floor, unit, landmark"
+                      placeholder="Apartment, suite, floor, unit"
                       value="${addressValue("address2")}"
+                      ${addressError("address2") ? 'aria-invalid="true"' : ""}
+                      aria-describedby="dist-address2-error"
                     >
 
                     <div
-                      class="
-                        hyve-dist__field-error
-                      "
+                      class="hyve-dist__field-error"
                       id="dist-address2-error"
                       data-error-for="registeredAddress.address2"
                       ${addressError("address2") ? "" : "hidden"}
@@ -909,44 +857,81 @@ export function distributorPage({
 
                   </div>
 
-                  <!-- City -->
+                  <div
+                    class="hyve-dist__field"
+                    id="dist-address-barangay-field"
+                    style="display:none;"
+                  >
+
+                    <label
+                      class="hyve-dist__label"
+                      for="dist-address-barangay"
+                    >
+                      <span id="dist-address-barangay-label">Barangay</span>
+                      <span
+                        class="hyve-dist__req dist-address-required"
+                        ${isCreditRequired ? "" : 'style="display:none;"'}
+                      >
+                        *
+                      </span>
+                    </label>
+
+                    <input
+                      type="text"
+                      id="dist-address-barangay"
+                      name="registeredAddress.barangay"
+                      class="hyve-dist__input js-address-field"
+                      placeholder="Barangay"
+                      value="${addressValue("barangay")}"
+                      ${addressError("barangay") ? 'aria-invalid="true"' : ""}
+                      aria-describedby="dist-address-barangay-error"
+                    >
+
+                    <div
+                      class="hyve-dist__field-error"
+                      id="dist-address-barangay-error"
+                      data-error-for="registeredAddress.barangay"
+                      ${addressError("barangay") ? "" : "hidden"}
+                    >
+                      ${addressError("barangay")}
+                    </div>
+
+                  </div>
 
                   <div
                     class="hyve-dist__field"
+                    id="dist-address-city-field"
                   >
 
                     <label
                       class="hyve-dist__label"
                       for="dist-address-city"
                     >
-                      City
-
+                      <span id="dist-address-city-label">
+                        City
+                      </span>
                       <span
-                        class="hyve-dist__req dist-credit-req"
+                        class="hyve-dist__req dist-address-required"
                         ${isCreditRequired ? "" : 'style="display:none;"'}
                       >
                         *
                       </span>
-
                     </label>
 
                     <input
                       type="text"
                       id="dist-address-city"
                       name="registeredAddress.city"
-                      class="hyve-dist__input js-credit-field"
+                      class="hyve-dist__input js-address-field"
                       autocomplete="address-level2"
                       placeholder="City"
                       value="${addressValue("city")}"
-                      ${isCreditRequired ? "required" : ""}
                       ${addressError("city") ? 'aria-invalid="true"' : ""}
                       aria-describedby="dist-address-city-error"
                     >
 
                     <div
-                      class="
-                        hyve-dist__field-error
-                      "
+                      class="hyve-dist__field-error"
                       id="dist-address-city-error"
                       data-error-for="registeredAddress.city"
                       ${addressError("city") ? "" : "hidden"}
@@ -956,10 +941,9 @@ export function distributorPage({
 
                   </div>
 
-                  <!-- Country -->
-
                   <div
                     class="hyve-dist__field"
+                    id="dist-address-country-field"
                   >
 
                     <label
@@ -967,14 +951,12 @@ export function distributorPage({
                       for="dist-address-country"
                     >
                       Country
-
                       <span
                         class="hyve-dist__req dist-credit-req"
                         ${isCreditRequired ? "" : 'style="display:none;"'}
                       >
                         *
                       </span>
-
                     </label>
 
                     <select
@@ -992,22 +974,20 @@ export function distributorPage({
                       </option>
 
                       ${DISTRIBUTOR_COUNTRIES.map(
-                        (country) =>
-                          `<option
+        (country) =>
+          `<option
                             value="${esc(country.name)}"
                             data-country-code="${esc(country.code)}"
-                            ${addressSelected("country", country.name)}
+                            ${addressSelected("country", country.name) || (!registeredAddress?.country && country.name === (values?.countryBased || "Singapore")) ? " selected" : ""}
                           >
                             ${esc(country.name)}
                           </option>`,
-                      ).join("")}
+      ).join("")}
 
                     </select>
 
                     <div
-                      class="
-                        hyve-dist__field-error
-                      "
+                      class="hyve-dist__field-error"
                       id="dist-address-country-error"
                       data-error-for="registeredAddress.country"
                       ${addressError("country") ? "" : "hidden"}
@@ -1017,33 +997,31 @@ export function distributorPage({
 
                   </div>
 
-                  <!-- State / Province -->
-
                   <div
                     class="hyve-dist__field"
+                    id="dist-address-province-field"
                   >
 
                     <label
                       class="hyve-dist__label"
                       for="dist-address-province"
                     >
-                      State / Province
-
+                      <span id="dist-address-province-label">
+                        State / Province
+                      </span>
                       <span
-                        class="hyve-dist__req dist-credit-req"
+                        class="hyve-dist__req dist-address-required"
                         ${isCreditRequired ? "" : 'style="display:none;"'}
                       >
                         *
                       </span>
-
                     </label>
 
                     <select
                       id="dist-address-province"
                       name="registeredAddress.province"
-                      class="hyve-dist__select js-credit-field"
+                      class="hyve-dist__select js-address-field"
                       autocomplete="address-level1"
-                      ${isCreditRequired ? "required" : ""}
                       ${addressError("province") ? 'aria-invalid="true"' : ""}
                       data-current-state="${addressValue("province")}"
                       aria-describedby="dist-address-province-error"
@@ -1056,9 +1034,7 @@ export function distributorPage({
                     </select>
 
                     <div
-                      class="
-                        hyve-dist__field-error
-                      "
+                      class="hyve-dist__field-error"
                       id="dist-address-province-error"
                       data-error-for="registeredAddress.province"
                       ${addressError("province") ? "" : "hidden"}
@@ -1068,7 +1044,6 @@ export function distributorPage({
 
                   </div>
 
-                  <!-- Province / State Code -->
                   <input
                     type="hidden"
                     id="dist-address-province-code"
@@ -1076,44 +1051,38 @@ export function distributorPage({
                     value="${addressValue("provinceCode")}"
                   >
 
-                  <!-- ZIP -->
-
                   <div
                     class="hyve-dist__field"
+                    id="dist-address-zip-field"
                   >
 
                     <label
                       class="hyve-dist__label"
                       for="dist-address-zip"
                     >
-                      ZIP / Postal Code
-
+                      <span id="dist-address-zip-label">Postal code</span>
                       <span
-                        class="hyve-dist__req dist-credit-req"
+                        class="hyve-dist__req dist-address-required"
                         ${isCreditRequired ? "" : 'style="display:none;"'}
                       >
                         *
                       </span>
-
                     </label>
 
                     <input
                       type="text"
                       id="dist-address-zip"
                       name="registeredAddress.zip"
-                      class="hyve-dist__input js-credit-field"
+                      class="hyve-dist__input js-address-field"
                       autocomplete="postal-code"
-                      placeholder="ZIP / Postal code"
+                      placeholder="Postal code"
                       value="${addressValue("zip")}"
-                      ${isCreditRequired ? "required" : ""}
                       ${addressError("zip") ? 'aria-invalid="true"' : ""}
                       aria-describedby="dist-address-zip-error"
                     >
 
                     <div
-                      class="
-                        hyve-dist__field-error
-                      "
+                      class="hyve-dist__field-error"
                       id="dist-address-zip-error"
                       data-error-for="registeredAddress.zip"
                       ${addressError("zip") ? "" : "hidden"}
@@ -1123,61 +1092,11 @@ export function distributorPage({
 
                   </div>
 
-                  <!-- Phone -->
-
-                  <div
-                    class="hyve-dist__field"
-                  >
-
-                    <label
-                      class="hyve-dist__label"
-                      for="dist-address-phone"
-                    >
-                      Phone
-
-                      <span
-                        class="hyve-dist__req dist-credit-req"
-                        ${isCreditRequired ? "" : 'style="display:none;"'}
-                      >
-                        *
-                      </span>
-
-                    </label>
-
-                    <input
-                      type="tel"
-                      id="dist-address-phone"
-                      name="registeredAddress.phone"
-                      class="hyve-dist__input js-credit-field"
-                      autocomplete="tel"
-                      inputmode="tel"
-                      placeholder="+65 9123 4567"
-                      value="${addressValue("phone")}"
-                      ${isCreditRequired ? "required" : ""}
-                      ${addressError("phone") ? 'aria-invalid="true"' : ""}
-                      aria-describedby="dist-address-phone-error"
-                    >
-
-                    <div
-                      class="
-                        hyve-dist__field-error
-                      "
-                      id="dist-address-phone-error"
-                      data-error-for="registeredAddress.phone"
-                      ${addressError("phone") ? "" : "hidden"}
-                    >
-                      ${addressError("phone")}
-                    </div>
-
-                  </div>
-
                 </div>
 
               </div>
 
             </div>
-
-            <!-- Right Subcolumn -->
 
             <div class="hyve-dist__col">
 
@@ -1190,7 +1109,7 @@ export function distributorPage({
                   <span
                     class="hyve-dist__opt"
                   >
-                    (ACRA / Bizfile or country equivalent)
+
                   </span>
 
                 </label>
@@ -1252,8 +1171,6 @@ export function distributorPage({
 
         </div>
 
-        <!-- Footer -->
-
         <div class="hyve-dist__actions">
 
           <a
@@ -1291,7 +1208,6 @@ export function distributorPage({
 
     ${DISTRIBUTOR_SCRIPT}`;
 }
-
 
 function renderMarketOption(name, code, isDefault = false, picked = null) {
   const isEmoji = code.length > 2;
@@ -1333,7 +1249,6 @@ function renderMarketOption(name, code, isDefault = false, picked = null) {
 
     </label>`;
 }
-
 
 function renderExistingApplicationView(app, customer) {
   const status = app.status || "Pending Review";
@@ -1420,9 +1335,8 @@ function renderExistingApplicationView(app, customer) {
   let step3Class = "hyve-dist__step--upcoming";
 
   let mainTitle = "We are evaluating your distributor profile!";
-  let mainDescription = `Thanks for applying${
-    contactName ? `, <strong>${esc(contactName)}</strong>` : ""
-  }! Our Head of Customer Service, <strong>Bruce</strong>, manages application vetting. We have committed to a <strong>7 business days Review SLA</strong> and are checking your credentials.`;
+  let mainDescription = `Thanks for applying${contactName ? `, <strong>${esc(contactName)}</strong>` : ""
+    }! Our Head of Customer Service, <strong>Bruce</strong>, manages application vetting. We have committed to a <strong>7 business days Review SLA</strong> and are checking your credentials.`;
 
   if (isApproved) {
     bannerTitle = "Application Approved & Activated";
@@ -1468,9 +1382,8 @@ function renderExistingApplicationView(app, customer) {
     step3Class = "hyve-dist__step--done";
 
     mainTitle = "Your distributor profile is officially active!";
-    mainDescription = `Congratulations${
-      contactName ? `, <strong>${esc(contactName)}</strong>` : ""
-    }! You now have full access to wholesale pricing and distributor commercial terms.`;
+    mainDescription = `Congratulations${contactName ? `, <strong>${esc(contactName)}</strong>` : ""
+      }! You now have full access to wholesale pricing and distributor commercial terms.`;
   } else if (isRejected) {
     bannerTitle = "Application Decision: Declined";
     badgeText = "Declined";
@@ -1512,9 +1425,8 @@ function renderExistingApplicationView(app, customer) {
     step3Class = "hyve-dist__step--upcoming";
 
     mainTitle = "Distributor Application Status Update";
-    mainDescription = `Thank you for applying${
-      contactName ? `, <strong>${esc(contactName)}</strong>` : ""
-    }. At this time, we are unable to approve your distributor application. If you have questions, please reach out to our team.`;
+    mainDescription = `Thank you for applying${contactName ? `, <strong>${esc(contactName)}</strong>` : ""
+      }. At this time, we are unable to approve your distributor application. If you have questions, please reach out to our team.`;
   }
 
   return `
@@ -1525,13 +1437,12 @@ function renderExistingApplicationView(app, customer) {
       <div
         class="
           hyve-dist__eval-banner
-          ${
-            isApproved
-              ? "hyve-dist__eval-banner--approved"
-              : isRejected
-                ? "hyve-dist__eval-banner--rejected"
-                : ""
-          }
+          ${isApproved
+      ? "hyve-dist__eval-banner--approved"
+      : isRejected
+        ? "hyve-dist__eval-banner--rejected"
+        : ""
+    }
         "
       >
 
@@ -1556,13 +1467,12 @@ function renderExistingApplicationView(app, customer) {
         <div
           class="
             hyve-dist__eval-badge
-            ${
-              isApproved
-                ? "hyve-dist__eval-badge--approved"
-                : isRejected
-                  ? "hyve-dist__eval-badge--rejected"
-                  : ""
-            }
+            ${isApproved
+      ? "hyve-dist__eval-badge--approved"
+      : isRejected
+        ? "hyve-dist__eval-badge--rejected"
+        : ""
+    }
           "
         >
 
@@ -1642,9 +1552,8 @@ function renderExistingApplicationView(app, customer) {
               "
             >
 
-              ${
-                isApproved
-                  ? `
+              ${isApproved
+      ? `
                     <svg
                       width="17"
                       height="17"
@@ -1660,7 +1569,7 @@ function renderExistingApplicationView(app, customer) {
                       ></polyline>
                     </svg>
                   `
-                  : `
+      : `
                     <svg
                       width="17"
                       height="17"
@@ -1682,7 +1591,7 @@ function renderExistingApplicationView(app, customer) {
                       ></polyline>
                     </svg>
                   `
-              }
+    }
 
             </div>
 
@@ -1716,9 +1625,8 @@ function renderExistingApplicationView(app, customer) {
               "
             >
 
-              ${
-                isApproved
-                  ? `
+              ${isApproved
+      ? `
                     <svg
                       width="17"
                       height="17"
@@ -1734,7 +1642,7 @@ function renderExistingApplicationView(app, customer) {
                       ></polyline>
                     </svg>
                   `
-                  : `
+      : `
                     <svg
                       width="17"
                       height="17"
@@ -1756,7 +1664,7 @@ function renderExistingApplicationView(app, customer) {
                       ></path>
                     </svg>
                   `
-              }
+    }
 
             </div>
 
@@ -1784,9 +1692,8 @@ function renderExistingApplicationView(app, customer) {
           ${mainDescription}
         </p>
 
-        ${
-          isRejected
-            ? `
+        ${isRejected
+      ? `
               <div
                 class="
                   hyve-dist__rejection-banner
@@ -1850,17 +1757,17 @@ function renderExistingApplicationView(app, customer) {
                     "
                   >
                     ${esc(
-                      app.rejection_message ||
-                        "Thank you for applying. At this time, your distributor profile does not meet our minimum commercial requirements.",
-                    )}
+        app.rejection_message ||
+        "Thank you for applying. At this time, your distributor profile does not meet our minimum commercial requirements.",
+      )}
                   </p>
 
                 </div>
 
               </div>
             `
-            : ""
-        }
+      : ""
+    }
 
         <div
           class="hyve-dist__eval-card"
@@ -1902,9 +1809,8 @@ function renderExistingApplicationView(app, customer) {
                 class="hyve-dist__eval-val"
               >
 
-                ${
-                  website
-                    ? `<a
+                ${website
+      ? `<a
                         href="${esc(websiteUrl)}"
                         target="_blank"
                         rel="noopener"
@@ -1912,14 +1818,14 @@ function renderExistingApplicationView(app, customer) {
                       >
                         ${esc(website)}
                       </a>`
-                    : `
+      : `
                       <span
                         style="color:#94a3b8;"
                       >
                         —
                       </span>
                     `
-                }
+    }
 
               </span>
 
@@ -1961,9 +1867,8 @@ function renderExistingApplicationView(app, customer) {
 
             </div>
 
-            ${
-              app.registration_document_url
-                ? `
+            ${app.registration_document_url
+      ? `
                   <div
                     class="
                       hyve-dist__eval-item
@@ -2000,9 +1905,9 @@ function renderExistingApplicationView(app, customer) {
                       >
                         📄
                         ${esc(
-                          app.registration_document_name ||
-                            "View Uploaded Document",
-                        )}
+        app.registration_document_name ||
+        "View Uploaded Document",
+      )}
                         ↗
                       </a>
 
@@ -2010,8 +1915,8 @@ function renderExistingApplicationView(app, customer) {
 
                   </div>
                 `
-                : ""
-            }
+      : ""
+    }
 
           </div>
 
@@ -2034,7 +1939,6 @@ function renderExistingApplicationView(app, customer) {
 
     </div>`;
 }
-
 
 function renderNotificationToast(notice, error) {
   if (!notice && !error) {
@@ -2149,6 +2053,7 @@ function icoCheckCircle() {
   `);
 }
 
+// eslint-disable-next-line no-unused-vars
 function icoClock() {
   return svg(`
     <circle
@@ -2247,7 +2152,6 @@ function icoClose() {
   `);
 }
 
-
 const DISTRIBUTOR_STYLES = `
 <style>
 
@@ -2273,8 +2177,6 @@ const DISTRIBUTOR_STYLES = `
   margin: 0 auto;
 }
 
-/* Header */
-
 .hyve-dist__header {
   margin-bottom: 18px;
 }
@@ -2293,8 +2195,6 @@ const DISTRIBUTOR_STYLES = `
   margin: 0;
 }
 
-/* Main Form Card */
-
 .hyve-dist__form-card {
   background: #ffffff;
   border: 1px solid var(--dist-line);
@@ -2305,8 +2205,6 @@ const DISTRIBUTOR_STYLES = `
     0 1px 3px
     rgba(0, 0, 0, 0.02);
 }
-
-/* Card Header */
 
 .hyve-dist__card-header {
   display: flex;
@@ -2369,8 +2267,6 @@ const DISTRIBUTOR_STYLES = `
   border-radius: 999px;
 }
 
-/* Grids */
-
 .hyve-dist__grid-2 {
   display: grid;
 
@@ -2385,8 +2281,6 @@ const DISTRIBUTOR_STYLES = `
   flex-direction: column;
   gap: 16px;
 }
-
-/* Fields */
 
 .hyve-dist__field {
   display: flex;
@@ -2453,8 +2347,6 @@ const DISTRIBUTOR_STYLES = `
       0.08
     );
 }
-
-/* Markets */
 
 .hyve-dist__markets-grid {
   display: grid;
@@ -2602,8 +2494,6 @@ const DISTRIBUTOR_STYLES = `
   color: #ffffff;
 }
 
-/* Commercial Credit Terms */
-
 .hyve-dist__section-terms {
   margin-top: 28px;
 
@@ -2644,8 +2534,6 @@ const DISTRIBUTOR_STYLES = `
 
   margin: 0;
 }
-
-/* Toggle */
 
 .hyve-dist__switch {
   position: relative;
@@ -2742,8 +2630,6 @@ input:checked
     translateX(20px);
 }
 
-/* Upload */
-
 .hyve-dist__dropzone {
   position: relative;
 
@@ -2834,8 +2720,6 @@ input:checked
 
   color: var(--dist-muted);
 }
-
-/* Actions */
 
 .hyve-dist__actions {
   display: flex;
@@ -2946,8 +2830,6 @@ input:checked
       0.35
     );
 }
-
-/* Evaluation view */
 
 .hyve-dist__eval-container {
   background: #ffffff;
@@ -3106,8 +2988,6 @@ input:checked
 
   background: #ffffff;
 }
-
-/* Stepper */
 
 .hyve-dist__stepper {
   display: flex;
@@ -3292,8 +3172,6 @@ input:checked
   font-weight: 700;
 }
 
-/* Rejection */
-
 .hyve-dist__rejection-banner {
   max-width: 620px;
 
@@ -3355,8 +3233,6 @@ input:checked
 
   margin: 0;
 }
-
-/* Evaluation Card */
 
 .hyve-dist__eval-card {
   max-width: 620px;
@@ -3474,8 +3350,6 @@ input:checked
     underline;
 }
 
-/* Address */
-
 .hyve-dist__address-section {
   display: flex;
 
@@ -3510,9 +3384,14 @@ input:checked
   display: grid;
 
   grid-template-columns:
-    1fr 1fr;
+    repeat(6, minmax(0, 1fr));
 
   gap: 12px;
+}
+
+/* Each field's share of its row comes from Shopify's layout (--span). */
+.hyve-dist__address-grid > .hyve-dist__field {
+  grid-column: span var(--span, 6);
 }
 
 .hyve-dist__field--address-full {
@@ -3553,8 +3432,6 @@ input:checked
     );
 }
 
-/* Responsive */
-
 @media (
   max-width: 960px
 ) {
@@ -3577,6 +3454,10 @@ input:checked
   .hyve-dist__address-grid {
     grid-template-columns:
       1fr;
+  }
+
+  .hyve-dist__address-grid > .hyve-dist__field {
+    grid-column: auto;
   }
 
   .hyve-dist__field--address-full {
@@ -3725,8 +3606,6 @@ input:checked
   }
 }
 
-/* Toast */
-
 .hyve-dist__toast {
   display: flex;
 
@@ -3808,7 +3687,6 @@ input:checked
 
 </style>`;
 
-
 const DISTRIBUTOR_SCRIPT = `
 <script>
 (() => {
@@ -3858,13 +3736,39 @@ const DISTRIBUTOR_SCRIPT = `
       '.hyve-dist__market-pill'
     );
 
-  /* -------------------------------------------------------
-   * Registered Address
-   * ------------------------------------------------------- */
+  const marketCountry =
+    document.getElementById(
+      'dist-country'
+    );
 
   const addressCountry =
     document.getElementById(
       'dist-address-country'
+    );
+
+  const address1 =
+    document.getElementById(
+      'dist-address1'
+    );
+
+  const address2 =
+    document.getElementById(
+      'dist-address2'
+    );
+
+  const addressBarangay =
+    document.getElementById(
+      'dist-address-barangay'
+    );
+
+  const addressCity =
+    document.getElementById(
+      'dist-address-city'
+    );
+
+  const addressCityLabel =
+    document.getElementById(
+      'dist-address-city-label'
     );
 
   const addressProvince =
@@ -3872,236 +3776,167 @@ const DISTRIBUTOR_SCRIPT = `
       'dist-address-province'
     );
 
+  const addressProvinceLabel =
+    document.getElementById(
+      'dist-address-province-label'
+    );
+
   const addressProvinceCode =
     document.getElementById(
       'dist-address-province-code'
     );
 
-  const distributorStates =
-    ${JSON.stringify(DISTRIBUTOR_STATES)};
-
-  /**
-   * Populate State / Province dropdown using
-   * the selected country.
-   */
-  function populateAddressStates(
-    preserveCurrentValue = false
-  ) {
-    if (
-      !addressCountry ||
-      !addressProvince
-    ) {
-      return;
-    }
-
-    const country =
-      addressCountry.value;
-
-    const states =
-      distributorStates[
-        country
-      ] || [];
-
-    const currentState =
-      preserveCurrentValue
-        ? (
-            addressProvince
-              .dataset
-              .currentState ||
-            ''
-          )
-        : '';
-
-    addressProvince.innerHTML =
-      '';
-
-    const placeholder =
-      document.createElement(
-        'option'
-      );
-
-    placeholder.value =
-      '';
-
-    placeholder.textContent =
-      country
-        ? 'Select state / province…'
-        : 'Select country first…';
-
-    addressProvince.appendChild(
-      placeholder
+  const addressZip =
+    document.getElementById(
+      'dist-address-zip'
     );
 
-    if (!country) {
-      addressProvince.disabled =
-        true;
+  const addressFieldElements = {
+    address1: {
+      field: document.getElementById('dist-address1-field'),
+      input: address1,
+    },
+    address2: {
+      field: document.getElementById('dist-address2-field'),
+      input: address2,
+    },
+    barangay: {
+      field: document.getElementById('dist-address-barangay-field'),
+      input: addressBarangay,
+    },
+    city: {
+      field: document.getElementById('dist-address-city-field'),
+      input: addressCity,
+    },
+    province: {
+      field: document.getElementById('dist-address-province-field'),
+      input: addressProvince,
+    },
+    zip: {
+      field: document.getElementById('dist-address-zip-field'),
+      input: addressZip,
+    },
+  };
 
-      if (
-        addressProvinceCode
-      ) {
-        addressProvinceCode.value =
-          '';
+  // Address fields, their labels, their order and the region lists are
+  // Shopify's own for each country (app/lib/address-formats.data.js, from
+  // Shopify's address data), so what the applicant types is what Shopify
+  // takes at approval. Everything is required except Apartment, suite, etc.
+  // (HYV-143)
+  const addressFormats = ${JSON.stringify(ADDRESS_FORMATS)};
+  const addressGrid = addressCountry ? addressCountry.closest('.hyve-dist__address-grid') : null;
+  const addressLabels = {
+    address1: document.getElementById('dist-address1-label'),
+    address2: document.getElementById('dist-address2-label'),
+    barangay: document.getElementById('dist-address-barangay-label'),
+    city: addressCityLabel,
+    province: addressProvinceLabel,
+    zip: document.getElementById('dist-address-zip-label'),
+  };
+
+  function syncZoneCode() {
+    if (!addressProvinceCode || !addressProvince) return;
+    const option = addressProvince.selectedOptions[0];
+    addressProvinceCode.value = (option && option.dataset.stateCode) || '';
+  }
+
+  function fillZones(format, preserve) {
+    const current = preserve ? addressProvince.dataset.currentState || '' : '';
+    addressProvince.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select a ' + String(format.labels.province || 'region').toLowerCase();
+    addressProvince.appendChild(placeholder);
+    format.zones.forEach((zone) => {
+      const option = document.createElement('option');
+      option.value = zone.name;
+      option.textContent = zone.name;
+      option.dataset.stateCode = zone.code;
+      if (current && current === zone.name) option.selected = true;
+      addressProvince.appendChild(option);
+    });
+    syncZoneCode();
+  }
+
+  function updateAddressFields(preserve = false) {
+    if (!addressCountry) return;
+    const format = addressFormats[addressCountry.value];
+    const rows = format ? format.rows : [['address1'], ['address2'], ['city', 'province', 'zip']];
+    const shown = new Set(rows.flat());
+    const creditEnabled = Boolean(creditToggle && creditToggle.checked);
+
+    // Shopify's order: the country first, then each row, with the fields that
+    // share a row side by side.
+    if (addressGrid) {
+      const countryField = document.getElementById('dist-address-country-field');
+      if (countryField) {
+        countryField.style.setProperty('--span', '6');
+        addressGrid.appendChild(countryField);
       }
-
-      return;
+      rows.forEach((row) => {
+        row.forEach((key) => {
+          const item = addressFieldElements[key];
+          if (!item || !item.field) return;
+          item.field.style.setProperty('--span', String(6 / row.length));
+          addressGrid.appendChild(item.field);
+        });
+      });
     }
 
-    addressProvince.disabled =
-      false;
+    Object.entries(addressFieldElements).forEach(([key, item]) => {
+      if (!item.field || !item.input) return;
+      const show = shown.has(key);
+      item.field.style.display = show ? '' : 'none';
+      item.input.disabled = !show;
+      const required = show && creditEnabled && key !== 'address2';
+      item.input.toggleAttribute('required', required);
+      if (!show) item.input.removeAttribute('aria-invalid');
+      const star = item.field.querySelector('.dist-address-required');
+      if (star) star.style.display = required ? '' : 'none';
+      const label = addressLabels[key];
+      const text = format && format.labels[key];
+      if (label && text) label.textContent = key === 'address2' ? text + ' (optional)' : text;
+    });
+    if (addressCity && format) addressCity.placeholder = format.labels.city;
+    if (addressZip && format) addressZip.placeholder = format.labels.zip;
 
-    states.forEach(
-      (state) => {
-        const option =
-          document.createElement(
-            'option'
-          );
-
-        option.value =
-          state.name;
-
-        option.textContent =
-          state.name;
-
-        option.dataset.stateCode =
-          state.code ||
-          '';
-
-        if (
-          currentState &&
-          currentState ===
-            state.name
-        ) {
-          option.selected =
-            true;
-        }
-
-        addressProvince.appendChild(
-          option
-        );
-      }
-    );
-
-    /**
-     * Preserve previously saved/submitted
-     * province even if the subdivision package
-     * data changes.
-     */
-    if (
-      currentState &&
-      !states.some(
-        (state) =>
-          state.name ===
-          currentState
-      )
-    ) {
-      const option =
-        document.createElement(
-          'option'
-        );
-
-      option.value =
-        currentState;
-
-      option.textContent =
-        currentState;
-
-      option.selected =
-        true;
-
-      option.dataset.stateCode =
-        addressProvinceCode
-          ?.value ||
-        '';
-
-      addressProvince.appendChild(
-        option
-      );
-    }
-
-    const selectedOption =
-      addressProvince
-        .selectedOptions[0];
-
-    if (
-      addressProvinceCode
-    ) {
-      if (
-        selectedOption?.value
-      ) {
-        addressProvinceCode.value =
-          selectedOption
-            .dataset
-            .stateCode ||
-          '';
-      } else if (
-        !preserveCurrentValue
-      ) {
-        addressProvinceCode.value =
-          '';
-      }
+    if (format && shown.has('province')) {
+      fillZones(format, preserve);
+    } else {
+      addressProvince.innerHTML = '';
+      if (addressProvinceCode) addressProvinceCode.value = '';
     }
   }
 
-  if (
-    addressCountry &&
-    addressProvince
-  ) {
+  if (addressCountry && addressProvince) {
+    const resetZone = () => {
+      addressProvince.dataset.currentState = '';
+      if (addressProvinceCode) addressProvinceCode.value = '';
+    };
+    const hasCountry = (name) => Array.from(addressCountry.options).some((option) => option.value === name);
 
-    /**
-     * Country changed
-     */
-    addressCountry.addEventListener(
-      'change',
-      () => {
-        addressProvince.dataset.currentState =
-          '';
+    addressCountry.addEventListener('change', () => {
+      resetZone();
+      updateAddressFields(false);
+    });
+    addressProvince.addEventListener('change', syncZoneCode);
 
-        if (
-          addressProvinceCode
-        ) {
-          addressProvinceCode.value =
-            '';
-        }
+    // The address country starts as the market the applicant is based in, and
+    // follows it when that changes.
+    if (marketCountry && !addressCountry.value && hasCountry(marketCountry.value)) {
+      addressCountry.value = marketCountry.value;
+    }
+    if (marketCountry) {
+      marketCountry.addEventListener('change', () => {
+        if (!hasCountry(marketCountry.value)) return;
+        addressCountry.value = marketCountry.value;
+        resetZone();
+        updateAddressFields(false);
+      });
+    }
 
-        populateAddressStates(
-          false
-        );
-      }
-    );
-
-    /**
-     * State / Province changed
-     */
-    addressProvince.addEventListener(
-      'change',
-      () => {
-        const selectedOption =
-          addressProvince
-            .selectedOptions[0];
-
-        if (
-          addressProvinceCode
-        ) {
-          addressProvinceCode.value =
-            selectedOption
-              ?.dataset
-              ?.stateCode ||
-            '';
-        }
-      }
-    );
-
-    /**
-     * Initial population.
-     */
-    populateAddressStates(
-      true
-    );
+    updateAddressFields(true);
   }
-
-  /* -------------------------------------------------------
-   * Markets
-   * ------------------------------------------------------- */
 
   marketPills.forEach(
     (pill) => {
@@ -4133,10 +3968,6 @@ const DISTRIBUTOR_SCRIPT = `
     }
   );
 
-  /* -------------------------------------------------------
-   * Credit Terms & Conditional Validation
-   * ------------------------------------------------------- */
-
   function updateCreditFields() {
     if (
       !creditToggle ||
@@ -4145,25 +3976,44 @@ const DISTRIBUTOR_SCRIPT = `
       return;
     }
 
-    const isEnabled = creditToggle.checked;
+    const isEnabled =
+      creditToggle.checked;
 
-    creditFields.style.display = isEnabled ? 'grid' : 'none';
+    creditFields.style.display =
+      isEnabled ? 'grid' : 'none';
 
     creditReqStars.forEach((star) => {
-      star.style.display = isEnabled ? '' : 'none';
+      star.style.display =
+        isEnabled ? '' : 'none';
     });
 
     conditionalInputs.forEach((input) => {
       if (isEnabled) {
-        input.setAttribute('required', '');
+        input.setAttribute(
+          'required',
+          ''
+        );
       } else {
-        input.removeAttribute('required');
-        input.removeAttribute('aria-invalid');
+        input.removeAttribute(
+          'required'
+        );
+
+        input.removeAttribute(
+          'aria-invalid'
+        );
       }
     });
 
+    updateAddressFields(
+      true
+    );
+
     if (!isEnabled) {
-      const creditErrors = creditFields.querySelectorAll('.hyve-dist__field-error');
+      const creditErrors =
+        creditFields.querySelectorAll(
+          '.hyve-dist__field-error'
+        );
+
       creditErrors.forEach((err) => {
         err.hidden = true;
       });
@@ -4181,10 +4031,6 @@ const DISTRIBUTOR_SCRIPT = `
 
     updateCreditFields();
   }
-
-  /* -------------------------------------------------------
-   * File Upload
-   * ------------------------------------------------------- */
 
   const dropzone =
     document.getElementById(
@@ -4285,10 +4131,6 @@ const DISTRIBUTOR_SCRIPT = `
     );
   }
 
-  /* -------------------------------------------------------
-   * Form Submit
-   * ------------------------------------------------------- */
-
   if (
     form &&
     submitBtn
@@ -4344,6 +4186,49 @@ const DISTRIBUTOR_SCRIPT = `
       },
       4500
     );
+  }
+
+  // Company Website takes an address typed without https:// (HYV-146) and adds
+  // it on submit. Text that isn't an address, with no domain, is still refused.
+  const website = document.getElementById('dist-website');
+  const withScheme = (raw) => (raw && !/^https?:[/][/]/i.test(raw) ? 'https://' + raw : raw);
+  const checkWebsite = () => {
+    if (!website) return;
+    const raw = website.value.trim();
+    let ok = !raw;
+    if (raw && !raw.includes(' ')) {
+      try {
+        const url = new URL(withScheme(raw));
+        ok = /^https?:$/.test(url.protocol) && /[.][a-z]{2,}$/i.test(url.hostname);
+      } catch (error) {
+        ok = false;
+      }
+    }
+    website.setCustomValidity(ok ? '' : 'Enter your company website, for example acmecorp.sg');
+  };
+  if (website) {
+    website.addEventListener('input', checkWebsite);
+    checkWebsite();
+    if (form) form.addEventListener('submit', () => { website.value = withScheme(website.value.trim()); });
+  }
+
+  // Preferred Currency follows the market the applicant is based in, until
+  // they pick a currency themselves. Vietnam distributors buy in USD while
+  // Vietnam retail stays in VND (HYV-77, Michael and Bruce, Oct 1).
+  const basedIn = document.getElementById('dist-country');
+  const currencySelect = document.getElementById('dist-currency');
+  const CURRENCY_FOR = {
+    Singapore: 'SGD', 'Hong Kong': 'HKD', Malaysia: 'MYR', Philippines: 'PHP',
+    Thailand: 'THB', Indonesia: 'IDR', China: 'CNY', Vietnam: 'USD',
+  };
+  if (basedIn && currencySelect) {
+    let picked = currencySelect.dataset.chosen === 'true';
+    currencySelect.addEventListener('change', () => { picked = true; });
+    basedIn.addEventListener('change', () => {
+      const code = CURRENCY_FOR[basedIn.value];
+      if (picked || !code) return;
+      if ([...currencySelect.options].some((o) => o.value === code)) currencySelect.value = code;
+    });
   }
 
 })();

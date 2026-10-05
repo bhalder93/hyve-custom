@@ -1027,6 +1027,45 @@ export async function sendReadyForCollectionEmail({
 }
 
 /* -------------------------------------------------------------------------- */
+/* Invoice                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The invoice PDF once an order is paid (HYV-144). Shopify's order
+ * confirmation can't carry an attachment, and companies need the invoice for
+ * their books, so the app sends it on its own.
+ */
+export async function sendInvoiceEmail({ customerEmail, customerName, orderName, orderDate, pdf, filename }) {
+  if (!pdf) {
+    throw new Error("Invoice PDF is required.");
+  }
+
+  const html = customerLayout({
+    title: "Your Invoice",
+    customerName,
+    orderName,
+    orderDate,
+    body: `
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        Thank you for your order. Your invoice for ${escapeHtml(orderName)} is attached as a PDF for your records.
+      </p>
+
+      <p style="margin:0; line-height:1.7; font-size:15px;">
+        You can also download it any time from the order in your account.
+      </p>
+    `,
+  });
+
+  return sendEmail({
+    to: customerEmail,
+    subject: `Invoice - ${orderName}`,
+    html,
+    text: `Thank you for your order. Your invoice for ${orderName} is attached as a PDF. You can also download it any time from the order in your account.`,
+    attachments: [{ filename, content: pdf, contentType: "application/pdf" }],
+  });
+}
+
+/* -------------------------------------------------------------------------- */
 /* Internal alert                                                             */
 /* -------------------------------------------------------------------------- */
 

@@ -23,6 +23,7 @@ export default function App() {
         <s-link href="/app/notification-recipients">Notification Recipients</s-link>
         <s-link href="/app/business-holidays">Holidays</s-link>
         <s-link href="/app/commercial-settings">Commercial Settings</s-link>
+        <s-link href="/app/tier-prices">Tier Prices</s-link>
         <s-link href="/app/sla-engine">Manual SLA</s-link>
         {/* <s-link href="/app/sla-rules"> SLA Rules</s-link> */}
       </s-app-nav>

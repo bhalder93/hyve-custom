@@ -1,7 +1,7 @@
 import { authenticate } from "../shopify.server";
 import { purchasingCompanyFor, purchasingEntity } from "../lib/purchasing-company.server";
 import { notifyQuoteRaised } from "../lib/quote-notification.server";
-import { LEAD_TIME_ATTRIBUTE } from "../lib/quote-document.server";
+import { CART_QUOTE_NOTE, LEAD_TIME_ATTRIBUTE } from "../lib/quote-document.server";
 import { loadCommercialSettings } from "../lib/commercial-settings.server";
 
 /**
@@ -140,10 +140,13 @@ export const action = async ({ request }) => {
   // ----- save the draft order this quote is -----
   const currencyCode = String(cart.currency || "USD").toUpperCase();
   const leadTime = await quoteLeadTime(admin, items);
+  // The buyer's Order Notes from the cart follow the marker, and print as the
+  // quotation's Other Remarks (HYV-116).
+  const cartNote = String(cart.note || "").trim();
   const draftInput = {
     // Saved in the cart's currency, which its prices are in (HYV-98).
     presentmentCurrencyCode: currencyCode,
-    note: "Quote created from cart",
+    note: cartNote ? `${CART_QUOTE_NOTE}\n\n${cartNote}` : CART_QUOTE_NOTE,
     tags: ["storefront-quote"],
     customAttributes: [
       { key: "Source", value: "Cart quote" },

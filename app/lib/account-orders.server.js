@@ -52,9 +52,9 @@ export function mapOrders(nodes = []) {
       id: node?.id || "",
       name: node?.name || "",
       poNumber: node?.poNumber || "",
-      // Only an order on terms has an invoice — a prepaid one was settled at
-      // checkout and there is no paperwork to hand over.
-      hasInvoice: Boolean(node?.paymentTerms),
+      // Every order has its invoice, a paid one marked PAID: companies need it
+      // for their books whether they paid by card or on terms (HYV-144).
+      hasInvoice: Boolean(node?.id),
       // Set where this order began life as a quote, so the detail can offer
       // that quote's PDF alongside the invoice.
       quoteHref: node?.quoteDraftId

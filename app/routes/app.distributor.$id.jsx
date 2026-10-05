@@ -21,6 +21,8 @@ import { authenticate } from "../shopify.server";
 import { ensureCommercialDefinitions } from "../lib/commercial-metafields.server";
 
 import { completeB2BOnboarding } from "../lib/b2b-onboarding.server";
+import { addressErrors, shopifyAddressInput } from "../lib/address-formats.server";
+import { ADDRESS_FORMATS } from "../lib/address-formats.data";
 
 import { sendApplicationDecisionEmail } from "../lib/application-emails.server";
 
@@ -71,6 +73,7 @@ const APPLICATION_STATUSES = {
 const EMPTY_REGISTERED_ADDRESS = {
   address1: "",
   address2: "",
+  barangay: "",
   city: "",
   country: "",
   province: "",
@@ -86,6 +89,7 @@ function normalizeRegisteredAddress(application) {
     return {
       address1: String(value.address1 || "").trim(),
       address2: String(value.address2 || "").trim(),
+      barangay: String(value.barangay || "").trim(),
       city: String(value.city || "").trim(),
       country: String(value.country || "").trim(),
       province: String(value.province || "").trim(),
@@ -834,16 +838,20 @@ export const action = async ({ request, params }) => {
         };
       }
 
+      // The region goes as Shopify's code and the Barangay on the apartment
+      // line, the same as at approval (HYV-143).
+      const input = shopifyAddressInput({
+        ...address,
+        country: address.country || application.country_based,
+      });
+
       const saved = await assignLocationAddress(admin, location.id, {
-        address1: address.address1,
-        address2: address.address2 || undefined,
-        city: address.city || undefined,
-        province: address.province || undefined,
-        zip: address.zip || undefined,
-        countryCode: countryToCode(
-          address.country,
-          countryToCode(application.country_based, "SG"),
-        ),
+        address1: input.address1,
+        address2: input.address2,
+        city: input.city,
+        province: input.zoneCode,
+        zip: input.zip,
+        countryCode: input.countryCode || countryToCode(application.country_based, "SG"),
         recipient: application.company_name || undefined,
       });
 
@@ -948,6 +956,8 @@ export const action = async ({ request, params }) => {
       .toUpperCase();
 
     const shippingZip = String(formData.get("shippingZip") || "").trim();
+
+    const shippingBarangay = String(formData.get("shippingBarangay") || "").trim();
 
     const shippingPhone = String(formData.get("shippingPhone") || "").trim();
 
@@ -1091,22 +1101,25 @@ export const action = async ({ request, params }) => {
 
       }
 
-      const requiredAddressFields = [
-        [shippingAddress1, "Address line 1"],
-        [shippingCity, "City"],
-        [shippingCountry, "Country"],
-        [shippingProvince, "Province / State"],
-        [shippingProvinceCode, "Province / State code"],
-        [shippingZip, "ZIP / Postal code"],
-        [shippingPhone, "Phone"],
-      ];
+      // Checked with Shopify's fields for the country (HYV-143): Singapore
+      // has no city or region, Hong Kong no postal code, and so on.
+      const approvalAddress = {
+        address1: shippingAddress1,
+        address2: shippingAddress2,
+        barangay: shippingBarangay,
+        city: shippingCity,
+        country: shippingCountryCode || shippingCountry,
+        province: shippingProvince,
+        provinceCode: shippingProvinceCode,
+        zip: shippingZip,
+      };
 
-      const missingAddressField = requiredAddressFields.find(([value]) => !value);
+      const addressProblem = Object.values(addressErrors(approvalAddress))[0];
 
-      if (missingAddressField) {
+      if (addressProblem || !shippingPhone) {
         return {
           success: false,
-          error: `${missingAddressField[1]} is required before approving the application.`,
+          error: `${addressProblem || "Phone is required."} Fix the address before approving the application.`,
           status: APPLICATION_STATUSES.PENDING,
         };
       }
@@ -1131,15 +1144,9 @@ export const action = async ({ request, params }) => {
 
 
 
-      const structuredAddress = {
-        address1: shippingAddress1,
-        address2: shippingAddress2 || undefined,
-        city: shippingCity,
-        province: shippingProvince,
-        zip: shippingZip,
-        countryCode:
-          shippingCountryCode || countryToCode(shippingCountry, "SG"),
-      };
+      // Shopify's region code, not its name, and the Barangay on the
+      // apartment line.
+      const structuredAddress = shopifyAddressInput(approvalAddress);
 
 
 
@@ -1300,6 +1307,7 @@ export const action = async ({ request, params }) => {
       updates.registered_address_json = {
         address1: shippingAddress1,
         address2: shippingAddress2,
+        barangay: approvalAddress.barangay,
         city: shippingCity,
         country: shippingCountry,
         province: shippingProvince,
@@ -2035,6 +2043,8 @@ export default function DistributorDetailPage() {
 
   const [shippingZip, setShippingZip] = useState(addressDetails?.zip || "");
 
+  const [shippingBarangay, setShippingBarangay] = useState(addressDetails?.barangay || "");
+
   const [shippingPhone, setShippingPhone] = useState(
     addressDetails?.phone || application?.contact_phone || "",
   );
@@ -2043,6 +2053,63 @@ export default function DistributorDetailPage() {
     addressDetails?.countryCode ||
       countryToCode(addressDetails?.country || application?.country_based, "SG"),
   );
+
+  // The country's address layout from Shopify's data: by name, else by code.
+  const addressFormat = useMemo(() => {
+    if (ADDRESS_FORMATS[shippingCountry]) return { name: shippingCountry, ...ADDRESS_FORMATS[shippingCountry] };
+    const entry = Object.entries(ADDRESS_FORMATS).find(([, format]) => format.code === shippingCountryCode);
+    return entry ? { name: entry[0], ...entry[1] } : null;
+  }, [shippingCountry, shippingCountryCode]);
+
+  const addressRows = addressFormat?.rows || [["address1"], ["address2"], ["city", "province", "zip"]];
+
+  const addressField = (key) => {
+    const labels = addressFormat?.labels || {};
+    const read = (e) => e?.currentTarget?.value ?? e?.target?.value ?? "";
+    if (key === "province") {
+      return (
+        <s-select
+          key={key}
+          label={labels.province || "Province"}
+          value={shippingProvince}
+          required
+          onChange={(e) => {
+            const name = read(e);
+            if (name === shippingProvince) return;
+            setShippingProvince(name);
+            setShippingProvinceCode(addressFormat?.zones.find((zone) => zone.name === name)?.code || "");
+          }}
+        >
+          <s-option value="" selected={!shippingProvince || undefined}>
+            {`Select a ${String(labels.province || "province").toLowerCase()}`}
+          </s-option>
+          {(addressFormat?.zones || []).map((zone) => (
+            <s-option key={zone.code} value={zone.name} selected={zone.name === shippingProvince || undefined}>
+              {zone.name}
+            </s-option>
+          ))}
+        </s-select>
+      );
+    }
+    const fields = {
+      address1: [labels.address1 || "Address", shippingAddress1, setShippingAddress1],
+      address2: [`${labels.address2 || "Apartment, suite, etc"} (optional)`, shippingAddress2, setShippingAddress2],
+      barangay: [labels.barangay || "Barangay", shippingBarangay, setShippingBarangay],
+      city: [labels.city || "City", shippingCity, setShippingCity],
+      zip: [labels.zip || "Postal code", shippingZip, setShippingZip],
+    };
+    const [label, value, set] = fields[key] || [];
+    if (!set) return null;
+    return (
+      <s-text-field
+        key={key}
+        label={label}
+        value={value}
+        required={key !== "address2" || undefined}
+        onInput={(e) => set(read(e))}
+      />
+    );
+  };
 
 
 
@@ -2144,6 +2211,8 @@ export default function DistributorDetailPage() {
         shippingProvinceCode,
 
         shippingZip,
+
+        shippingBarangay,
 
         shippingPhone,
 
@@ -3406,106 +3475,45 @@ export default function DistributorDetailPage() {
                             Pre-filled from the distributor&apos;s registered business address. Review before approving.
                           </s-text>
 
+                          {/* Shopify's fields, wording and order for the
+                              country, as on the application form (HYV-143). */}
+                          <s-select
+                            label="Country/region"
+                            value={addressFormat?.name || ""}
+                            onChange={(e) => {
+                              const name = e?.currentTarget?.value ?? e?.target?.value ?? "";
+                              // The select can report its own value when the page
+                              // loads; only a different country clears the region.
+                              if (!name || name === addressFormat?.name) return;
+                              setShippingCountry(name);
+                              setShippingCountryCode(ADDRESS_FORMATS[name]?.code || "");
+                              setShippingProvince("");
+                              setShippingProvinceCode("");
+                            }}
+                          >
+                            {!addressFormat ? <s-option value="">Choose a country</s-option> : null}
+                            {Object.keys(ADDRESS_FORMATS).map((name) => (
+                              <s-option key={name} value={name}>
+                                {name}
+                              </s-option>
+                            ))}
+                          </s-select>
+                          {addressRows.map((row) => (
+                            <s-grid
+                              key={row.join("-")}
+                              gridTemplateColumns={`repeat(${row.length}, minmax(0, 1fr))`}
+                              gap="small"
+                            >
+                              {row.map((key) => addressField(key))}
+                            </s-grid>
+                          ))}
                           <s-text-field
-                            label="Address Line 1"
-                            placeholder="Street address"
-                            value={shippingAddress1}
+                            label="Phone"
+                            placeholder="+65 9123 4567"
+                            value={shippingPhone}
                             required
                             onInput={(e) =>
-                              setShippingAddress1(e?.currentTarget?.value ?? e?.target?.value ?? "")
-                            }
-                          />
-
-                          <s-text-field
-                            label="Address Line 2 (optional)"
-                            placeholder="Apartment, suite, unit, etc."
-                            value={shippingAddress2}
-                            onInput={(e) =>
-                              setShippingAddress2(e?.currentTarget?.value ?? e?.target?.value ?? "")
-                            }
-                          />
-
-                          <s-grid gridTemplateColumns="repeat(2, minmax(0, 1fr))" gap="small">
-                            <s-text-field
-                              label="City"
-                              placeholder="City"
-                              value={shippingCity}
-                              required
-                              onInput={(e) =>
-                                setShippingCity(e?.currentTarget?.value ?? e?.target?.value ?? "")
-                              }
-                            />
-
-                            <s-text-field
-                              label="Country"
-                              placeholder="Country"
-                              value={shippingCountry}
-                              required
-                              onInput={(e) => {
-                                const value = e?.currentTarget?.value ?? e?.target?.value ?? "";
-                                setShippingCountry(value);
-                                const code = countryToCode(value, "");
-                                if (code) setShippingCountryCode(code);
-                              }}
-                            />
-                          </s-grid>
-
-                          <s-grid gridTemplateColumns="repeat(2, minmax(0, 1fr))" gap="small">
-                            <s-text-field
-                              label="Province / State"
-                              placeholder="Province / State"
-                              value={shippingProvince}
-                              required
-                              onInput={(e) =>
-                                setShippingProvince(e?.currentTarget?.value ?? e?.target?.value ?? "")
-                              }
-                            />
-
-                            <s-text-field
-                              label="Province / State Code"
-                              placeholder="e.g. SG, WB, CA"
-                              value={shippingProvinceCode}
-                              required
-                              onInput={(e) =>
-                                setShippingProvinceCode(
-                                  (e?.currentTarget?.value ?? e?.target?.value ?? "").toUpperCase(),
-                                )
-                              }
-                            />
-                          </s-grid>
-
-                          <s-grid gridTemplateColumns="repeat(2, minmax(0, 1fr))" gap="small">
-                            <s-text-field
-                              label="Postal / ZIP Code"
-                              placeholder="Postal / ZIP code"
-                              value={shippingZip}
-                              required
-                              onInput={(e) =>
-                                setShippingZip(e?.currentTarget?.value ?? e?.target?.value ?? "")
-                              }
-                            />
-
-                            <s-text-field
-                              label="Phone"
-                              placeholder="+65 9123 4567"
-                              value={shippingPhone}
-                              required
-                              onInput={(e) =>
-                                setShippingPhone(e?.currentTarget?.value ?? e?.target?.value ?? "")
-                              }
-                            />
-                          </s-grid>
-
-                          <s-text-field
-                            label="Country Code"
-                            placeholder="2-letter ISO code (e.g. SG)"
-                            value={shippingCountryCode}
-                            required
-                            maxLength={2}
-                            onInput={(e) =>
-                              setShippingCountryCode(
-                                (e?.currentTarget?.value ?? e?.target?.value ?? "").toUpperCase(),
-                              )
+                              setShippingPhone(e?.currentTarget?.value ?? e?.target?.value ?? "")
                             }
                           />
                         </s-stack>

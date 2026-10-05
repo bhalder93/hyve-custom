@@ -68,7 +68,8 @@ export function orderModal(order, library = []) {
           <a class="hyve-ord__btn hyve-ord__btn--ghost" href="${WHATSAPP_URL}" target="_blank" rel="noopener">${icoHelp()}<span>WhatsApp Us</span></a>
           <a class="hyve-ord__btn hyve-ord__btn--ghost" href="mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`Order ${order.name}`)}">${icoMail()}<span>Email Us</span></a>
           ${
-            // Only an order on terms has an invoice.
+            // Every order has its invoice (HYV-144); one still under credit
+            // review is a draft, not an order yet.
             order.hasInvoice && order.id
               ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="/apps/account/invoices/download?order=${encodeURIComponent(order.id)}">${icoDownload()}<span>Download Invoice</span></a>`
               : ""

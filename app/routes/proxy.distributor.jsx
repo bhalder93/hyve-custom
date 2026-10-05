@@ -21,6 +21,7 @@ import { sendApplicationEmails } from "../lib/application-emails.server";
 import { supportedCurrencies } from "../lib/store-currencies.server";
 
 import { BUSINESS_TIME_ZONE } from "../lib/portal.server";
+import { addressErrors, cleanAddress } from "../lib/address-formats.server";
 
 
 const ADMIN_TIMEOUT_MS = 5000;
@@ -271,9 +272,15 @@ export const action = async ({ request }) => {
       ).trim();
 
 
-      const companyWebsite = String(
+      // Typed without https:// is accepted; it's added so the record links (HYV-146).
+      const typedWebsite = String(
         formData.get("companyWebsite") || "",
       ).trim();
+
+      const companyWebsite =
+        typedWebsite && !/^https?:\/\//i.test(typedWebsite)
+          ? `https://${typedWebsite}`
+          : typedWebsite;
 
 
       const contactPerson = String(
@@ -348,7 +355,15 @@ export const action = async ({ request }) => {
       /*                      Structured Registered Address                    */
       /* -------------------------------------------------------------------- */
 
-      const registeredAddress = {
+      // Only the fields Shopify has for the address's country, with the
+      // region's Shopify code (HYV-143).
+      const registeredAddress = cleanAddress({
+        barangay: String(
+          formData.get(
+            "registeredAddress.barangay",
+          ) || "",
+        ).trim(),
+
         address1: String(
           formData.get(
             "registeredAddress.address1",
@@ -396,16 +411,18 @@ export const action = async ({ request }) => {
             "registeredAddress.phone",
           ) || "",
         ).trim(),
-      };
+      });
 
 
       /* -------------------------------------------------------------------- */
       /*                    Server-side Address Validation                     */
       /* -------------------------------------------------------------------- */
 
+      // The address is asked for with credit terms, so it's checked then.
       const addressValidation =
         validateRegisteredAddress(
           registeredAddress,
+          requestCredit,
         );
 
 
@@ -923,106 +940,13 @@ export const action = async ({ request }) => {
 /*                    REGISTERED ADDRESS VALIDATION                           */
 /* -------------------------------------------------------------------------- */
 
-function validateRegisteredAddress(
-  registeredAddress,
-) {
-  const errors = {};
-
-
-  if (!registeredAddress.address1) {
-    errors[
-      "registeredAddress.address1"
-    ] =
-      "Address line 1 is required.";
-  }
-
-
-  /*
-   * address2 is intentionally optional.
-   */
-
-
-  if (!registeredAddress.city) {
-    errors[
-      "registeredAddress.city"
-    ] =
-      "City is required.";
-  }
-
-
-  if (!registeredAddress.country) {
-    errors[
-      "registeredAddress.country"
-    ] =
-      "Country is required.";
-  }
-
-
-  if (!registeredAddress.province) {
-    errors[
-      "registeredAddress.province"
-    ] =
-      "Province / State is required.";
-  }
-
-
-  if (
-    !registeredAddress.provinceCode
-  ) {
-    errors[
-      "registeredAddress.provinceCode"
-    ] =
-      "Province / State code is required.";
-  }
-
-
-  if (!registeredAddress.zip) {
-    errors[
-      "registeredAddress.zip"
-    ] =
-      "ZIP / Postal code is required.";
-  }
-
-
-  if (!registeredAddress.phone) {
-    errors[
-      "registeredAddress.phone"
-    ] =
-      "Phone is required.";
-  } else {
-    /*
-     * Accept:
-     *
-     * +65 9123 4567
-     * +91-9876543210
-     * (65) 91234567
-     *
-     * while rejecting alphabetic/obviously invalid values.
-     */
-    const phonePattern =
-      /^\+?[0-9()\-\s]{7,20}$/;
-
-
-    if (
-      !phonePattern.test(
-        registeredAddress.phone,
-      )
-    ) {
-      errors[
-        "registeredAddress.phone"
-      ] =
-        "Enter a valid phone number.";
-    }
-  }
-
-
-  return {
-    valid:
-      Object.keys(errors).length ===
-      0,
-
-    errors,
-  };
+/**
+ * The fields Shopify has for the address's country, all required except
+ * Apartment, suite, etc., and a region from Shopify's list (HYV-143).
+ */
+function validateRegisteredAddress(registeredAddress, required) {
+  const errors = required ? addressErrors(registeredAddress) : {};
+  return { valid: Object.keys(errors).length === 0, errors };
 }
 
 

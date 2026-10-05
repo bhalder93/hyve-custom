@@ -136,6 +136,7 @@ function normalizeRegisteredAddressJson(value) {
   const emptyAddress = {
     address1: "",
     address2: "",
+    barangay: "",
     city: "",
     country: "",
     province: "",
@@ -163,6 +164,7 @@ function normalizeRegisteredAddressJson(value) {
           address1: String(parsed.address1 || "").trim(),
 
           address2: String(parsed.address2 || "").trim(),
+          barangay: String(parsed.barangay || "").trim(),
 
           city: String(parsed.city || "").trim(),
 
@@ -191,6 +193,7 @@ function normalizeRegisteredAddressJson(value) {
       address1: String(value.address1 || "").trim(),
 
       address2: String(value.address2 || "").trim(),
+      barangay: String(value.barangay || "").trim(),
 
       city: String(value.city || "").trim(),
 
@@ -233,6 +236,7 @@ function normalizeApplicationAddressFields(fieldMap = {}) {
           address1: String(parsed.address1 || "").trim(),
 
           address2: String(parsed.address2 || "").trim(),
+          barangay: String(parsed.barangay || "").trim(),
 
           city: String(parsed.city || "").trim(),
 
@@ -260,6 +264,7 @@ function normalizeApplicationAddressFields(fieldMap = {}) {
       address1: String(next.registered_address || "").trim(),
 
       address2: "",
+      barangay: "",
       city: "",
       country: "",
       province: "",

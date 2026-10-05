@@ -9,6 +9,14 @@
  * from the Admin API rather than the storefront's localization, which for a
  * signed-in distributor holds only their company's own country.
  */
+/**
+ * Vietnam distributors buy in USD through their own B2B market, while Vietnam
+ * retail stays in VND (HYV-77). The shop's enabled currencies leave a B2B
+ * market's currency out, and reading the markets themselves would need the
+ * read_markets scope, so it is added here.
+ */
+const B2B_CURRENCIES = ["USD"];
+
 export async function supportedCurrencies(admin) {
   try {
     const response = await admin.graphql(
@@ -22,9 +30,12 @@ export async function supportedCurrencies(admin) {
     );
     const body = await response.json();
     const shop = body?.data?.shop;
-    const list = shop?.enabledPresentmentCurrencies || [];
-    if (list.length) return list;
-    return shop?.currencyCode ? [shop.currencyCode] : [];
+    const enabled = shop?.enabledPresentmentCurrencies?.length
+      ? shop.enabledPresentmentCurrencies
+      : shop?.currencyCode
+        ? [shop.currencyCode]
+        : [];
+    return enabled.length ? [...new Set([...enabled, ...B2B_CURRENCIES])].sort() : [];
   } catch (error) {
     console.warn("[account] could not read supported currencies", error?.message || error);
     return [];

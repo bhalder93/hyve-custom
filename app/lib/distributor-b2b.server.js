@@ -232,8 +232,15 @@ export function parseAddressDetails(addressInput, fallbackCountry = "Singapore")
     const address1 = String(addressInput.address1 || "").trim();
     if (!address1) return null;
 
-    const rawZone = String(addressInput.zoneCode || addressInput.province || "").trim();
-    const zoneCode = rawZone && rawZone.length <= 4 ? rawZone.toUpperCase() : undefined;
+    // A zoneCode is Shopify's own region code (address-formats.server.js) and
+    // can be longer than four characters, e.g. TH-10 or PH-ABR. A province
+    // passed instead is only used when it's already a short code.
+    const rawZone = String(addressInput.province || "").trim();
+    const zoneCode = addressInput.zoneCode
+      ? String(addressInput.zoneCode).trim().toUpperCase()
+      : rawZone && rawZone.length <= 4
+        ? rawZone.toUpperCase()
+        : undefined;
 
     return {
       address1: address1.substring(0, 250),
