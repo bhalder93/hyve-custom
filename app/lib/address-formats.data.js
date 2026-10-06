@@ -4,6 +4,7 @@
 export const ADDRESS_FORMATS = {
   "Singapore": {
     "code": "SG",
+    "phonePrefix": 65,
     "rows": [
       [
         "address1"
@@ -27,6 +28,7 @@ export const ADDRESS_FORMATS = {
   },
   "Malaysia": {
     "code": "MY",
+    "phonePrefix": 60,
     "rows": [
       [
         "address1"
@@ -117,6 +119,7 @@ export const ADDRESS_FORMATS = {
   },
   "Hong Kong": {
     "code": "HK",
+    "phonePrefix": 852,
     "rows": [
       [
         "address1"
@@ -154,6 +157,7 @@ export const ADDRESS_FORMATS = {
   },
   "Philippines": {
     "code": "PH",
+    "phonePrefix": 63,
     "rows": [
       [
         "address1"
@@ -511,6 +515,7 @@ export const ADDRESS_FORMATS = {
   },
   "Thailand": {
     "code": "TH",
+    "phonePrefix": 66,
     "rows": [
       [
         "address1"
@@ -849,6 +854,7 @@ export const ADDRESS_FORMATS = {
   },
   "Indonesia": {
     "code": "ID",
+    "phonePrefix": 62,
     "rows": [
       [
         "address1"
@@ -1013,6 +1019,7 @@ export const ADDRESS_FORMATS = {
   },
   "Vietnam": {
     "code": "VN",
+    "phonePrefix": 84,
     "rows": [
       [
         "address1"
@@ -1037,6 +1044,7 @@ export const ADDRESS_FORMATS = {
   },
   "China": {
     "code": "CN",
+    "phonePrefix": 86,
     "rows": [
       [
         "address1"

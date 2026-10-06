@@ -26,7 +26,7 @@ export async function getNotificationRecipients(admin) {
       query GetNotificationRecipients {
         metaobjects(
           type: "$app:notification_recipient"
-          first: 100
+          first: 250
         ) {
           nodes {
             id
@@ -254,4 +254,39 @@ export function createRecipientHandle({
     0,
     240,
   );
+}
+
+export async function getCustomerServiceRecipients(admin) {
+  try {
+    const recipients = await getNotificationRecipients(admin);
+    const csRecipients = (recipients || []).filter(
+      (recipient) =>
+        recipient.enabled &&
+        recipient.email?.trim() &&
+        String(recipient.role || "").trim().toUpperCase() === "CUSTOMER_SERVICE",
+    );
+
+    if (csRecipients.length > 0) {
+      return [
+        ...new Set(csRecipients.map((r) => r.email.trim().toLowerCase())),
+      ];
+    }
+  } catch (error) {
+    console.error("Failed to query notification recipients from metaobjects:", error);
+  }
+
+  // Fallback to environment variables if no recipients configured in metaobjects
+  const envEmails = process.env.HYVE_CS_EMAILS || "";
+  if (envEmails.trim()) {
+    return [
+      ...new Set(
+        envEmails
+          .split(",")
+          .map((e) => e.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    ];
+  }
+
+  return [];
 }

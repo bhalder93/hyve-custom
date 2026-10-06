@@ -169,12 +169,14 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
  */
 function decorationOptions(attributes, orderAttributes) {
   // Artwork sent after the order is saved on the order, not the line, so a
-  // line placed as "Artwork Pending" reads as supplied once it has arrived.
+  // line placed as "Artwork Pending" or "Design it for me" reads as supplied once it has arrived.
   const supplied = artworkSupplied(attributes, orderAttributes);
   return (attributes || [])
     .filter((attr) => attr?.key && !attr.key.startsWith("_") && attr.value)
     .map((attr) =>
-      attr.key === "Artwork" && attr.value === ARTWORK_PENDING && supplied
+      attr.key === "Artwork" &&
+      (attr.value === ARTWORK_PENDING || String(attr.value).trim().toLowerCase() === "design it for me") &&
+      supplied
         ? "Artwork: file supplied"
         : `${attr.key}: ${/^https?:\/\//i.test(attr.value) ? "file supplied" : attr.value}`,
     );

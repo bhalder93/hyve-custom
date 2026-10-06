@@ -14,7 +14,8 @@
 import { canManageTeam } from "./account-team.server";
 import { supportedCurrencies } from "./store-currencies.server";
 
-export const SHIPPING_METHODS = ["EXW", "FOB Ningbo", "DDP"];
+export const SHIPPING_METHODS = ["FOB Ningbo", "DDP"];
+// export const SHIPPING_METHODS = ["EXW", "FOB Ningbo", "DDP"];
 
 const FIELDS = [
   { key: "tax_registration_number", form: "taxNumber" },

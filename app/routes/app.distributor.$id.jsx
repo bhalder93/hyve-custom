@@ -849,7 +849,9 @@ export const action = async ({ request, params }) => {
         address1: input.address1,
         address2: input.address2,
         city: input.city,
-        province: input.zoneCode,
+        // CompanyAddressInput takes the region as zoneCode; `province`
+        // makes Shopify reject the whole address.
+        zoneCode: input.zoneCode,
         zip: input.zip,
         countryCode: input.countryCode || countryToCode(application.country_based, "SG"),
         recipient: application.company_name || undefined,

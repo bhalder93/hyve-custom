@@ -111,11 +111,12 @@ export function mapOrders(nodes = []) {
               attr?.key && !attr.key.startsWith("_") && !attr.key.startsWith("Artwork:") && attr.value,
           )
           // Artwork sent after the order reads as received, not as the
-          // "Artwork Pending" the line was placed with (HYV-89).
+          // "Artwork Pending" or "Design it for me" the line was placed with (HYV-89).
           .map((attr) =>
             attr.key === "Artwork" &&
-            attr.value === ARTWORK_PENDING &&
-            artworkSupplied(li.customAttributes, node?.customAttributes)
+            (attr.value === ARTWORK_PENDING || String(attr.value).trim().toLowerCase() === "design it for me") &&
+            (artworkSupplied(li.customAttributes, node?.customAttributes) ||
+              (node?.productionStatus?.value && node.productionStatus.value !== "order-placed"))
               ? "Artwork: Received"
               : `${attr.key}: ${attr.value}`,
           ),

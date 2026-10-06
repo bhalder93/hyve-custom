@@ -49,8 +49,11 @@ const ACCOUNTS = {
   BANKING_CIRCLE: { heading: "For Payment in Europe", rows: [] },
 };
 
-/** ISO country codes that count as Europe. To come from James with the details. */
-const EUROPE_COUNTRIES = [];
+/** Europe means the EU's 27 member states (Michael, Oct 4). */
+const EUROPE_COUNTRIES = [
+  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE",
+  "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+];
 
 /**
  * @param {string} countryCode the customer's two-letter country

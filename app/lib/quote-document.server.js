@@ -293,15 +293,15 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
     ...lines.filter(isDutyLine).map((li) => ({ ...itemRow(li, cents), kind: "charge", code: "", image: "" })),
     ...(shippingLine
       ? [{
-          kind: "shipping",
-          code: "Shipping",
-          image: "",
-          title: "Shipping Fee",
-          details: shippingLine.title ? [shippingLine.title] : [],
-          qty: 1,
-          unit: cents(shippingLine.originalPriceSet),
-          total: cents(shippingLine.originalPriceSet),
-        }]
+        kind: "shipping",
+        code: "Shipping",
+        image: "",
+        title: "Shipping Fee",
+        details: shippingLine.title ? [shippingLine.title] : [],
+        qty: 1,
+        unit: cents(shippingLine.originalPriceSet),
+        total: cents(shippingLine.originalPriceSet),
+      }]
       : []),
   ];
 
@@ -425,7 +425,7 @@ const DISTRIBUTOR_INCOTERM = "FOB Ningbo";
 function incotermFor(shippingLine, company) {
   const title = String(shippingLine?.title || "");
   if (/^fob\b/i.test(title)) return DISTRIBUTOR_INCOTERM;
-  if (/^exw\b/i.test(title)) return "EXW";
+  // if (/^exw\b/i.test(title)) return "EXW";
   if (title) return "DDP";
   return company ? DISTRIBUTOR_INCOTERM : RETAIL_INCOTERM;
 }

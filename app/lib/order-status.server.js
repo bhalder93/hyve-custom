@@ -20,9 +20,11 @@
  * These mirror the Production Orders screen field for field. If one changes,
  * both must.
  */
-import { sendArtworkReceivedEmail, sendProofApprovedEmail } from "../utils/email.server";
+import { sendArtworkReceivedEmail, sendProofApprovedEmail, sendOrderOnHoldAlert } from "../utils/email.server";
+import { getCustomerServiceRecipients } from "../utils/metaobjects/notification-recipients.server";
 import { statusEmailWanted } from "./notification-preferences.server";
 import { loadCommercialSettings } from "./commercial-settings.server";
+import { syncLineItemArtworkReceived } from "./order-artwork.server";
 
 const STATUS_TAG_PREFIX = "hyve-status:";
 const NOTIFIED_TAG_PREFIX = "hyve-notified:";
@@ -66,6 +68,7 @@ export const PRODUCTION_ORDER_FRAGMENT = `#graphql
     rush: metafield(namespace: "$app", key: "rush") { value }
     proofVersion: metafield(namespace: "$app", key: "proof_version") { value }
     proofUrl: metafield(namespace: "$app", key: "proof_url") { value }
+    estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
     lineItems(first: 100) {
       nodes {
         title
@@ -188,6 +191,27 @@ export async function changeProductionStatus(
 
   await recordStatusHistory(admin, { order, from, to, changedAt, changedBy: changedBy || "Customer", source, note });
 
+  if (to === "artwork-received") {
+    try {
+      await syncLineItemArtworkReceived(admin, order);
+    } catch (artError) {
+      console.error(`[portal] line item artwork update failed for ${order.name}:`, artError);
+    }
+  }
+
+  if (to === "on-hold") {
+    try {
+      await notifyCustomerServiceOrderOnHold(admin, {
+        order,
+        onHoldReason,
+        changedBy: changedBy || "Customer",
+        note,
+      });
+    } catch (csError) {
+      console.error(`[portal] on-hold Customer Service notification failed for ${order.name}:`, csError);
+    }
+  }
+
   // The move stands even if the email fails, as it does on the admin screen.
   let emailError;
   try {
@@ -224,6 +248,48 @@ export async function recordStatusHistory(admin, { order, from, to, changedAt, c
   );
 }
 
+/**
+ * Notifies recipients with role Customer Service when an order is placed On Hold.
+ */
+export async function notifyCustomerServiceOrderOnHold(
+  admin,
+  { order, onHoldReason = "", changedBy = "", note = "" },
+) {
+  try {
+    const recipients = await getCustomerServiceRecipients(admin);
+    if (!recipients || !recipients.length) {
+      console.warn(`[on-hold] No Customer Service recipients found for ${order.name}. Alert not sent.`);
+      return { ok: false, sent: false, reason: "No Customer Service recipients configured" };
+    }
+
+    const numericOrderId = String(order.id || "").replace(/^gid:\/\/shopify\/Order\//, "").split("/").pop();
+    const adminUrl = process.env.SHOPIFY_APP_URL
+      ? `${process.env.SHOPIFY_APP_URL}/app/production-orders/${numericOrderId}`
+      : "";
+
+    const customerName =
+      order.customer?.displayName ||
+      order.customer?.name ||
+      order.shippingAddress?.name ||
+      "Customer";
+
+    await sendOrderOnHoldAlert({
+      to: recipients,
+      orderName: order.name,
+      customerName,
+      onHoldReason,
+      changedBy,
+      note,
+      adminUrl,
+    });
+
+    return { ok: true, sent: true, recipients };
+  } catch (error) {
+    console.error(`[on-hold] Customer Service notification failed for ${order.name}:`, error);
+    return { ok: false, sent: false, error: error?.message || String(error) };
+  }
+}
+
 async function notifyCustomer(admin, order, status, productionDueAt) {
   if (status !== "artwork-received" && status !== "proof-approved") return;
 
@@ -242,8 +308,15 @@ async function notifyCustomer(admin, order, status, productionDueAt) {
     lineItems: order.lineItems?.nodes || [],
   };
 
+  let estimatedShipDate = order.estimatedShipDate?.value;
+  if (!estimatedShipDate && productionDueAt) {
+    const d = new Date(productionDueAt);
+    d.setDate(d.getDate() + 5);
+    estimatedShipDate = d.toISOString();
+  }
+
   if (status === "artwork-received") await sendArtworkReceivedEmail(common);
-  else await sendProofApprovedEmail({ ...common, productionDueAt });
+  else await sendProofApprovedEmail({ ...common, productionDueAt, estimatedShipDate });
 
   check(await gql(admin, TAGS_ADD, { id: order.id, tags: [tag] }), "tagsAdd");
 }

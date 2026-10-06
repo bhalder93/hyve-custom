@@ -304,9 +304,34 @@ function lineItemsSection(lineItems = []) {
   `;
 }
 
+export const CUSTOMER_ORDERS_URL = "https://hyve.promo/apps/account/orders";
+
+function orderActionButton(url = CUSTOMER_ORDERS_URL) {
+  return `
+    <div style="margin-top:20px;">
+      <a
+        href="${escapeHtml(url)}"
+        style="
+          display:inline-block;
+          padding:12px 22px;
+          background:#0f172a;
+          color:#ffffff !important;
+          text-decoration:none;
+          border-radius:10px;
+          font-size:14px;
+          font-weight:700;
+          font-family:Arial,Helvetica,sans-serif;
+        "
+      >
+        View your order
+      </a>
+    </div>
+  `;
+}
+
 /**
  * An order email: the branded frame with the order's lines and its number and
- * date underneath.
+ * date underneath, along with a "View your order" button.
  */
 function customerLayout({
   title,
@@ -315,6 +340,7 @@ function customerLayout({
   orderDate,
   body,
   lineItems = [],
+  orderUrl = CUSTOMER_ORDERS_URL,
 }) {
   return brandedEmail({
     title,
@@ -326,6 +352,7 @@ function customerLayout({
       ["Order", escapeHtml(orderName)],
       ["Order date", escapeHtml(formatDate(orderDate))],
     ],
+    detailsAction: orderActionButton(orderUrl),
   });
 }
 
@@ -339,8 +366,9 @@ function customerLayout({
  * @param {?string} [opts.greeting] HTML, already escaped; omitted when null
  * @param {string} opts.body HTML
  * @param {Array<[string, string]>} [opts.details] label and HTML value rows
+ * @param {?string} [opts.detailsAction] HTML action button under the details
  */
-export function brandedEmail({ title, greeting = null, body, details = [] }) {
+export function brandedEmail({ title, greeting = null, body, details = [], detailsAction = null }) {
   const detailRows = details
     .map(
       ([label, value]) => `
@@ -441,7 +469,7 @@ export function brandedEmail({ title, greeting = null, body, details = [] }) {
 
                     ${body}
 
-                    ${detailRows ? `<table
+                    ${detailRows || detailsAction ? `<table
                       width="100%"
                       cellspacing="0"
                       cellpadding="0"
@@ -460,6 +488,7 @@ export function brandedEmail({ title, greeting = null, body, details = [] }) {
                             padding-top:18px;
                           "
                         >${detailRows}
+                        ${detailsAction ? detailsAction : ""}
                         </td>
                       </tr>
                     </table>` : ""}
@@ -561,6 +590,7 @@ export async function sendArtworkReceivedEmail({
   orderName,
   orderDate,
   lineItems = [],
+  orderUrl,
 }) {
   const html = customerLayout({
     title: customerStatusLabel("artwork-received"),
@@ -568,6 +598,7 @@ export async function sendArtworkReceivedEmail({
     orderName,
     orderDate,
     lineItems,
+    orderUrl,
     body: `
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
         We have received the artwork information for your order.
@@ -591,7 +622,7 @@ export async function sendArtworkReceivedEmail({
     to: customerEmail,
     subject: `${customerStatusLabel("artwork-received")} - ${orderName}`,
     html,
-    text: `Artwork received for ${orderName}. Our team will prepare and send your Artwork Proof within 48 hours for review and approval.`,
+    text: `Artwork received for ${orderName}. Our team will prepare and send your Artwork Proof within 48 hours for review and approval.\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
   });
 }
 
@@ -654,6 +685,7 @@ export async function sendProofSentEmail({
   approveUrl,
   changesUrl,
   lineItems = [],
+  orderUrl,
 }) {
   if (!proofUrl) {
     throw new Error("Proof URL is required.");
@@ -668,6 +700,7 @@ export async function sendProofSentEmail({
     orderName,
     orderDate,
     lineItems,
+    orderUrl,
     body: `
       <div
         style="
@@ -716,7 +749,7 @@ export async function sendProofSentEmail({
     to: customerEmail,
     subject: `${customerStatusLabel("proof-sent")} - ${orderName}`,
     html,
-    text: `Your proof for ${orderName} is ready. View: ${proofUrl}\nApprove: ${approveUrl}\nRequest changes: ${changesUrl}`,
+    text: `Your proof for ${orderName} is ready. View: ${proofUrl}\nApprove: ${approveUrl}\nRequest changes: ${changesUrl}\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
     replyTo: process.env.EMAIL_REPLY_TO,
   });
 }
@@ -736,6 +769,7 @@ export async function sendProofReminderEmail({
   changesUrl,
   reminderDay,
   lineItems = [],
+  orderUrl,
 }) {
   if (!approveUrl || !changesUrl) {
     throw new Error("Approve and Request changes links are required.");
@@ -747,6 +781,7 @@ export async function sendProofReminderEmail({
     orderName,
     orderDate,
     lineItems,
+    orderUrl,
     body: `
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
         This is a reminder that Artwork Proof version
@@ -788,7 +823,7 @@ export async function sendProofReminderEmail({
     to: customerEmail,
     subject: `Artwork Proof reminder - ${orderName}`,
     html,
-    text: `Reminder: proof version ${proofVersion} for ${orderName} is awaiting approval. View: ${proofUrl}\nApprove: ${approveUrl}\nRequest changes: ${changesUrl}`,
+    text: `Reminder: proof version ${proofVersion} for ${orderName} is awaiting approval. View: ${proofUrl}\nApprove: ${approveUrl}\nRequest changes: ${changesUrl}\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
     replyTo: process.env.EMAIL_REPLY_TO,
   });
 }
@@ -803,7 +838,9 @@ export async function sendProofApprovedEmail({
   orderName,
   orderDate,
   productionDueAt,
+  estimatedShipDate,
   lineItems = [],
+  orderUrl,
 }) {
   if (!productionDueAt) {
     throw new Error("Production due date is required.");
@@ -816,12 +853,22 @@ export async function sendProofApprovedEmail({
     timeZone: "Asia/Singapore",
   }).format(new Date(productionDueAt));
 
+  const estimatedShipDateOnly = estimatedShipDate
+    ? new Intl.DateTimeFormat("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "Asia/Singapore",
+      }).format(new Date(estimatedShipDate))
+    : null;
+
   const html = customerLayout({
     title: customerStatusLabel("proof-approved"),
     customerName,
     orderName,
     orderDate,
     lineItems,
+    orderUrl,
     body: `
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
         Thank you. Your Artwork Proof has been approved.
@@ -863,6 +910,7 @@ export async function sendProofApprovedEmail({
         </div>
       </div>
 
+${estimatedShipDateOnly ? `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;"><strong>Estimated ship date:</strong> ${escapeHtml(estimatedShipDateOnly)}</p>` : ''}
       <p style="margin:0; line-height:1.7; font-size:15px;">
         We will contact you again when production is complete.
       </p>
@@ -873,7 +921,7 @@ export async function sendProofApprovedEmail({
     to: customerEmail,
     subject: `${customerStatusLabel("proof-approved")} - ${orderName}`,
     html,
-    text: `Your Artwork Proof for ${orderName} has been approved. Production target: ${productionDueDateOnly}.`,
+    text: `Your Artwork Proof for ${orderName} has been approved. Production target: ${productionDueDateOnly}.\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
   });
 }
 
@@ -915,6 +963,7 @@ export async function sendProductionCompleteEmail({
   orderDate,
   productionPhotoUrl,
   lineItems = [],
+  orderUrl,
 }) {
   if (!productionPhotoUrl) {
     throw new Error("Production photo URL is required.");
@@ -928,6 +977,7 @@ export async function sendProductionCompleteEmail({
     orderName,
     orderDate,
     lineItems,
+    orderUrl,
     body: `
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
         Production for your order is complete.
@@ -968,7 +1018,7 @@ ${photo ? `
     to: customerEmail,
     subject: `${customerStatusLabel("production-complete")} - ${orderName}`,
     html,
-    text: `Production for ${orderName} is complete. Production Photo: ${productionPhotoUrl}`,
+    text: `Production for ${orderName} is complete. Production Photo: ${productionPhotoUrl}\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
     attachments: photo ? [photo] : undefined,
   });
 }
@@ -984,6 +1034,7 @@ export async function sendReadyForCollectionEmail({
   orderName,
   orderDate,
   lineItems = [],
+  orderUrl,
 }) {
   const html = customerLayout({
     title: customerStatusLabel("ready-for-collection"),
@@ -991,6 +1042,7 @@ export async function sendReadyForCollectionEmail({
     orderName,
     orderDate,
     lineItems,
+    orderUrl,
     body: `
       <div style="padding:16px; background:#ecfeff; border:1px solid #c7f9f1; border-radius:12px; margin-bottom:20px;">
         <div style="font-size:15px; line-height:1.6; color:${BRAND.primaryText};">
@@ -1022,7 +1074,8 @@ export async function sendReadyForCollectionEmail({
       `As freight for this order is customer-arranged, ` +
       `please coordinate collection with your nominated carrier.\n\n` +
       `If your carrier needs collection details or assistance, ` +
-      `please contact our customer service team.`,
+      `please contact our customer service team.\n\n` +
+      `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
   });
 }
 
@@ -1035,7 +1088,7 @@ export async function sendReadyForCollectionEmail({
  * confirmation can't carry an attachment, and companies need the invoice for
  * their books, so the app sends it on its own.
  */
-export async function sendInvoiceEmail({ customerEmail, customerName, orderName, orderDate, pdf, filename }) {
+export async function sendInvoiceEmail({ customerEmail, customerName, orderName, orderDate, pdf, filename, orderUrl }) {
   if (!pdf) {
     throw new Error("Invoice PDF is required.");
   }
@@ -1045,6 +1098,7 @@ export async function sendInvoiceEmail({ customerEmail, customerName, orderName,
     customerName,
     orderName,
     orderDate,
+    orderUrl,
     body: `
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
         Thank you for your order. Your invoice for ${escapeHtml(orderName)} is attached as a PDF for your records.
@@ -1060,7 +1114,7 @@ export async function sendInvoiceEmail({ customerEmail, customerName, orderName,
     to: customerEmail,
     subject: `Invoice - ${orderName}`,
     html,
-    text: `Thank you for your order. Your invoice for ${orderName} is attached as a PDF. You can also download it any time from the order in your account.`,
+    text: `Thank you for your order. Your invoice for ${orderName} is attached as a PDF. You can also download it any time from the order in your account: ${orderUrl || CUSTOMER_ORDERS_URL}`,
     attachments: [{ filename, content: pdf, contentType: "application/pdf" }],
   });
 }
@@ -1112,5 +1166,159 @@ export async function sendInternalSlaAlert({
       `Customer: ${customerName || "—"}\n` +
       `Status: ${status}\n` +
       `Elapsed: ${elapsed || "—"}\n`,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* MSG-12 Order On Hold Alert (Customer Service)                              */
+/* -------------------------------------------------------------------------- */
+
+export async function sendOrderOnHoldAlert({
+  to,
+  orderName,
+  customerName,
+  onHoldReason,
+  changedBy,
+  note,
+  adminUrl,
+}) {
+  const recipients = Array.isArray(to) ? to.filter(Boolean).join(",") : to;
+  if (!recipients) {
+    throw new Error("No recipients specified for On Hold alert.");
+  }
+
+  const subject = `[Hyve MSG-12] ${orderName} - Order Placed On Hold`;
+
+  const details = [
+    ["Order", escapeHtml(orderName)],
+    ["Customer", escapeHtml(customerName || "—")],
+    ["Status", "On Hold"],
+    ["Reason", escapeHtml(onHoldReason || "—")],
+  ];
+
+  if (changedBy) {
+    details.push(["Changed By", escapeHtml(changedBy)]);
+  }
+
+  if (note && note.trim() && note.trim() !== onHoldReason?.trim()) {
+    details.push(["Note", escapeHtml(note)]);
+  }
+
+  details.push(["Role", "Customer Service"]);
+
+  const html = brandedEmail({
+    title: "Order Placed On Hold",
+    body: `
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        Order <strong>${escapeHtml(orderName)}</strong> has been placed <strong>On Hold</strong>.
+      </p>
+      ${
+        onHoldReason
+          ? `<p style="margin:0 0 14px; line-height:1.7; font-size:14px; color:#475569;"><strong>Reason:</strong> ${escapeHtml(onHoldReason)}</p>`
+          : ""
+      }
+      ${
+        note && note.trim() && note.trim() !== onHoldReason?.trim()
+          ? `<p style="margin:0 0 14px; line-height:1.7; font-size:14px; color:#475569;"><strong>Note:</strong> ${escapeHtml(note)}</p>`
+          : ""
+      }
+      ${
+        adminUrl
+          ? `<div style="margin:22px 0;"><a href="${escapeHtml(adminUrl)}" style="display:inline-block; padding:14px 22px; background:#0f172a; color:#ffffff; text-decoration:none; border-radius:10px; font-size:14px; font-weight:700;">Open order in Hyve admin</a></div>`
+          : ""
+      }`,
+    details,
+  });
+
+  return sendEmail({
+    to: recipients,
+    subject,
+    html,
+    text:
+      `${subject}\n` +
+      `Order: ${orderName}\n` +
+      `Customer: ${customerName || "—"}\n` +
+      `Status: On Hold\n` +
+      `Reason: ${onHoldReason || "—"}\n` +
+      (changedBy ? `Changed By: ${changedBy}\n` : "") +
+      (note && note.trim() && note.trim() !== onHoldReason?.trim() ? `Note: ${note}\n` : ""),
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* MSG-13 Estimated Ship Date                                                 */
+/* -------------------------------------------------------------------------- */
+
+export async function sendEstimatedShipDateEmail({
+  customerEmail,
+  customerName,
+  orderName,
+  orderDate,
+  estimatedShipDate,
+  lineItems = [],
+  orderUrl,
+}) {
+  if (!estimatedShipDate) {
+    throw new Error("Estimated ship date is required.");
+  }
+
+  const estimatedShipDateOnly = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Singapore",
+  }).format(new Date(estimatedShipDate));
+
+  const html = customerLayout({
+    title: "Estimated Ship Date Update",
+    customerName,
+    orderName,
+    orderDate,
+    lineItems,
+    orderUrl,
+    body: `
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        We have an update regarding the estimated ship date for your order.
+      </p>
+
+      <div
+        style="
+          padding:16px;
+          background:#f8fafc;
+          border:1px solid ${BRAND.border};
+          border-radius:12px;
+          margin:18px 0;
+        "
+      >
+        <div
+          style="
+            font-size:13px;
+            line-height:1.5;
+            color:${BRAND.secondaryText};
+            margin-bottom:6px;
+          "
+        >
+          Estimated ship date
+        </div>
+
+        <div
+          style="
+            font-size:16px;
+            line-height:1.5;
+            font-weight:700;
+            color:${BRAND.primaryText};
+          "
+        >
+          ${escapeHtml(estimatedShipDateOnly)}
+        </div>
+      </div>
+    `,
+  });
+
+  return sendEmail({
+    to: customerEmail,
+    subject: `Estimated Ship Date Update - ${orderName}`,
+    html,
+    text: `We have an update regarding the estimated ship date for your order. Estimated ship date: ${estimatedShipDateOnly}.\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
   });
 }

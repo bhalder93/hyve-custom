@@ -11,6 +11,12 @@
  *   - Interactive modals for Add, Edit, and Delete confirmation
  */
 import { esc } from "./account-shell.server";
+import { ADDRESS_FORMATS } from "./address-formats.data";
+
+/** Shopify's address layout and region list per country code (HYV-143). */
+const FORMATS_BY_CODE = Object.fromEntries(
+  Object.values(ADDRESS_FORMATS).map((format) => [format.code, { rows: format.rows, labels: format.labels, zones: format.zones }]),
+);
 
 /**
  * Format and normalize Shopify Customer addresses for display.
@@ -365,8 +371,8 @@ function renderAddressModal(company = null) {
           </div>
 
           <div class="hyve-form-row hyve-form-row--3">
-            <div class="hyve-form-group">
-              <label class="hyve-label" for="addr-city">City</label>
+            <div class="hyve-form-group" id="addr-city-group">
+              <label class="hyve-label" for="addr-city"><span id="addr-city-label">City</span></label>
               <input type="text" class="hyve-input" id="addr-city" name="city" required placeholder="e.g. Singapore">
             </div>
             <div class="hyve-form-group">
@@ -388,21 +394,24 @@ function renderAddressModal(company = null) {
                 <option value="ID">Indonesia</option>
               </select>
             </div>
-            <div class="hyve-form-group">
-              <label class="hyve-label" for="addr-zip">Postal / ZIP Code</label>
+            <div class="hyve-form-group" id="addr-zip-group">
+              <label class="hyve-label" for="addr-zip"><span id="addr-zip-label">Postal / ZIP Code</span></label>
               <input type="text" class="hyve-input" id="addr-zip" name="zip" required placeholder="e.g. 048616">
             </div>
           </div>
 
           <div class="hyve-form-row hyve-form-row--2">
-            <div class="hyve-form-group">
+            <div class="hyve-form-group" id="addr-province-group">
+              <label class="hyve-label" for="addr-province" id="addr-province-label">${
+                companyMode ? "State code" : "State / Province / Region"
+              } <span class="hyve-label__opt">(Optional)</span></label>
               ${
                 companyMode
-                  ? `<label class="hyve-label" for="addr-province">State code <span class="hyve-label__opt">(Optional)</span></label>
-              <input type="text" class="hyve-input" id="addr-province" name="province" placeholder="e.g. SGR for Selangor" maxlength="6" autocapitalize="characters">`
-                  : `<label class="hyve-label" for="addr-province">State / Province / Region <span class="hyve-label__opt">(Optional)</span></label>
-              <input type="text" class="hyve-input" id="addr-province" name="province" placeholder="e.g. Federal Territory">`
+                  ? `<input type="text" class="hyve-input" id="addr-province" name="province" placeholder="e.g. SGR for Selangor" maxlength="6" autocapitalize="characters">`
+                  : `<input type="text" class="hyve-input" id="addr-province" name="province" placeholder="e.g. Federal Territory">`
               }
+              <!-- Shopify's own regions for the country, as the code Shopify takes (HYV-143). -->
+              <select class="hyve-select" id="addr-province-select" name="province" hidden disabled></select>
             </div>
             <div class="hyve-form-group">
               <label class="hyve-label" for="addr-phone">Phone Number</label>
@@ -1181,6 +1190,10 @@ const ADDRESSES_STYLES = `
 const ADDRESSES_SCRIPT = `
 <script>
 (() => {
+  // Shopify's fields, labels and region list for the country picked, the same
+  // as the distributor application (HYV-143). Countries outside the list keep
+  // the plain fields.
+  const addressFormats = ${JSON.stringify(FORMATS_BY_CODE)};
   const modal = document.getElementById('hyve-address-modal');
   const deleteModal = document.getElementById('hyve-delete-modal');
   const form = document.getElementById('hyve-address-form');
@@ -1243,8 +1256,69 @@ const ADDRESSES_SCRIPT = `
     });
   }
 
+  const provinceSelect = document.getElementById('addr-province-select');
+  const provinceGroup = document.getElementById('addr-province-group');
+  const provinceLabel = document.getElementById('addr-province-label');
+  const cityGroup = document.getElementById('addr-city-group');
+  const cityLabel = document.getElementById('addr-city-label');
+  const zipGroup = document.getElementById('addr-zip-group');
+  const zipLabel = document.getElementById('addr-zip-label');
+  const plainLabels = {
+    province: provinceLabel ? provinceLabel.innerHTML : '',
+    city: cityLabel ? cityLabel.textContent : 'City',
+    zip: zipLabel ? zipLabel.textContent : 'Postal / ZIP Code',
+  };
+
+  // zone: the region to select, by Shopify code or name (when editing).
+  function applyCountry(zone) {
+    const format = addressFormats[countrySelect.value];
+    const fields = format ? new Set(format.rows.flat()) : null;
+    const toggle = (group, input, on, required) => {
+      if (group) group.hidden = !on;
+      input.disabled = !on;
+      input.required = on && required;
+    };
+    toggle(cityGroup, cityInput, !fields || fields.has('city'), true);
+    toggle(zipGroup, zipInput, !fields || fields.has('zip'), true);
+    if (cityLabel) cityLabel.textContent = format ? format.labels.city : plainLabels.city;
+    if (zipLabel) zipLabel.textContent = format ? format.labels.zip : plainLabels.zip;
+
+    const zones = format ? format.zones : [];
+    const listed = zones.length > 0;
+    const hasRegion = !fields || fields.has('province');
+    if (provinceGroup) provinceGroup.hidden = !hasRegion;
+    provinceInput.hidden = listed;
+    provinceInput.disabled = listed || !hasRegion;
+    if (provinceSelect) {
+      provinceSelect.hidden = !listed;
+      provinceSelect.disabled = !listed;
+      provinceSelect.required = listed;
+      provinceSelect.innerHTML = '';
+      if (listed) {
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'Select a ' + String(format.labels.province).toLowerCase();
+        provinceSelect.appendChild(placeholder);
+        zones.forEach((z) => {
+          const option = document.createElement('option');
+          option.value = z.code;
+          option.textContent = z.name;
+          if (zone && (zone === z.code || zone === z.name)) option.selected = true;
+          provinceSelect.appendChild(option);
+        });
+      }
+    }
+    if (provinceLabel) {
+      if (listed) provinceLabel.textContent = format.labels.province;
+      else provinceLabel.innerHTML = plainLabels.province;
+    }
+  }
+
+  countrySelect.addEventListener('change', () => applyCountry(''));
+
   function openAddModal() {
     form.reset();
+    applyCountry('');
     intentInput.value = 'create';
     idInput.value = '';
     modalTitle.textContent = 'Add New Address';
@@ -1288,6 +1362,7 @@ const ADDRESSES_SCRIPT = `
     if (addr.countryCodeV2) {
       countrySelect.value = addr.countryCodeV2;
     }
+    applyCountry(addr.provinceCode || addr.province || '');
 
     modal.showModal();
   }

@@ -1,3 +1,4 @@
+import { addressFormatFor } from "../lib/address-formats.server";
 import { authenticate } from "../shopify.server";
 import { accountShell } from "../lib/account-shell.server";
 import { portalChrome } from "../lib/account-data.server";
@@ -333,7 +334,11 @@ function extractAddressInput(formData) {
   if (lastName) input.lastName = lastName;
   if (formattedCompany) input.company = formattedCompany;
   if (address2) input.address2 = address2;
-  if (province) input.province = province;
+  // A region from Shopify's list goes as its code; Shopify has retired the
+  // free-text province (HYV-143). Countries without a list keep the text.
+  const zone = addressFormatFor(countryCode)?.zones.find((z) => z.code === province || z.name === province);
+  if (zone) input.provinceCode = zone.code;
+  else if (province) input.province = province;
   if (phone) input.phone = phone;
 
   return input;

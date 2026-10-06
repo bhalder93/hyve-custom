@@ -18,12 +18,18 @@ import {
   sendProofApprovedEmail,
   sendProductionCompleteEmail,
   sendReadyForCollectionEmail,
+  sendEstimatedShipDateEmail,
 } from "../utils/email.server";
 import { proofDecisionLinks } from "../lib/proof.server";
 import {
+  notifyCustomerServiceOrderOnHold,
   productionCalendar,
   productionDueDate,
 } from "../lib/order-status.server";
+import {
+  syncLineItemArtworkReceived,
+  updateLineItemArtworkAttributesInPayload,
+} from "../lib/order-artwork.server";
 import { staffMemberLabel } from "../lib/staff-member.server";
 import { NOTIFICATIONS_PAUSED_TAG } from "../utils/sla-engine.server";
 import { statusEmailWanted } from "../lib/notification-preferences.server";
@@ -127,6 +133,8 @@ function formatMoney(amount, currency) {
     return new Intl.NumberFormat("en-SG", {
       style: "currency",
       currency: currency || "USD",
+      // The code, not a symbol: en-SG prints SGD as a bare "$" (HYV-143).
+      currencyDisplay: "code",
     }).format(numeric);
   } catch {
     return `${currency || ""} ${numeric.toFixed(2)}`.trim();
@@ -460,6 +468,21 @@ totalPriceSet {
 
   if (!order) {
     throw new Error("Order not found.");
+  }
+
+  const currentStatus =
+    order.productionStatus?.value ||
+    (order.tags || [])
+      .find((t) => t.startsWith("hyve-status:"))
+      ?.slice("hyve-status:".length) ||
+    "";
+
+  if (currentStatus && currentStatus !== "order-placed") {
+    if (order.lineItems?.nodes) {
+      order.lineItems.nodes = updateLineItemArtworkAttributesInPayload(
+        order.lineItems.nodes,
+      );
+    }
   }
 
   return order;
@@ -1096,12 +1119,20 @@ async function sendCustomerStatusEmail({
         ...(await proofDecisionLinks(admin, orderId, proofVersion)),
       });
 
-    case "proof-approved":
+    case "proof-approved": {
+      let estimatedShipDate = order.estimatedShipDate?.value;
+      if (!estimatedShipDate && productionDueAt) {
+        const d = new Date(productionDueAt);
+        d.setDate(d.getDate() + 5);
+        estimatedShipDate = d.toISOString();
+      }
       return sendProofApprovedEmail({
         ...common,
 
         productionDueAt,
+        estimatedShipDate,
       });
+    }
 
     case "production-complete":
       return sendProductionCompleteEmail({
@@ -1326,6 +1357,42 @@ export async function action({ request, params }) {
         message: paused
           ? "Automatic messages resumed for this order."
           : "Automatic messages paused for this order. Status emails still go out.",
+      };
+    }
+
+    if (intent === "send_estimated_ship_date_email") {
+      const order = await getOrder(admin, orderId);
+      let estimatedShipDate = order.estimatedShipDate?.value;
+      if (!estimatedShipDate && order.productionDueAt?.value) {
+        const d = new Date(order.productionDueAt.value);
+        d.setDate(d.getDate() + 5);
+        estimatedShipDate = d.toISOString();
+      }
+
+      if (!estimatedShipDate) {
+        return {
+          success: false,
+          formError: "Cannot send email: both estimated ship date and production due date are missing.",
+        };
+      }
+
+      const customerEmail = getCustomerEmail(order);
+      if (!customerEmail) {
+        return { success: false, formError: "Customer email is missing." };
+      }
+
+      await sendEstimatedShipDateEmail({
+        customerEmail,
+        customerName: order.customer?.displayName || order.shippingAddress?.name || "Customer",
+        orderName: order.name,
+        orderDate: order.createdAt,
+        estimatedShipDate,
+        lineItems: order.lineItems?.nodes || [],
+      });
+
+      return {
+        success: true,
+        message: "Estimated ship date email sent to the customer.",
       };
     }
 
@@ -1790,8 +1857,8 @@ export async function action({ request, params }) {
         fieldErrors: {
           nextStatus: currentStatus
             ? `Cannot move directly from ${getStatusLabel(
-                currentStatus,
-              )} to ${getStatusLabel(nextStatus)}.`
+              currentStatus,
+            )} to ${getStatusLabel(nextStatus)}.`
             : "The first production status must be Order Received.",
         },
 
@@ -1929,6 +1996,30 @@ ${collectionAudit}`
 
     let emailOptedOut = false;
 
+    if (nextStatus === "on-hold") {
+      try {
+        const csResult = await notifyCustomerServiceOrderOnHold(admin, {
+          order,
+          onHoldReason,
+          changedBy,
+          note: historyNote,
+        });
+        if (csResult?.sent) {
+          emailSent = true;
+        }
+      } catch (csError) {
+        console.error("On-hold Customer Service notification failed:", csError);
+      }
+    }
+
+    if (nextStatus === "artwork-received") {
+      try {
+        await syncLineItemArtworkReceived(admin, order);
+      } catch (artError) {
+        console.error("On Artwork Received line item update failed:", artError);
+      }
+    }
+
     if (CUSTOMER_EMAIL_STATUSES.has(nextStatus)) {
       try {
         const result = await sendCurrentCustomerStatusEmail({
@@ -1995,7 +2086,9 @@ ${collectionAudit}`
       message += ` Production due ${formatDate(productionDueAt)}.`;
     }
 
-    if (emailSent) {
+    if (nextStatus === "on-hold" && emailSent) {
+      message += " Customer Service notified.";
+    } else if (emailSent) {
       message += " Customer email sent.";
     }
 
@@ -2610,6 +2703,12 @@ export default function ProductionOrderDetailsPage() {
                       (attribute) => attribute.key === "Imprint Locations",
                     );
 
+                    const artwork = item.customAttributes?.find(
+                      (attribute) =>
+                        String(attribute.key || "").trim().toLowerCase() ===
+                        "artwork",
+                    );
+
                     return (
                       <s-box
                         key={item.id}
@@ -2638,6 +2737,12 @@ export default function ProductionOrderDetailsPage() {
                             {imprint?.value && (
                               <s-text tone="subdued">
                                 Decoration: {imprint.value}
+                              </s-text>
+                            )}
+
+                            {artwork?.value && (
+                              <s-text tone="subdued">
+                                Artwork: {artwork.value}
                               </s-text>
                             )}
                           </s-stack>
@@ -2805,6 +2910,15 @@ export default function ProductionOrderDetailsPage() {
                     }
                   >
                     Save ship date
+                  </s-button>
+
+                  <s-button
+                    variant="secondary"
+                    onClick={() =>
+                      submitIntent("send_estimated_ship_date_email")
+                    }
+                  >
+                    Send Estimated ship date email
                   </s-button>
                 </s-stack>
 
@@ -3020,10 +3134,9 @@ export default function ProductionOrderDetailsPage() {
 
                                 <ShopifyFileUpload
                                   label="Upload Revised Production Photo"
-                                  prefix={`${order.name}-photo-v${
-                                    Number(order.productionPhotoVersion || 0) +
+                                  prefix={`${order.name}-photo-v${Number(order.productionPhotoVersion || 0) +
                                     1
-                                  }`}
+                                    }`}
                                   onUploaded={(url) => {
                                     setProductionPhotoUrl(url);
                                     clearFieldError("productionPhotoUrl");

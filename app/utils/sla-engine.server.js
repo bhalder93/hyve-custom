@@ -819,7 +819,7 @@ async function getNotificationRecipients(
   const roleSet =
     new Set(roles);
 
-  return (
+  const matched = (
     data.data
       ?.metaobjects
       ?.nodes ||
@@ -880,6 +880,24 @@ async function getNotificationRecipients(
           "",
       }),
     );
+
+  if (matched.length > 0) {
+    return matched;
+  }
+
+  if (roleSet.has("CUSTOMER_SERVICE") && process.env.HYVE_CS_EMAILS) {
+    const csEmails = process.env.HYVE_CS_EMAILS.split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    return csEmails.map((email) => ({
+      id: `env-${email}`,
+      name: "Customer Service",
+      role: "CUSTOMER_SERVICE",
+      email,
+    }));
+  }
+
+  return [];
 }
 
 /* -------------------------------------------------------------------------- */

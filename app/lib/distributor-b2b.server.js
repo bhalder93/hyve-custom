@@ -2,6 +2,8 @@
  * Service to handle B2B Customer & Company creation upon distributor approval.
  */
 
+import { internationalPhone } from "./address-formats.server";
+
 export const COMPANY_CREATE_MUTATION = `#graphql
 mutation CompanyCreate($input: CompanyCreateInput!) {
   companyCreate(input: $input) {
@@ -431,7 +433,9 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
     lastName = "Partner";
   }
 
-  const cleanPhone = phone.replace(/[^0-9+]/g, "");
+  // International form (+85245346363), which Shopify asks for on addresses;
+  // applicants usually type the local number.
+  const cleanPhone = internationalPhone(phone, country);
   const distributorTags = ["b2b", "distributor", "wholesale"];
 
   let customerGid = null;

@@ -3,6 +3,7 @@
 import { authenticate } from "../shopify.server";
 import { loadInvoiceDocument } from "../lib/invoice-document.server";
 import { sendInvoiceEmail } from "../utils/email.server";
+import { checkAndAddFobShippingIfStorefrontQuote } from "../lib/order-fob-shipping.server";
 
 /** On an order once its invoice has gone out, so a retried webhook can't send it twice. */
 const INVOICE_SENT_TAG = "hyve-notified:invoice";
@@ -26,6 +27,15 @@ export async function action({ request }) {
       .map((tag) => tag.trim());
     if (!admin || !orderGid || !email || tags.includes(INVOICE_SENT_TAG)) {
       return new Response(null, { status: 200 });
+    }
+
+    try {
+      await checkAndAddFobShippingIfStorefrontQuote(admin, {
+        payload,
+        orderId: orderGid,
+      });
+    } catch (fobErr) {
+      console.warn("[orders/paid] checkAndAddFobShippingIfStorefrontQuote warning:", fobErr);
     }
 
     const doc = await loadInvoiceDocument(admin, orderGid, { system: true });

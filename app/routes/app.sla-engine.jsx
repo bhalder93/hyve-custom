@@ -404,7 +404,7 @@ async function getNotificationRecipients(admin, roles) {
 
   const roleSet = new Set(roles);
 
-  return (data.data?.metaobjects?.nodes ?? [])
+  const matched = (data.data?.metaobjects?.nodes ?? [])
     .filter(
       (item) =>
         item.enabled?.value !== "false" &&
@@ -418,6 +418,23 @@ async function getNotificationRecipients(admin, roles) {
 
       email: item.email?.value || "",
     }));
+
+  if (matched.length > 0) {
+    return matched;
+  }
+
+  if (roleSet.has("CUSTOMER_SERVICE") && process.env.HYVE_CS_EMAILS) {
+    const csEmails = process.env.HYVE_CS_EMAILS.split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    return csEmails.map((email) => ({
+      name: "Customer Service",
+      role: "CUSTOMER_SERVICE",
+      email,
+    }));
+  }
+
+  return [];
 }
 
 async function updateBreachLog(admin, order, message) {

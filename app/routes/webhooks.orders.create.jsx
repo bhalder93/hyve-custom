@@ -1,6 +1,7 @@
 // app/routes/webhooks.orders.create.jsx
 
 import { authenticate } from "../shopify.server";
+import { checkAndAddFobShippingIfStorefrontQuote } from "../lib/order-fob-shipping.server";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Constants                                 */
@@ -114,11 +115,11 @@ function isBlankOrder(lineItems) {
     return true;
   }
 
-  return lineItems.every(
-    (lineItem) =>
-      !Array.isArray(lineItem?.customAttributes) ||
-      lineItem.customAttributes.length === 0,
-  );
+  // A blank order has no "Artwork" attribute on any line item.
+  return lineItems.every((lineItem) => {
+    const attr = getAttribute(lineItem, "Artwork");
+    return !(attr && attr.value && attr.value.trim());
+  });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -252,6 +253,25 @@ async function getOrder(admin, orderId) {
             name
             createdAt
             tags
+            sourceName
+            sourceIdentifier
+            currencyCode
+
+            shippingLine {
+              title
+              originalPriceSet {
+                shopMoney {
+                  amount
+                  currencyCode
+                }
+              }
+            }
+
+            shippingLines(first: 5) {
+              nodes {
+                title
+              }
+            }
 
             productionStatus: metafield(
               namespace: "$app"
@@ -794,6 +814,15 @@ export async function action({ request }) {
 
     const order = await getOrder(admin, orderId);
 
+    /* -------------------------------------------------------------------- */
+    /* Check & attach FOB shipping if storefront-quote with no shipping    */
+    /* -------------------------------------------------------------------- */
+    await checkAndAddFobShippingIfStorefrontQuote(admin, {
+      payload,
+      orderId,
+      order,
+    });
+
     const lineItems = order.lineItems?.nodes ?? [];
 
     /* -------------------------------------------------------------------- */
@@ -873,6 +902,34 @@ export async function action({ request }) {
       const setArtworkRequired = order.artworkRequired?.value !== "false";
 
       const setRush = order.rush?.value !== "false";
+
+      // If this blank order originates from a storefront quote, set its production_status to Ready For Collection
+      const hasStorefrontQuoteTag = (order.tags ?? []).includes("storefront-quote");
+
+      if (hasStorefrontQuoteTag) {
+        // Update the production_status metafield directly
+        const response = await admin.graphql(
+          `#graphql
+          mutation SetReadyForCollection($id: ID!, $value: String!) {
+            metafieldsSet(metafields: [{
+              ownerId: $id,
+              namespace: "$app",
+              key: "production_status",
+              type: "single_line_text_field",
+              value: $value
+            }]) {
+              userErrors { field message }
+            }
+          }`,
+          {
+            variables: {
+              id: order.id,
+              value: "ready-for-collection",
+            },
+          },
+        );
+        // Optionally handle errors (omitted for brevity)
+      }
 
       await initializeMetafields(admin, {
         orderId: order.id,

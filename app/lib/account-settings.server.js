@@ -125,10 +125,9 @@ export function settingsPage({
             <p class="hyve-settings__hint">You sign in with a one-time code sent to this email, so there's no password to manage.</p>
           </div>
 
-          ${
-            company
-              ? ""
-              : `<div class="hyve-settings__form-group">
+          ${company
+      ? ""
+      : `<div class="hyve-settings__form-group">
             <label class="hyve-settings__label" for="settings-company">Company</label>
             <input
               type="text"
@@ -139,7 +138,7 @@ export function settingsPage({
               placeholder="e.g. Acme Corp Pte. Ltd."
             >
           </div>`
-          }
+    }
 
           <div class="hyve-settings__form-group">
             <label class="hyve-settings__label" for="settings-phone">Phone</label>
@@ -290,21 +289,19 @@ function companyCard(company) {
             <label class="hyve-settings__label" for="company-preferredShipping">Preferred shipping method</label>
             <select id="company-preferredShipping" name="preferredShipping" class="hyve-settings__input"${locked ? " disabled" : ""}>${shippingOptions}</select>
           </div>
-          ${field("courierAccount", "Courier account number (EXW)", company.courierAccount, "e.g. DHL 123456789", "For orders you collect from the factory on your own courier.")}
+  
           ${field("forwarderName", "Freight forwarder (FOB Ningbo)", company.forwarderName, "e.g. Kuehne+Nagel")}
-          ${field("forwarderAccount", "Forwarder account number (FOB Ningbo)", company.forwarderAccount, "e.g. KN-00012345")}
         </div>
 
-        ${
-          locked
-            ? ""
-            : `<div class="hyve-settings__card-foot">
+        ${locked
+      ? ""
+      : `<div class="hyve-settings__card-foot">
           <button type="submit" class="hyve-settings__btn-save">
             ${icoCheck()}
             <span>Save Company Details</span>
           </button>
         </div>`
-        }
+    }
       </form>`;
 }
 

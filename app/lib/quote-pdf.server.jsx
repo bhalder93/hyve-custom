@@ -301,7 +301,9 @@ function QuoteDoc({ doc, withImages }) {
             <Text style={styles.grandLabel}>Total</Text>
             <Text style={styles.grandValue}>{money(doc.grandTotal, currency)}</Text>
           </View>
-          <Text style={styles.dutyNote}>{DUTY_NOTE}</Text>
+          {/* Only where Hyve delivers duty paid. On FOB (and EXW) the buyer
+              clears customs, so the line doesn't apply (HYV-116, Michael Oct 4). */}
+          {/^DDP\b/i.test(String(doc.incoterm || "")) ? <Text style={styles.dutyNote}>{DUTY_NOTE}</Text> : null}
         </View>
 
         {/* Payment terms apart from the logistics, which NetSuite filed under

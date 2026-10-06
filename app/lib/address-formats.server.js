@@ -82,3 +82,23 @@ export function shopifyAddressInput(address) {
     countryCode: clean.countryCode,
   };
 }
+
+/**
+ * A phone number in the international form Shopify asks for on addresses
+ * (+85245346363). Applicants type local numbers ("4534 6363", "0917 123 4567"),
+ * so the country's dialling code is added, dropping a leading trunk 0. A number
+ * already starting with + or 00 is kept as it is.
+ */
+export function internationalPhone(phone, country) {
+  const raw = String(phone || "").trim();
+  if (!raw) return "";
+  const digits = raw.replace(/[^\d]/g, "");
+  if (!digits) return "";
+  if (raw.startsWith("+")) return `+${digits}`;
+  if (digits.startsWith("00")) return `+${digits.slice(2)}`;
+  const prefix = String(addressFormatFor(country)?.phonePrefix || "");
+  if (!prefix) return digits;
+  // Typed with the country code but no +, e.g. 6591234567.
+  if (digits.startsWith(prefix) && digits.length - prefix.length >= 8) return `+${digits}`;
+  return `+${prefix}${digits.replace(/^0+/, "")}`;
+}

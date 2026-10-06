@@ -9,7 +9,7 @@ name = "Hyve Custom"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_assigned_fulfillment_orders,write_third_party_fulfillment_orders , write_assigned_fulfillment_orders,read_fulfillments,write_customers,write_companies,read_orders,read_payment_terms,read_store_credit_accounts,read_store_credit_account_transactions,write_orders,write_files,write_products,write_metaobjects,write_metaobject_definitions,write_draft_orders"
+scopes = "write_order_edits,write_assigned_fulfillment_orders,write_third_party_fulfillment_orders , write_assigned_fulfillment_orders,read_fulfillments,write_customers,write_companies,read_orders,read_payment_terms,read_store_credit_accounts,read_store_credit_account_transactions,write_orders,write_files,write_products,write_metaobjects,write_metaobject_definitions,write_draft_orders"
 [metaobjects.app.distributor_application]
 name = "Distributor Application"
 description = "Distributor portal application and commercial credit requests"
