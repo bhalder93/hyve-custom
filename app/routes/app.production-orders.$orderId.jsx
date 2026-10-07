@@ -40,6 +40,7 @@ import {
   allowedMoves,
 } from "../lib/production-statuses";
 import { ShopifyFileUpload } from "../components/ShopifyFileUpload";
+import { incotermFromShipping } from "../lib/incoterm";
 
 /** Set once a paid physical sample has been approved (ORS-03, HYV-102). */
 const SAMPLE_APPROVED_TAG = "hyve-sample:approved";
@@ -1912,10 +1913,6 @@ export async function action({ request, params }) {
         order.rush?.value === "true",
       );
     }
-    await removeTags(admin, orderId, productionTags);
-
-    await addTags(admin, orderId, [`hyve-status:${nextStatus}`]);
-
     await setOrderMetafields(admin, {
       orderId,
 
@@ -1943,6 +1940,10 @@ export async function action({ request, params }) {
     if (nextStatus === "production-complete") {
       await clearProductionApprovalDecision(admin, orderId);
     }
+
+    await removeTags(admin, orderId, productionTags);
+
+    await addTags(admin, orderId, [`hyve-status:${nextStatus}`]);
 
     // The staff member making the move (HYV-100). "Shopify Admin" only when
     // Shopify can't say who.
@@ -2015,6 +2016,11 @@ ${collectionAudit}`
     if (nextStatus === "artwork-received") {
       try {
         await syncLineItemArtworkReceived(admin, order);
+        if (order.lineItems?.nodes) {
+          order.lineItems.nodes = updateLineItemArtworkAttributesInPayload(
+            order.lineItems.nodes,
+          );
+        }
       } catch (artError) {
         console.error("On Artwork Received line item update failed:", artError);
       }
@@ -2467,7 +2473,7 @@ export default function ProductionOrderDetailsPage() {
               </s-stack>
             </s-stack>
 
-            <s-grid gridTemplateColumns="repeat(4, minmax(0, 1fr))" gap="base">
+            <s-grid gridTemplateColumns="repeat(5, minmax(0, 1fr))" gap="base">
               <s-box padding="base" border="base" borderRadius="base">
                 <s-stack direction="block" gap="small">
                   <s-text tone="subdued">Order total</s-text>
@@ -2495,6 +2501,14 @@ export default function ProductionOrderDetailsPage() {
                   <s-text tone="subdued">Fulfillment</s-text>
 
                   <s-heading>{order.displayFulfillmentStatus || "—"}</s-heading>
+                </s-stack>
+              </s-box>
+
+              <s-box padding="base" border="base" borderRadius="base">
+                <s-stack direction="block" gap="small">
+                  <s-text tone="subdued">Incoterm</s-text>
+
+                  <s-heading>{incotermFromShipping(order.shippingLine?.title) || "—"}</s-heading>
                 </s-stack>
               </s-box>
 

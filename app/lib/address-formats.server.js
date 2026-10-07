@@ -1,4 +1,5 @@
 import { ADDRESS_FORMATS } from "./address-formats.data";
+import { phoneE164 } from "./phone";
 
 /**
  * Shopify's address rules for the distributor application (HYV-143): which
@@ -90,15 +91,9 @@ export function shopifyAddressInput(address) {
  * already starting with + or 00 is kept as it is.
  */
 export function internationalPhone(phone, country) {
-  const raw = String(phone || "").trim();
-  if (!raw) return "";
-  const digits = raw.replace(/[^\d]/g, "");
-  if (!digits) return "";
-  if (raw.startsWith("+")) return `+${digits}`;
-  if (digits.startsWith("00")) return `+${digits.slice(2)}`;
-  const prefix = String(addressFormatFor(country)?.phonePrefix || "");
-  if (!prefix) return digits;
-  // Typed with the country code but no +, e.g. 6591234567.
-  if (digits.startsWith(prefix) && digits.length - prefix.length >= 8) return `+${digits}`;
-  return `+${prefix}${digits.replace(/^0+/, "")}`;
+  // Checked as Shopify checks it: "" when it isn't a real number for the
+  // country, so callers leave it out rather than have Shopify refuse the
+  // whole address.
+  const code = addressFormatFor(country)?.code || String(country || "").toUpperCase();
+  return phoneE164(String(phone || "").trim().replace(/^00/, "+"), code);
 }

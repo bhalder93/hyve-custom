@@ -131,7 +131,7 @@ export function updateSingleLineItemArtwork(lineItem) {
       if (shouldUpdateArtworkAttribute(attr.value)) {
         return {
           ...attr,
-          value: "Artwork Received",
+          value: "Received",
         };
       }
     }

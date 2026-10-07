@@ -14,6 +14,10 @@ import {
   withAccessState,
 } from "../lib/distributor-metaobject.server";
 
+import { registrationNumberProblem } from "../lib/registration-number.server";
+
+import { validPhone } from "../lib/phone";
+
 import { uploadToShopifyFiles } from "../lib/shopify-files.server";
 
 import { sendApplicationEmails } from "../lib/application-emails.server";
@@ -21,7 +25,7 @@ import { sendApplicationEmails } from "../lib/application-emails.server";
 import { supportedCurrencies } from "../lib/store-currencies.server";
 
 import { BUSINESS_TIME_ZONE } from "../lib/portal.server";
-import { addressErrors, cleanAddress } from "../lib/address-formats.server";
+import { addressErrors, addressFormatFor, cleanAddress } from "../lib/address-formats.server";
 
 
 const ADMIN_TIMEOUT_MS = 5000;
@@ -118,6 +122,12 @@ export const loader = async ({ request }) => {
       existingApplication?.access_removed,
     );
 
+    // A declined applicant chose "Apply again": the form shows instead of the
+    // decision, and submitting it starts a new application (HYV-143).
+    const reapplying =
+      url.searchParams.get("reapply") === "1" &&
+      String(existingApplication?.status || "").trim().toLowerCase() === "rejected";
+
 
     return liquid(
       accountShell({
@@ -126,7 +136,7 @@ export const loader = async ({ request }) => {
         main: distributorPage({
           customer,
 
-          application: accessEnded
+          application: accessEnded || reapplying
             ? null
             : existingApplication,
 
@@ -425,6 +435,45 @@ export const action = async ({ request }) => {
           requestCredit,
         );
 
+      // One registration number per distributor: a second application with
+      // the same number used to fail only at approval (HYV-143).
+      const registrationProblem =
+        await registrationNumberProblem(
+          admin,
+          registrationNumber,
+          { customerId },
+        );
+
+      if (registrationProblem) {
+        addressValidation.valid = false;
+        addressValidation.errors = {
+          ...addressValidation.errors,
+          registrationNumber: registrationProblem,
+        };
+      }
+
+      // Approval puts this number on the company address, which Shopify
+      // won't save without one, so the application asks for it (HYV-143).
+      const phoneProblem = !contactPhone
+        ? "Contact phone number is required."
+        : validPhone(contactPhone, addressFormatFor(countryBased)?.code)
+          ? null
+          : `Enter a valid ${countryBased} phone number.`;
+
+      if (phoneProblem) {
+        addressValidation.valid = false;
+        addressValidation.errors = {
+          ...addressValidation.errors,
+          contactPhone: phoneProblem,
+        };
+      }
+
+      const formError = registrationProblem
+        ? "Please check your business registration number."
+        : phoneProblem && Object.keys(addressValidation.errors).length === 1
+          ? "Please enter your contact phone number."
+          : "Please complete all required fields.";
+
 
       if (!addressValidation.valid) {
         if (isAjax) {
@@ -433,7 +482,7 @@ export const action = async ({ request }) => {
               success: false,
 
               error:
-                "Please complete all required registered address fields.",
+                formError,
 
               fieldErrors:
                 addressValidation.errors,
@@ -460,7 +509,7 @@ export const action = async ({ request }) => {
               customer,
 
               error:
-                "Please complete all required registered address fields.",
+                formError,
 
               values: {
                 companyName,

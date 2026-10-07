@@ -123,6 +123,19 @@ export const METAOBJECT_FIELDS_SCHEMA = [
     key: "rejection_message",
     type: "multi_line_text_field",
   },
+  // Staff's internal note on an approval, never shown to the applicant.
+  {
+    name: "Reviewer Note",
+    key: "reviewer_note",
+    type: "multi_line_text_field",
+  },
+  // The B2B setup rows from approval and whether the approval email went, so
+  // they're still on the record after a reload (HYV-143).
+  {
+    name: "Approval Setup Results",
+    key: "approval_setup",
+    type: "json",
+  },
 ];
 
 /**
@@ -712,17 +725,25 @@ export async function getAllDistributorApplications(admin) {
   const seen = new Set();
 
   for (const type of METAOBJECT_TYPES) {
+    let after = null;
+    do {
     try {
       const response = await admin.graphql(
         `#graphql
           query GetAllApplications(
             $type: String!
+            $after: String
           ) {
             metaobjects(
               type: $type
               first: 100
+              after: $after
               reverse: true
             ) {
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
               nodes {
                 id
                 handle
@@ -739,6 +760,7 @@ export async function getAllDistributorApplications(admin) {
         {
           variables: {
             type,
+            after,
           },
         },
       );
@@ -746,6 +768,10 @@ export async function getAllDistributorApplications(admin) {
       const body = await response.json();
 
       const nodes = body?.data?.metaobjects?.nodes || [];
+
+      // Every page: the duplicate registration check needs older ones too.
+      const pageInfo = body?.data?.metaobjects?.pageInfo;
+      after = pageInfo?.hasNextPage ? pageInfo.endCursor : null;
 
       for (const node of nodes) {
         if (seen.has(node.id)) {
@@ -775,7 +801,9 @@ export async function getAllDistributorApplications(admin) {
         `[metaobject] getAllDistributorApplications (${type}) warning:`,
         err?.message || err,
       );
+      after = null;
     }
+    } while (after);
   }
 
   console.log(

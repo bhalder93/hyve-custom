@@ -21,8 +21,10 @@ import { authenticate } from "../shopify.server";
 import { ensureCommercialDefinitions } from "../lib/commercial-metafields.server";
 
 import { completeB2BOnboarding } from "../lib/b2b-onboarding.server";
-import { addressErrors, shopifyAddressInput } from "../lib/address-formats.server";
+import { addressErrors, addressFormatFor, internationalPhone, shopifyAddressInput } from "../lib/address-formats.server";
 import { ADDRESS_FORMATS } from "../lib/address-formats.data";
+import { approvalMissing } from "../lib/approval-checklist";
+import { validPhone } from "../lib/phone";
 
 import { sendApplicationDecisionEmail } from "../lib/application-emails.server";
 
@@ -49,6 +51,11 @@ import {
   getPaymentTermsTemplates,
 
 } from "../lib/distributor-b2b.server";
+import {
+  applicationsWithTaxNumber,
+  companyWithRegistrationNumber,
+  removeDistributorTagsWithoutCompany,
+} from "../lib/registration-number.server";
 
 
 
@@ -171,24 +178,64 @@ function formatRegisteredAddress(address) {
 }
 
 
+/**
+ * Which Price Tier Catalogs hold which of the company's locations, read from
+ * the locations themselves (every page of them). Reading it from each
+ * catalog's location list only saw that list's first 50 locations, so a busy
+ * tier showed "No catalog" and a catalog change left the old one attached.
+ *
+ * @returns {Promise<Map<string, {title: string, locationIds: string[]}>>}
+ */
+async function tierCatalogsOnCompany(admin, companyId, catalogs) {
+  const found = new Map();
+  if (!companyId) return found;
+  const tierIds = new Set(catalogs.map((catalog) => catalog.id));
+  let after = null;
+  do {
+    const response = await admin.graphql(
+      `#graphql
+      query CompanyLocationCatalogsForCompany($companyId: ID!, $after: String) {
+        company(id: $companyId) {
+          locations(first: 50, after: $after) {
+            nodes {
+              id
+              catalogs(first: 10) {
+                nodes { id title }
+              }
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }`,
+      { variables: { companyId, after } },
+    );
+    const body = await response.json();
+    const locations = body?.data?.company?.locations;
+    for (const location of locations?.nodes || []) {
+      for (const catalog of location.catalogs?.nodes || []) {
+        if (!tierIds.has(catalog.id)) continue;
+        const entry = found.get(catalog.id) || { title: catalog.title, locationIds: [] };
+        entry.locationIds.push(location.id);
+        found.set(catalog.id, entry);
+      }
+    }
+    after = locations?.pageInfo?.hasNextPage ? locations.pageInfo.endCursor : null;
+  } while (after);
+  return found;
+}
+
 async function fetchAllCatalogs(admin) {
   const response = await admin.graphql(
     `#graphql
     query CompanyLocationCatalogs {
-      catalogs(first: 20) {
+      # Only B2B catalogs: market and app catalogs counted toward the first 20
+      # and could push a tier off the list.
+      catalogs(first: 50, type: COMPANY_LOCATION) {
         nodes {
           __typename
           id
           title
           status
-
-          ... on CompanyLocationCatalog {
-            companyLocations(first: 50) {
-              nodes {
-                id
-              }
-            }
-          }
         }
       }
     }
@@ -211,9 +258,6 @@ async function fetchAllCatalogs(admin) {
       title: catalog.title,
       status: catalog.status,
       __typename: catalog.__typename,
-      companyLocationIds: (catalog?.companyLocations?.nodes || [])
-        .map((location) => location?.id)
-        .filter(Boolean),
     }))
     .sort((a, b) =>
       String(a?.title || "").localeCompare(String(b?.title || "")),
@@ -446,15 +490,22 @@ async function changeCompanyCatalog({ admin, companyId, catalogId }) {
     throw new Error("Company has no locations to attach the catalog to.");
   }
 
-  const locationIdSet = new Set(companyLocationIds);
+  const onCompany = await tierCatalogsOnCompany(admin, companyId, catalogs);
+
+  // The new tier goes on first, then the old ones come off. The other way
+  // round, a failed assign left the distributor on retail prices.
+  const assigned = await assignCatalogToCompany({
+    admin,
+    companyId,
+    catalogId,
+  });
+
   const removedCatalogs = [];
 
   for (const catalog of catalogs) {
     if (catalog.id === catalogId) continue;
 
-    const matchingLocationIds = (catalog.companyLocationIds || []).filter((locationId) =>
-      locationIdSet.has(locationId),
-    );
+    const matchingLocationIds = onCompany.get(catalog.id)?.locationIds || [];
 
     if (!matchingLocationIds.length) continue;
 
@@ -470,12 +521,6 @@ async function changeCompanyCatalog({ admin, companyId, catalogId }) {
       locationCount: matchingLocationIds.length,
     });
   }
-
-  const assigned = await assignCatalogToCompany({
-    admin,
-    companyId,
-    catalogId,
-  });
 
   return {
     ...assigned,
@@ -495,13 +540,11 @@ async function removeCompanyCatalogs({ admin, companyId }) {
     throw new Error("Company has no locations to remove from catalogs.");
   }
 
-  const locationIdSet = new Set(companyLocationIds);
+  const onCompany = await tierCatalogsOnCompany(admin, companyId, catalogs);
   const removedCatalogs = [];
 
   for (const catalog of catalogs) {
-    const matchingLocationIds = (catalog.companyLocationIds || []).filter((locationId) =>
-      locationIdSet.has(locationId),
-    );
+    const matchingLocationIds = onCompany.get(catalog.id)?.locationIds || [];
 
     if (!matchingLocationIds.length) continue;
 
@@ -596,22 +639,15 @@ export const loader = async ({ request, params }) => {
 
 
 
-  const [paymentTermsTemplates, catalogs] = await Promise.all([
-
+  const [paymentTermsTemplates, catalogs, taxDuplicates] = await Promise.all([
     getPaymentTermsTemplates(admin),
-
     fetchAllCatalogs(admin),
-
+    // Other applications with the same tax number, shown as a warning.
+    applicationsWithTaxNumber(admin, application?.tax_registration_number, application?.id),
   ]);
 
-  const companyLocationIds = (company?.locations?.edges || [])
-    .map((edge) => edge?.node?.id)
-    .filter(Boolean);
-
-  const assignedCatalog = catalogs.find((catalog) =>
-    (catalog.companyLocationIds || []).some((locationId) =>
-      companyLocationIds.includes(locationId),
-    ),
+  const [assignedCatalog] = [...(await tierCatalogsOnCompany(admin, company?.id, catalogs))].map(
+    ([catalogId, entry]) => ({ id: catalogId, title: entry.title }),
   );
 
 
@@ -640,9 +676,8 @@ export const loader = async ({ request, params }) => {
     assignedCatalogTitle: assignedCatalog?.title || "",
 
     addressDetails,
-
     shop,
-
+    taxDuplicates,
   };
 
 };
@@ -756,6 +791,12 @@ export const action = async ({ request, params }) => {
         catalogId,
       });
 
+      await saveSetupRow(admin, application, targetGid, {
+        name: "catalog assignment",
+        ok: true,
+        detail: `${catalogChange.catalog.title || "Selected catalog"} assigned.`,
+      }, { hasCatalog: true });
+
       return {
         success: true,
         catalogUpdated: true,
@@ -792,6 +833,12 @@ export const action = async ({ request, params }) => {
         admin,
         companyId: application.company_id,
       });
+
+      await saveSetupRow(admin, application, targetGid, {
+        name: "catalog assignment",
+        ok: true,
+        detail: "No Price Tier Catalog (removed by staff).",
+      }, { hasCatalog: false });
 
       return {
         success: true,
@@ -845,6 +892,12 @@ export const action = async ({ request, params }) => {
         country: address.country || application.country_based,
       });
 
+      // The contact's name and phone go on it too, as at approval; they were
+      // left off, so the portal's Edit Address opened with them blank. A
+      // phone Shopify wouldn't take is left off rather than losing the address.
+      const countryCode = input.countryCode || countryToCode(application.country_based, "SG");
+      const phone = internationalPhone(address.phone || application.contact_phone, countryCode);
+      const [firstName, ...rest] = String(application.contact_person || "").trim().split(/\s+/);
       const saved = await assignLocationAddress(admin, location.id, {
         address1: input.address1,
         address2: input.address2,
@@ -853,15 +906,21 @@ export const action = async ({ request, params }) => {
         // makes Shopify reject the whole address.
         zoneCode: input.zoneCode,
         zip: input.zip,
-        countryCode: input.countryCode || countryToCode(application.country_based, "SG"),
+        countryCode,
         recipient: application.company_name || undefined,
+        ...(firstName ? { firstName } : {}),
+        ...(rest.length ? { lastName: rest.join(" ") } : {}),
+        ...(phone ? { phone } : {}),
       });
+      if (!saved.ok) return { success: false, error: `Shopify didn't save the address: ${saved.error}` };
 
-      return saved.ok
-
-        ? { success: true, addressSaved: true, status: application.status }
-
-        : { success: false, error: `Shopify didn't save the address: ${saved.error}` };
+      // The setup row stops showing the address as a problem.
+      await saveSetupRow(admin, application, targetGid, {
+        name: "location address",
+        ok: true,
+        detail: phone ? "Saved to Shopify." : "Saved to Shopify without a phone: the number on file isn't valid. Add one in Shopify.",
+      });
+      return { success: true, addressSaved: true, status: application.status };
 
     }
 
@@ -872,6 +931,33 @@ export const action = async ({ request, params }) => {
        Delete Request (Remove metaobject from Shopify)
 
        ---------------------------------------------------------------------- */
+
+    // The approval email again, after a setup step that held it back is fixed.
+    if (intent === "send_approval_email") {
+      if (String(application.status || "").trim() !== APPLICATION_STATUSES.APPROVED) {
+        return { success: false, error: "Only an approved application can be sent the approval email." };
+      }
+      const setup = parseApprovalSetup(application.approval_setup);
+      // Read now, not from approval time: the catalog may have been fixed since.
+      const tiers = await tierCatalogsOnCompany(admin, application.company_id, await fetchAllCatalogs(admin));
+      const sent = await sendApplicationDecisionEmail(admin, application, {
+        approved: true,
+        salesRep: setup.salesRep,
+        salesRepEmail: setup.salesRepEmail,
+        hasCatalog: tiers.size > 0,
+      });
+      if (!sent) return { success: false, error: "The approval email could not be sent. Please try again." };
+      await updateDistributorApplication(admin, targetGid, {
+        approval_setup: {
+          ...setup,
+          emailSentAt: new Date().toISOString(),
+          steps: setup.steps
+            .filter((step) => step.name !== "approval email")
+            .concat({ name: "approval email", ok: true, detail: `Sent to ${application.customer_email}.` }),
+        },
+      });
+      return { success: true, emailSent: true };
+    }
 
     if (intent === "delete") {
 
@@ -931,6 +1017,9 @@ export const action = async ({ request, params }) => {
 
     ).trim();
 
+    // Internal: kept on the record, never shown to the applicant.
+    const reviewerNote = String(formData.get("reviewerNote") || "").trim();
+
 
 
     const paymentTermsTemplateId = String(
@@ -970,6 +1059,12 @@ export const action = async ({ request, params }) => {
       .toUpperCase();
 
 
+
+    // Staff can correct the registration number on the approval form; it
+    // becomes the company's external id, which Shopify keeps unique.
+    const registrationNumber = formData.has("registrationNumber")
+      ? String(formData.get("registrationNumber") || "").trim()
+      : String(application.registration_number || "").trim();
 
     const salesRep = String(formData.get("salesRep") || "").trim();
 
@@ -1118,6 +1213,14 @@ export const action = async ({ request, params }) => {
 
       const addressProblem = Object.values(addressErrors(approvalAddress))[0];
 
+      if (salesRepPhone && !validPhone(salesRepPhone)) {
+        return {
+          success: false,
+          error: "Enter the sales representative's WhatsApp number with its country code, or leave it empty.",
+          status: APPLICATION_STATUSES.PENDING,
+        };
+      }
+
       if (addressProblem || !shippingPhone) {
         return {
           success: false,
@@ -1126,15 +1229,34 @@ export const action = async ({ request, params }) => {
         };
       }
 
-      if (!/^\+?[0-9()\-\s]{7,20}$/.test(shippingPhone)) {
+      // A real number for the address country, as Shopify checks it.
+      if (!validPhone(shippingPhone, addressFormatFor(approvalAddress.country)?.code)) {
         return {
           success: false,
-          error: "Enter a valid registered address phone number.",
+          error: "Enter a valid phone number for the address country, e.g. +852 2345 6789.",
           status: APPLICATION_STATUSES.PENDING,
         };
       }
 
 
+
+      // Checked before anything is written. Shopify refuses a second company
+      // with the same external id, and finding that out at company creation
+      // left the applicant tagged as a distributor with no company (HYV-143).
+      const companyName = String(application.company_name || "").trim() || "Distributor Partner";
+      const holder = await companyWithRegistrationNumber(admin, registrationNumber);
+      if (holder && holder.name.trim().toLowerCase() !== companyName.toLowerCase()) {
+        return {
+          success: false,
+          field: "registrationNumber",
+          error: `Registration number ${registrationNumber} is already used by ${holder.name} in Shopify. Correct the number on this form, or decline the application.`,
+          status: APPLICATION_STATUSES.PENDING,
+        };
+      }
+
+      if (registrationNumber !== String(application.registration_number || "").trim()) {
+        updates.registration_number = registrationNumber;
+      }
 
       // The metafields must exist with the right types before anything is
 
@@ -1156,15 +1278,21 @@ export const action = async ({ request, params }) => {
 
         admin,
 
-        application,
+        { ...application, registration_number: registrationNumber },
 
-        { shippingAddress: structuredAddress },
+        { shippingAddress: structuredAddress, phone: shippingPhone },
 
       );
 
 
 
       if (b2bResult?.error) {
+
+        await removeDistributorTagsWithoutCompany(
+          admin,
+          b2bResult?.customerId || application.customer_id,
+          b2bResult?.addedTags || [],
+        );
 
         return {
 
@@ -1198,6 +1326,12 @@ export const action = async ({ request, params }) => {
 
       if (!b2bResult?.companyId) {
 
+        await removeDistributorTagsWithoutCompany(
+          admin,
+          b2bResult?.customerId || application.customer_id,
+          b2bResult?.addedTags || [],
+        );
+
         return {
 
           success: false,
@@ -1217,6 +1351,14 @@ export const action = async ({ request, params }) => {
 
 
       updates.company_id = b2bResult.companyId;
+
+      // Linked straight away: if a later step or the final save fails, the
+      // record still points at the company Shopify now has, instead of
+      // staying unlinked while the company exists.
+      await updateDistributorApplication(admin, targetGid, {
+        company_id: b2bResult.companyId,
+        ...(updates.customer_id ? { customer_id: updates.customer_id } : {}),
+      });
 
 
 
@@ -1318,9 +1460,17 @@ export const action = async ({ request, params }) => {
         phone: shippingPhone,
       };
 
+      // Applications from before the phone was required have none; the
+      // number staff confirmed for the company address fills the gap.
+      if (!String(application.contact_phone || "").trim()) {
+        updates.contact_phone = shippingPhone;
+      }
+
 
 
       updates.rejection_message = "";
+
+      updates.reviewer_note = reviewerNote;
 
     }
 
@@ -1338,6 +1488,7 @@ export const action = async ({ request, params }) => {
 
       updates.rejection_message = rejectionMessage;
 
+
     }
 
 
@@ -1349,6 +1500,22 @@ export const action = async ({ request, params }) => {
        ---------------------------------------------------------------------- */
 
 
+
+    // HYV-110: the applicant hears the outcome. An approval waits until every
+    // setup step worked, so nobody is invited into an account without its
+    // pricing or terms; staff see that it was held back.
+    const setupComplete = onboardingSteps.every((step) => step.ok);
+
+    const hasCatalog = onboardingSteps.some((step) => step.name === "catalog assignment" && step.ok);
+
+    // Kept on the record so the setup rows, and whether the email went, are
+    // still there after a reload (HYV-143).
+    const approvalSetup =
+      status === APPLICATION_STATUSES.APPROVED
+        ? { steps: onboardingSteps, salesRep, salesRepEmail, hasCatalog, approvedAt: new Date().toISOString(), emailSentAt: "" }
+        : null;
+
+    if (approvalSetup) updates.approval_setup = approvalSetup;
 
     const updateResult = await updateDistributorApplication(
 
@@ -1384,21 +1551,34 @@ export const action = async ({ request, params }) => {
 
 
 
-    // HYV-110: the applicant hears the outcome. An approval waits until every
-
-    // setup step worked, so nobody is invited into an account without its
-
-    // pricing or terms; staff see that it was held back.
-
-    const setupComplete = onboardingSteps.every((step) => step.ok);
-
     if (status === APPLICATION_STATUSES.REJECTED) {
 
       await sendApplicationDecisionEmail(admin, application, { approved: false });
 
     } else if (status === APPLICATION_STATUSES.APPROVED && setupComplete) {
 
-      await sendApplicationDecisionEmail(admin, application, { approved: true, salesRep, salesRepEmail });
+      const sent = await sendApplicationDecisionEmail(admin, application, {
+        approved: true,
+        salesRep,
+        salesRepEmail,
+        hasCatalog,
+      });
+
+      onboardingSteps.push({
+        name: "approval email",
+        ok: sent,
+        detail: sent
+          ? `Sent to ${application.customer_email}.`
+          : "Couldn't be sent. Use Send approval email to try again.",
+      });
+
+      await updateDistributorApplication(admin, targetGid, {
+        approval_setup: {
+          ...approvalSetup,
+          steps: onboardingSteps,
+          emailSentAt: sent ? new Date().toISOString() : "",
+        },
+      });
 
     } else if (status === APPLICATION_STATUSES.APPROVED) {
 
@@ -1408,8 +1588,12 @@ export const action = async ({ request, params }) => {
 
         ok: false,
 
-        detail: "Not sent, because a setup step above needs attention. Email the distributor once it's fixed.",
+        detail: "Not sent, because a setup step above needs attention. Fix it, then use Send approval email.",
 
+      });
+
+      await updateDistributorApplication(admin, targetGid, {
+        approval_setup: { ...approvalSetup, steps: onboardingSteps },
       });
 
     }
@@ -1482,6 +1666,9 @@ export const action = async ({ request, params }) => {
 
       success: false,
 
+      // Keeps the form showing the error on screen, not only in a toast.
+      status: APPLICATION_STATUSES.PENDING,
+
       error:
 
         error?.message ||
@@ -1501,6 +1688,31 @@ export const action = async ({ request, params }) => {
    Helpers
 
    ========================================================================== */
+
+/**
+ * Replaces one row of the saved approval setup, so a step fixed later on this
+ * page (a catalog assigned after a failed attempt) stops showing as a problem.
+ * Approvals that saved no setup are left alone.
+ */
+async function saveSetupRow(admin, application, targetGid, row, extra = {}) {
+  const setup = parseApprovalSetup(application.approval_setup);
+  if (!setup.approvedAt) return;
+  const steps = setup.steps.some((step) => step.name === row.name)
+    ? setup.steps.map((step) => (step.name === row.name ? row : step))
+    : setup.steps.concat(row);
+  await updateDistributorApplication(admin, targetGid, { approval_setup: { ...setup, ...extra, steps } });
+}
+
+/** The saved approval setup (rows, sales rep, email), or an empty one. */
+function parseApprovalSetup(value) {
+  if (!value) return { steps: [] };
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    return { steps: [], ...parsed };
+  } catch {
+    return { steps: [] };
+  }
+}
 
 
 
@@ -1683,9 +1895,8 @@ export default function DistributorDetailPage() {
     assignedCatalogTitle = "",
 
     addressDetails = {},
-
     shop = "",
-
+    taxDuplicates = [],
   } = useLoaderData();
 
   const params = useParams();
@@ -1698,13 +1909,22 @@ export default function DistributorDetailPage() {
 
 
 
-  const company = fetcher.data?.company || initialCompany;
+  // Always the loader's copy, which runs again after every action. The copy
+  // the approval returned was read before payment terms and the main contact
+  // were set, so the panel showed them empty until a reload.
+  const company = initialCompany;
 
 
 
   const initialStatus = normalizeStatus(application?.status);
 
   const [status, setStatus] = useState(initialStatus);
+
+  // Follows the record after every action and reload, so a tab opened before
+  // someone else decided doesn't keep offering Approve.
+  useEffect(() => {
+    setStatus(initialStatus);
+  }, [initialStatus]);
 
   const [rejectionMessage, setRejectionMessage] = useState(
 
@@ -1713,6 +1933,10 @@ export default function DistributorDetailPage() {
   );
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Internal note on an approval; separate from the decline reason, which the
+  // applicant sees.
+  const [reviewerNote, setReviewerNote] = useState(application?.reviewer_note || "");
 
 
 
@@ -1878,6 +2102,11 @@ export default function DistributorDetailPage() {
 
 
 
+    if (fetcher.data.emailSent) {
+      shopify?.toast?.show?.("Approval email sent.");
+      return;
+    }
+
     if (fetcher.data.addressSaved) {
 
       shopify?.toast?.show?.("Address saved to the company in Shopify.");
@@ -1963,6 +2192,11 @@ export default function DistributorDetailPage() {
 
       shopify?.toast?.show?.(`Error: ${fetcher.data.error}`);
 
+      // A toast disappears; a refused approval stays on screen with its reason.
+      if (fetcher.data.status === APPLICATION_STATUSES.PENDING) {
+        setValidationError(fetcher.data.error);
+      }
+
     }
 
   }, [fetcher.data, shopify, navigate]);
@@ -2047,6 +2281,10 @@ export default function DistributorDetailPage() {
 
   const [shippingBarangay, setShippingBarangay] = useState(addressDetails?.barangay || "");
 
+  const [registrationNumber, setRegistrationNumber] = useState(
+    application?.registration_number || "",
+  );
+
   const [shippingPhone, setShippingPhone] = useState(
     addressDetails?.phone || application?.contact_phone || "",
   );
@@ -2063,7 +2301,10 @@ export default function DistributorDetailPage() {
     return entry ? { name: entry[0], ...entry[1] } : null;
   }, [shippingCountry, shippingCountryCode]);
 
-  const addressRows = addressFormat?.rows || [["address1"], ["address2"], ["city", "province", "zip"]];
+  const addressRows = useMemo(
+    () => addressFormat?.rows || [["address1"], ["address2"], ["city", "province", "zip"]],
+    [addressFormat],
+  );
 
   const addressField = (key) => {
     const labels = addressFormat?.labels || {};
@@ -2119,7 +2360,30 @@ export default function DistributorDetailPage() {
 
   // visible rather than looking like plain success.
 
-  const setupSteps = fetcher.data?.onboardingSteps || [];
+  // From this approval if it just ran, else as saved on the record.
+  const savedSetup = parseApprovalSetup(application?.approval_setup);
+  const firstLocation = company?.locations?.edges?.[0]?.node || null;
+  // A step that failed at approval but has been fixed since (in Shopify or on
+  // this page) shows as done, judged by what Shopify has now.
+  const fixedSince = (step) =>
+    (step.name === "location address" && Boolean(firstLocation?.shippingAddress?.address1)) ||
+    (step.name === "catalog assignment" && Boolean(assignedCatalogId));
+  const setupSteps = (fetcher.data?.onboardingSteps || savedSetup.steps || []).map((step) =>
+    !step.ok && fixedSince(step) ? { ...step, ok: true, detail: "Fixed since approval." } : step,
+  );
+  const setupProblems = setupSteps.filter((step) => !step.ok);
+  // Only for approvals that recorded their setup; older approvals already
+  // emailed the applicant the old way and have nothing saved.
+  const approvalEmailHeld =
+    !fetcher.data?.emailSent &&
+    !savedSetup.emailSentAt &&
+    (Boolean(savedSetup.approvedAt) || setupSteps.some((step) => step.name === "approval email" && !step.ok));
+  const paymentTermsName = firstLocation?.buyerExperienceConfiguration?.paymentTermsTemplate?.name || "";
+  const salesRepOnFile = {
+    name: firstLocation?.salesRep?.value || "",
+    email: firstLocation?.salesRepEmail?.value || "",
+    phone: firstLocation?.salesRepPhone?.value || "",
+  };
 
 
 
@@ -2137,16 +2401,39 @@ export default function DistributorDetailPage() {
 
   const [catalogChangeId, setCatalogChangeId] = useState(assignedCatalogId || "");
 
+  // The loader runs again after every action, so the assigned catalog follows
+  // it: approving with a catalog chosen used to leave this panel on "No
+  // catalog" until the page was reloaded.
+  useEffect(() => {
+    setApprovedCatalogId(assignedCatalogId || "");
+    setCatalogChangeId(assignedCatalogId || "");
+  }, [assignedCatalogId]);
+
 
 
   // Every distributor gets a named contact, so approval waits for one.
 
   const repEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(salesRepEmail.trim());
 
-  const repComplete = Boolean(salesRep.trim()) && repEmailValid;
+
+  // Everything the action checks, checked here first, so the button only
+  // turns on when approval can go through and says what's missing until then.
+  const phoneValid = validPhone(shippingPhone, addressFormat?.code);
+  const whatsappValid = !salesRepPhone.trim() || validPhone(salesRepPhone);
+  const missingForApproval = approvalMissing(addressFormat, {
+    address1: shippingAddress1,
+    barangay: shippingBarangay,
+    city: shippingCity,
+    province: shippingProvince,
+    zip: shippingZip,
+    phone: shippingPhone,
+    salesRep,
+    salesRepEmail,
+    salesRepPhone,
+  });
 
   // Price Tier Catalog is optional during approval.
-  const approvalComplete = repComplete;
+  const approvalComplete = missingForApproval.length === 0;
 
 
 
@@ -2220,6 +2507,8 @@ export default function DistributorDetailPage() {
 
         shippingCountryCode,
 
+        registrationNumber,
+
         salesRep,
 
         salesRepEmail,
@@ -2227,8 +2516,7 @@ export default function DistributorDetailPage() {
         salesRepPhone,
 
         catalogId,
-
-        rejectionMessage: "",
+        reviewerNote,
 
       },
 
@@ -2406,6 +2694,20 @@ export default function DistributorDetailPage() {
   const hasCreditTerms = formatBoolean(application?.request_credit);
 
   const registeredAddress = normalizeRegisteredAddress(application);
+
+  // The registered address in the country's own fields and labels.
+  const registeredFormat =
+    ADDRESS_FORMATS[registeredAddress?.country] ||
+    Object.values(ADDRESS_FORMATS).find((format) => format.code === registeredAddress?.countryCode) ||
+    null;
+  const registeredAddressRows = (
+    registeredFormat?.rows.flat() || ["address1", "address2", "city", "province", "zip"]
+  )
+    .map((key) => [
+      registeredFormat?.labels[key] || { address1: "Address", address2: "Apartment, suite, etc", city: "City", province: "Region", zip: "Postal code", barangay: "Barangay" }[key],
+      registeredAddress?.[key],
+    ])
+    .concat([["Country/region", registeredAddress?.country]]);
 
   const formattedRegisteredAddress = formatRegisteredAddress(registeredAddress);
 
@@ -2769,7 +3071,7 @@ export default function DistributorDetailPage() {
 
                     </s-text>
 
-                    <s-text>{application?.country_based || "Singapore"}</s-text>
+                    <s-text>{application?.country_based || "—"}</s-text>
 
                   </s-stack>
 
@@ -2821,7 +3123,7 @@ export default function DistributorDetailPage() {
 
                     <s-text color="subdued" type="small">
 
-                      Business Registration (UEN)
+                      Business Registration Number
 
                     </s-text>
 
@@ -2840,6 +3142,12 @@ export default function DistributorDetailPage() {
                     </s-text>
 
                     <s-text>{application?.tax_registration_number || "—"}</s-text>
+
+                    {taxDuplicates.length > 0 && (
+                      <s-text tone="caution">
+                        {`Also on ${taxDuplicates.length} other application${taxDuplicates.length === 1 ? "" : "s"}. See the warning under Your Decision.`}
+                      </s-text>
+                    )}
 
                   </s-stack>
 
@@ -2867,7 +3175,7 @@ export default function DistributorDetailPage() {
 
                     </s-text>
 
-                    <s-text>{application?.markets_sold || "Singapore"}</s-text>
+                    <s-text>{application?.markets_sold || "—"}</s-text>
 
                   </s-stack>
 
@@ -2912,41 +3220,15 @@ export default function DistributorDetailPage() {
                         gridTemplateColumns="repeat(2, minmax(0, 1fr))"
                         gap="base"
                       >
-                        <s-stack direction="block" gap="none">
-                          <s-text color="subdued" type="small">Address Line 1</s-text>
-                          <s-text>{registeredAddress.address1 || "—"}</s-text>
-                        </s-stack>
-
-                        <s-stack direction="block" gap="none">
-                          <s-text color="subdued" type="small">Address Line 2</s-text>
-                          <s-text>{registeredAddress.address2 || "—"}</s-text>
-                        </s-stack>
-
-                        <s-stack direction="block" gap="none">
-                          <s-text color="subdued" type="small">City</s-text>
-                          <s-text>{registeredAddress.city || "—"}</s-text>
-                        </s-stack>
-
-                        <s-stack direction="block" gap="none">
-                          <s-text color="subdued" type="small">Country</s-text>
-                          <s-text>{registeredAddress.country || "—"}</s-text>
-                        </s-stack>
-
-                        <s-stack direction="block" gap="none">
-                          <s-text color="subdued" type="small">Province / State</s-text>
-                          <s-text>{registeredAddress.province || "—"}</s-text>
-                        </s-stack>
-
-                        <s-stack direction="block" gap="none">
-                          <s-text color="subdued" type="small">Province / State Code</s-text>
-                          <s-text>{registeredAddress.provinceCode || "—"}</s-text>
-                        </s-stack>
-
-                        <s-stack direction="block" gap="none">
-                          <s-text color="subdued" type="small">ZIP / Postal Code</s-text>
-                          <s-text>{registeredAddress.zip || "—"}</s-text>
-                        </s-stack>
-
+                        {/* The country's own fields and wording from Shopify's data, like the
+                            form: Hong Kong shows District and Region with no postal code,
+                            Singapore has no city or region (HYV-143). */}
+                        {registeredAddressRows.map(([label, value]) => (
+                          <s-stack key={label} direction="block" gap="none">
+                            <s-text color="subdued" type="small">{label}</s-text>
+                            <s-text>{value || "—"}</s-text>
+                          </s-stack>
+                        ))}
                         <s-stack direction="block" gap="none">
                           <s-text color="subdued" type="small">Phone</s-text>
                           {registeredAddress.phone ? (
@@ -3073,8 +3355,15 @@ export default function DistributorDetailPage() {
                   <s-stack direction="inline" gap="small" alignItems="center">
 
                     <s-text type="strong">Shopify B2B Integration</s-text>
-
-                    <s-badge tone="success">Active</s-badge>
+                    {isApproved && cleanCompanyId && !application?.access_removed ? (
+                      <s-badge tone="success">Active</s-badge>
+                    ) : isApproved ? (
+                      <s-badge tone="warning">Needs attention</s-badge>
+                    ) : isRejected ? (
+                      <s-badge tone="neutral">Declined</s-badge>
+                    ) : (
+                      <s-badge tone="neutral">Not set up yet</s-badge>
+                    )}
 
                   </s-stack>
 
@@ -3368,7 +3657,25 @@ export default function DistributorDetailPage() {
 
                 <s-text type="strong">Your Decision</s-text>
 
-
+                {/* A repeated tax number never blocks (related companies can
+                    share one), but it often means the same business applied
+                    twice, so staff see it before deciding. */}
+                {isPending && taxDuplicates.length > 0 && (
+                  <s-banner tone="warning" heading="Tax registration number already used">
+                    <s-stack direction="block" gap="small">
+                      <s-text>
+                        {`${application?.tax_registration_number} is also on ${
+                          taxDuplicates.length === 1 ? "another application" : `${taxDuplicates.length} other applications`
+                        }. Check it isn't the same business applying again before you approve.`}
+                      </s-text>
+                      {taxDuplicates.map((duplicate) => (
+                        <s-link key={duplicate.id} href={`/app/distributor/${encodeURIComponent(duplicate.id)}`}>
+                          {`${duplicate.companyName} (${duplicate.status})`}
+                        </s-link>
+                      ))}
+                    </s-stack>
+                  </s-banner>
+                )}
 
                 {isPending ? (
 
@@ -3468,6 +3775,16 @@ export default function DistributorDetailPage() {
 
 
 
+                        <s-text-field
+                          label="Business registration number"
+                          details="Saved as the company's external ID in Shopify. Each company needs its own."
+                          value={registrationNumber}
+                          error={fetcher.data?.field === "registrationNumber" ? fetcher.data.error : undefined}
+                          onInput={(e) =>
+                            setRegistrationNumber(e?.currentTarget?.value ?? e?.target?.value ?? "")
+                          }
+                        />
+
                         {/* Company Shipping Address */}
 
                         <s-stack direction="block" gap="extra-small">
@@ -3511,8 +3828,13 @@ export default function DistributorDetailPage() {
                           ))}
                           <s-text-field
                             label="Phone"
-                            placeholder="+65 9123 4567"
+                            placeholder={`+${addressFormat?.phonePrefix || "65"} …`}
                             value={shippingPhone}
+                            error={
+                              shippingPhone.trim() && !phoneValid
+                                ? `Not a valid ${addressFormat?.name || ""} number. Check the digits, e.g. +${addressFormat?.phonePrefix || "852"} 2345 6789.`
+                                : undefined
+                            }
                             required
                             onInput={(e) =>
                               setShippingPhone(e?.currentTarget?.value ?? e?.target?.value ?? "")
@@ -3552,6 +3874,8 @@ export default function DistributorDetailPage() {
 
                               value={salesRepEmail}
 
+                              error={salesRepEmail.trim() && !repEmailValid ? "Enter a valid email address." : undefined}
+
                               onInput={(e) => setSalesRepEmail(e?.currentTarget?.value ?? e?.target?.value ?? "")}
 
                             />
@@ -3565,6 +3889,8 @@ export default function DistributorDetailPage() {
                             placeholder="+65 9123 4567"
 
                             value={salesRepPhone}
+
+                            error={whatsappValid ? undefined : "Not a valid number. Include the country code, e.g. +65 9123 4567."}
 
                             onInput={(e) => setSalesRepPhone(e?.currentTarget?.value ?? e?.target?.value ?? "")}
 
@@ -3612,19 +3938,14 @@ export default function DistributorDetailPage() {
 
                         <s-text-area
 
-                          label="Reviewer note (optional)"
-
+                          label="Reviewer note (optional, internal)"
+                          details="Kept on this record. The applicant never sees it."
                           placeholder="Add any internal approval notes or remarks..."
-
                           rows={2}
-
                           maxLength={500}
-
-                          value={rejectionMessage}
-
+                          value={reviewerNote}
                           onInput={(e) => {
-
-                            setRejectionMessage(e?.currentTarget?.value ?? e?.target?.value ?? "");
+                            setReviewerNote(e?.currentTarget?.value ?? e?.target?.value ?? "");
 
                             setValidationError("");
 
@@ -3650,15 +3971,11 @@ export default function DistributorDetailPage() {
 
 
 
-                        {!repComplete && (
+                        {!approvalComplete && (
 
                           <s-banner tone="warning">
 
-                            {salesRep.trim() && salesRepEmail.trim() && !repEmailValid
-
-                              ? "That doesn't look like an email address."
-
-                              : "Add the sales representative's name and email to approve."}
+                            {`To approve, add: ${missingForApproval.join(", ")}.`}
 
                           </s-banner>
 
@@ -3713,6 +4030,7 @@ export default function DistributorDetailPage() {
                         <s-text-area
 
                           label="Reason for declining (required)"
+                          details="Shown to the applicant on their portal application page."
 
                           placeholder="Enter the reason for declining this application..."
 
@@ -3801,23 +4119,43 @@ export default function DistributorDetailPage() {
                   <s-stack direction="block" gap="base">
 
                     {application?.access_removed ? (
-
-                      <s-banner tone="warning" heading="Approved, but access removed">
-
-                        This application was approved, but the applicant is no longer a contact on the company in
-
-                        Shopify, so they can't use the distributor portal. Their application page lets them apply again.
-
+                      <s-banner tone="warning" heading="Approved, but the applicant can't use the portal">
+                        The applicant isn&apos;t a contact on the company in Shopify, either because they weren&apos;t
+                        added at approval or were removed later. Add them as a contact on the company in Shopify, or
+                        they can apply again from their application page.
                       </s-banner>
-
+                    ) : setupProblems.length ? (
+                      <s-banner tone="warning" heading="Approved, but setup needs attention">
+                        {`${setupProblems.length} step${setupProblems.length === 1 ? "" : "s"} below didn't finish: ${setupProblems
+                          .map((step) => step.name)
+                          .join(", ")}.`}
+                      </s-banner>
                     ) : (
-
                       <s-banner tone="success" heading="Application Approved">
-
-                        This application has been approved. The B2B Company, Main Contact, and Payment Terms are active in Shopify.
-
+                        {`The company and its main contact are set up in Shopify${
+                          paymentTermsName ? `, with ${paymentTermsName} payment terms` : ", paying at checkout (no payment terms)"
+                        }${
+                          approvedCatalogId
+                            ? ` and the ${catalogs.find((catalog) => catalog.id === approvedCatalogId)?.title || "selected"} catalog`
+                            : " and no Price Tier Catalog yet"
+                        }.`}
                       </s-banner>
+                    )}
 
+                    {(salesRepOnFile.name || salesRepOnFile.email) && (
+                      <s-stack direction="block" gap="none">
+                        <s-text color="subdued" type="small">Sales representative</s-text>
+                        <s-text>
+                          {[salesRepOnFile.name, salesRepOnFile.email, salesRepOnFile.phone].filter(Boolean).join(" · ")}
+                        </s-text>
+                      </s-stack>
+                    )}
+
+                    {application?.reviewer_note && (
+                      <s-stack direction="block" gap="none">
+                        <s-text color="subdued" type="small">Reviewer note (internal)</s-text>
+                        <s-text>{application.reviewer_note}</s-text>
+                      </s-stack>
                     )}
 
 
@@ -3931,10 +4269,28 @@ export default function DistributorDetailPage() {
 
 
 
+                    {approvalEmailHeld && (
+                      <s-stack direction="block" gap="small">
+                        <s-text color="subdued" type="small">
+                          {setupProblems.some((step) => step.name !== "approval email")
+                            ? "The approval email hasn't gone to the applicant. Fix the steps marked Check above first, then send it."
+                            : "The approval email hasn't gone to the applicant yet."}
+                        </s-text>
+                        <s-button
+                          onClick={() =>
+                            fetcher.submit(
+                              { intent: "send_approval_email", metaobjectId: application?.id || params?.id || "" },
+                              { method: "post" },
+                            )
+                          }
+                          disabled={isSubmitting || setupProblems.some((step) => step.name !== "approval email")}
+                        >
+                          Send approval email
+                        </s-button>
+                      </s-stack>
+                    )}
                     <s-paragraph color="subdued" type="small">
-
                       This application is finalized and active in Shopify B2B.
-
                     </s-paragraph>
 
                   </s-stack>

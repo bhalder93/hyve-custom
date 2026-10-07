@@ -196,8 +196,11 @@ export function distributorPage({
                 for="dist-phone"
               >
                 Contact Phone Number
+                <span class="hyve-dist__req">*</span>
               </label>
 
+              <!-- Required: approval puts it on the company address, and
+                   Shopify won't save that address without one (HYV-143). -->
               <input
                 type="tel"
                 id="dist-phone"
@@ -205,7 +208,19 @@ export function distributorPage({
                 class="hyve-dist__input"
                 placeholder="e.g. +65 9123 4567"
                 value="${typed("contactPhone", customer?.phone || "")}"
+                required
+                ${fieldError("contactPhone") ? 'aria-invalid="true"' : ""}
+                aria-describedby="dist-phone-error"
               >
+
+              <div
+                class="hyve-dist__field-error"
+                id="dist-phone-error"
+                data-error-for="contactPhone"
+                ${fieldError("contactPhone") ? "" : "hidden"}
+              >
+                ${fieldError("contactPhone")}
+              </div>
 
             </div>
 
@@ -1762,6 +1777,9 @@ function renderExistingApplicationView(app, customer) {
       )}
                   </p>
 
+                  <!-- A declined applicant can apply again (HYV-143). -->
+                  <a class="hyve-dist__reapply" href="/apps/account/distributor?reapply=1">Apply again</a>
+
                 </div>
 
               </div>
@@ -3224,6 +3242,22 @@ input:checked
   margin-bottom: 4px;
 }
 
+.hyve-dist__reapply {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.hyve-dist__reapply:hover {
+  background: #1e293b;
+}
+
 .hyve-dist__rejection-text {
   font-size: 13px;
 
@@ -4224,11 +4258,15 @@ const DISTRIBUTOR_SCRIPT = `
   if (basedIn && currencySelect) {
     let picked = currencySelect.dataset.chosen === 'true';
     currencySelect.addEventListener('change', () => { picked = true; });
-    basedIn.addEventListener('change', () => {
+    const followMarket = () => {
       const code = CURRENCY_FOR[basedIn.value];
       if (picked || !code) return;
       if ([...currencySelect.options].some((o) => o.value === code)) currencySelect.value = code;
-    });
+    };
+    basedIn.addEventListener('change', followMarket);
+    // On load too: the starting choice used to follow the shopper's cart
+    // currency, so a Hong Kong applicant browsing in USD was put down as USD.
+    followMarket();
   }
 
 })();

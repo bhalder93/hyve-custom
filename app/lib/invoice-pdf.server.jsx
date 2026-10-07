@@ -185,6 +185,11 @@ function InvoiceDoc({ doc }) {
                 Est. ship date <Text style={styles.metaB}>{doc.shipDateLabel}</Text>
               </Text>
             ) : null}
+            {doc.incoterm ? (
+              <Text style={styles.metaRow}>
+                Incoterm <Text style={styles.metaB}>{doc.incoterm}</Text>
+              </Text>
+            ) : null}
           </View>
         </View>
 

@@ -170,6 +170,11 @@ function productPanel(order) {
     <section class="hyve-modal__panel-box">
       <h3 class="hyve-modal__panel-title">${icoBox()} Product Details</h3>
       ${lines || `<p class="hyve-modal__muted">No line items available.</p>`}
+      ${
+        order.shippingLabel
+          ? `<div class="hyve-modal__shipping"><span>Shipping${order.shippingMethod ? ` (${esc(order.shippingMethod)})` : ""}</span><span>${esc(order.shippingLabel)}</span></div>`
+          : ""
+      }
       <div class="hyve-modal__total"><span>Total Price</span><strong>${esc(order.total)}</strong></div>
     </section>`;
 }
@@ -187,6 +192,7 @@ function shippingPanel(order) {
     ["Company", a?.company],
     ["Address", address],
     ["Method", order.shippingMethod || order.carrier],
+    ["Incoterm", order.incoterm],
   ].filter(([, v]) => v);
 
   if (!rows.length && !order.trackingNumber) return "";
@@ -539,6 +545,7 @@ export const MODAL_STYLES = `
   .hyve-modal__line-money { text-align: right; white-space: nowrap; }
   .hyve-modal__line-unit { display: block; font-size: 10.5px; color: var(--hyve-muted); }
   .hyve-modal__line-money strong { font-size: 12.5px; font-weight: 700; }
+  .hyve-modal__shipping { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 13px; color: var(--hyve-600, #475569); }
   .hyve-modal__total { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hyve-border); font-size: 12px; color: var(--hyve-500); }
   .hyve-modal__total strong { font-family: var(--hyve-display); font-size: 16px; font-weight: 800; color: var(--hyve-900); }
 

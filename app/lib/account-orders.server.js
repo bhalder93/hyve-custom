@@ -23,6 +23,7 @@ import { PROOF_HOLD_DAY } from "../utils/sla-engine.server";
 import { artworkSupplied, zonesFromAttributes } from "./artwork-zones.server";
 import { orderModal, MODAL_STYLES, MODAL_SCRIPT } from "./account-order-modal.server";
 import { customerArrangesFreight } from "./production-statuses";
+import { incotermFromShipping } from "./incoterm";
 import {
   ARTWORK_PENDING,
   VISIBLE_STATUSES,
@@ -96,6 +97,15 @@ export function mapOrders(nodes = []) {
       note: node?.note || "",
       shippingAddress: node?.shippingAddress || null,
       shippingMethod: node?.shippingLine?.title || "",
+      incoterm: incotermFromShipping(node?.shippingLine?.title),
+      // The freight charged, shown above the total next to its rate's name
+      // (HYV-140). An FOB order has none and shows no row.
+      shippingLabel: Number(node?.totalShippingPriceSet?.presentmentMoney?.amount) > 0
+        ? formatMoney(
+            node.totalShippingPriceSet.presentmentMoney.amount,
+            node.totalShippingPriceSet.presentmentMoney.currencyCode,
+          )
+        : "",
       lines: lineItems.map((li) => ({
         title: li.title,
         quantity: li.quantity,
@@ -153,6 +163,7 @@ const REVIEW_ORDERS_QUERY = `#graphql
         tags
         poNumber
         totalPriceSet { presentmentMoney { amount currencyCode } }
+        totalShippingPriceSet { presentmentMoney { amount currencyCode } }
         paymentTerms { paymentTermsName }
         note: note2
         customAttributes { key value }

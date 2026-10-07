@@ -114,6 +114,20 @@ description = "Distributor portal application and commercial credit requests"
   name = "Rejection Message"
   type = "multi_line_text_field"
 
+
+  [metaobjects.app.distributor_application.fields.reviewer_note]
+  name = "Reviewer Note"
+  type = "multi_line_text_field"
+
+  [metaobjects.app.distributor_application.fields.approval_setup]
+  name = "Approval Setup Results"
+  type = "json"
+
+
+
+
+
+
 [customer.metafields.app.role]
 name = "Customer Role"
 description = "Role assigned to the customer in their B2B team"

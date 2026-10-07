@@ -13,6 +13,7 @@
  */
 import { ARTWORK_PENDING, formatMoney, formatDate, orderBelongsTo } from "./portal.server";
 import { artworkSupplied } from "./artwork-zones.server";
+import { incotermFromShipping } from "./incoterm";
 import { LEGAL_NAME, BUSINESS_REGISTRATION_NUMBER, LEGAL_ADDRESS } from "./legal-entity.server";
 
 const DOCUMENT_QUERY = `#graphql
@@ -152,6 +153,8 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
     // G9: name the rate rather than just "Shipping", so an FOB Ningbo charge is
     // identifiable on the invoice instead of hiding inside a generic total.
     shippingName: order.shippingLine?.title || "Shipping",
+    // HYV-140: the term the order ships under, DDP or FOB Ningbo.
+    incoterm: incotermFromShipping(order.shippingLine?.title),
     taxLabel: formatMoney(amount(order.totalTaxSet), currency),
     totalLabel: formatMoney(amount(order.totalPriceSet), currency),
     paidAmountLabel: formatMoney(amount(order.totalReceivedSet), currency),

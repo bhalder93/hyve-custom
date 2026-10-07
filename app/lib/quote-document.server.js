@@ -11,6 +11,7 @@
 
 import { formatDate } from "./portal.server";
 import { bankAccountFor } from "./bank-details.server";
+import { FOB_INCOTERM, incotermFromShipping } from "./incoterm";
 
 /** How long a quote stands. The scheduled sweep that withdraws quotes uses the
  *  same figure — change both together. */
@@ -333,7 +334,7 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
     shippingTotal: shippingLine ? cents(shippingLine.originalPriceSet) : null,
     // What the Shipping row says with no shipping line: a distributor's quote
     // is FOB, so shipping is theirs to arrange (HYV-144).
-    shippingNote: company ? `Excluded (${DISTRIBUTOR_INCOTERM})` : "Calculated at checkout",
+    shippingNote: company ? `Excluded (${FOB_INCOTERM})` : "Calculated at checkout",
     grandTotal: cents(draft.totalPriceSet),
 
     shippingMethod: !cartQuote && shippingLine?.title ? shippingLine.title : "",
@@ -414,20 +415,13 @@ function plainVariant(title) {
   return text && text !== "Default Title" ? text : "";
 }
 
-/** Hyve's FOB is at Ningbo. */
-const DISTRIBUTOR_INCOTERM = "FOB Ningbo";
-
 /**
  * NetSuite's quotation states the Incoterm. A quote with shipping chosen says
  * which. Without it, a distributor is quoted FOB with shipping excluded
  * (Michael, HYV-144), and a retail buyer DDP, the duties paid at checkout.
  */
 function incotermFor(shippingLine, company) {
-  const title = String(shippingLine?.title || "");
-  if (/^fob\b/i.test(title)) return DISTRIBUTOR_INCOTERM;
-  // if (/^exw\b/i.test(title)) return "EXW";
-  if (title) return "DDP";
-  return company ? DISTRIBUTOR_INCOTERM : RETAIL_INCOTERM;
+  return incotermFromShipping(shippingLine?.title) || (company ? FOB_INCOTERM : RETAIL_INCOTERM);
 }
 
 /** A draft's note, without the line marking a cart quote. */

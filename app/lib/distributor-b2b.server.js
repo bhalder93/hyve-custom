@@ -49,12 +49,17 @@ mutation CompanyCreate($input: CompanyCreateInput!) {
               firstName
               lastName
               address1
+              address2
               city
               province
               zip
               country
             }
             buyerExperienceConfiguration { paymentTermsTemplate { name } }
+            # Who the distributor talks to, set at approval (portal contact card).
+            salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
+            salesRepEmail: metafield(namespace: "hyve", key: "sales_rep_email") { value }
+            salesRepPhone: metafield(namespace: "hyve", key: "sales_rep_phone") { value }
           }
         }
       }
@@ -109,12 +114,17 @@ const COMPANY_FIELDS_FRAGMENT = `#graphql
           firstName
           lastName
           address1
+          address2
           city
           province
           zip
           country
         }
         buyerExperienceConfiguration { paymentTermsTemplate { name } }
+            # Who the distributor talks to, set at approval (portal contact card).
+            salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
+            salesRepEmail: metafield(namespace: "hyve", key: "sales_rep_email") { value }
+            salesRepPhone: metafield(namespace: "hyve", key: "sales_rep_phone") { value }
       }
     }
   }
@@ -408,7 +418,9 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
   const email = (application.customer_email || "").trim();
   const contactName = (application.contact_person || "").trim();
   const companyName = (application.company_name || "").trim() || "Distributor Partner";
-  const phone = (application.contact_phone || "").trim();
+  // The phone staff confirmed on the approval form; the applicant's own is
+  // the fallback. It goes on the company address, so it must be the real one.
+  const phone = String(options.phone || application.contact_phone || "").trim();
   const registrationNumber = (application.registration_number || "").trim();
   const country = (application.country_based || "Singapore").trim();
   // Staff can correct the address on the approval screen; the applicant's own
@@ -435,11 +447,15 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
 
   // International form (+85245346363), which Shopify asks for on addresses;
   // applicants usually type the local number.
-  const cleanPhone = internationalPhone(phone, country);
+  // Dialled from the address's country, which staff may have corrected.
+  const cleanPhone = internationalPhone(phone, options.shippingAddress?.countryCode || country);
   const distributorTags = ["b2b", "distributor", "wholesale"];
 
   let customerGid = null;
   let existingTags = [];
+  // The distributor tags this approval put on the customer, so a failed
+  // approval takes back only those and leaves tags staff added by hand.
+  let addedTags = [];
 
   // =========================================================================
   // 1. Locate or Create Customer in Shopify
@@ -502,6 +518,7 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
       }
 
       const mergedTags = Array.from(new Set([...existingTags, ...distributorTags]));
+      addedTags = distributorTags.filter((tag) => !existingTags.includes(tag));
 
       const updateInput = {
         id: customerGid,
@@ -627,6 +644,7 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
         if (existingNode?.id) {
           customerGid = existingNode.id;
           const merged = Array.from(new Set([...(existingNode.tags || []), ...distributorTags]));
+          addedTags = distributorTags.filter((tag) => !(existingNode.tags || []).includes(tag));
           await admin.graphql(
             `#graphql
             mutation TagExistingCustomer($input: CustomerInput!) {
@@ -639,6 +657,7 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
         }
       } else {
         customerGid = createData?.data?.customerCreate?.customer?.id || null;
+        if (customerGid) addedTags = [...distributorTags];
       }
     } catch (e) {
       console.warn("[b2b] customerCreate warning:", e?.message || e);
@@ -651,6 +670,8 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
 
   let companyGid = null;
   let fullCompany = null;
+  // An existing company of the same name was reused rather than created.
+  let reusedCompany = false;
   let companyContactId = null;
   let companyCreateError = null;
   let locationError = null;
@@ -664,8 +685,15 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
   try {
     // Reuse a company of the same name if one exists, so re-approving doesn't
     // split one business across two companies.
+    // Only when it's the same business: no registration number on it yet, or
+    // the same one. Two businesses can share a name ("ABC Trading" in two
+    // markets), and reusing would overwrite the first one's details.
     const existing = await getCompanyDetails(admin, null, companyName);
-    if (existing?.id) {
+    const existingId = String(cleanExternalId(existing?.externalId) || "").toLowerCase();
+    const sameBusiness =
+      !existingId || existingId === String(cleanExternalId(registrationNumber) || "").toLowerCase();
+    if (existing?.id && sameBusiness) {
+      reusedCompany = true;
       console.log("[b2b] Reusing existing company:", existing.id);
       fullCompany = existing;
       companyGid = existing.id;
@@ -856,8 +884,27 @@ Address: ${address || "—"}`;
   // A location that came back without an address (the retry above, or a
   // company reused from before) gets it now. If Shopify refuses it, the
   // approval says so rather than carrying on with a location nothing can ship to.
+  // A reused company takes what staff just confirmed too: its address and
+  // registration number, so Shopify matches the approved record.
   const location = fullCompany?.locations?.edges?.[0]?.node;
-  if (companyGid && location?.id && !location.shippingAddress && shippingAddressInput) {
+  if (companyGid && reusedCompany) {
+    const safeId = cleanExternalId(registrationNumber);
+    if (safeId) {
+      const res = await admin.graphql(
+        `#graphql
+        mutation UpdateReusedCompany($companyId: ID!, $input: CompanyInput!) {
+          companyUpdate(companyId: $companyId, input: $input) {
+            company { id }
+            userErrors { field message }
+          }
+        }`,
+        { variables: { companyId: companyGid, input: { externalId: safeId } } },
+      );
+      const err = (await res.json())?.data?.companyUpdate?.userErrors?.[0];
+      if (err) console.warn("[b2b] Reused company registration number not updated:", err.message);
+    }
+  }
+  if (companyGid && location?.id && (reusedCompany || !location.shippingAddress) && shippingAddressInput) {
     const saved = await assignLocationAddress(admin, location.id, {
       ...shippingAddressInput,
       recipient: companyName,
@@ -876,6 +923,7 @@ Address: ${address || "—"}`;
   return {
     success: true,
     customerId: customerGid,
+    addedTags,
     companyId: companyGid,
     company: fullCompany,
     // A customer with tags but no company is not a distributor: the portal and

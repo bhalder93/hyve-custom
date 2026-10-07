@@ -17,6 +17,7 @@
  * (proxy.addresses.jsx).
  */
 import { canManageTeam } from "./account-team.server";
+import { internationalPhone } from "./address-formats.server";
 
 const DEFAULT_KEYS = { shipping: "default_shipping_location", billing: "default_billing_location" };
 
@@ -225,8 +226,11 @@ export function addressInputFrom(form) {
     city: value("city"),
     zip: value("zip"),
     countryCode: value("countryCode") || "SG",
-    phone: value("phone"),
   };
+  // Shopify wants the international form (+6591234567); people type the
+  // local number. A blank phone is left out rather than sent empty.
+  const phone = internationalPhone(value("phone"), input.countryCode);
+  if (phone) input.phone = phone.startsWith("+") ? phone : value("phone");
   const zone = value("province").toUpperCase();
   if (zone) input.zoneCode = zone;
   return input;

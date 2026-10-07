@@ -1,4 +1,5 @@
 import { addressFormatFor } from "../lib/address-formats.server";
+import { validPhone } from "../lib/phone";
 import { authenticate } from "../shopify.server";
 import { accountShell } from "../lib/account-shell.server";
 import { portalChrome } from "../lib/account-data.server";
@@ -167,6 +168,17 @@ export const action = async ({ request }) => {
       const type = String(formData.get("addressType") || cardType || "shipping");
       const setAsDefault = formData.get("setAsDefault") === "true";
       const name = String(formData.get("label") || "").trim();
+
+      // Checked as Shopify checks it, so the form says which field is wrong
+      // instead of Shopify's bare "Phone is invalid" (HYV-143).
+      if (intent === "create" || intent === "update") {
+        const country = addressFormatFor(String(formData.get("countryCode") || ""));
+        if (!validPhone(formData.get("phone"), country?.code || formData.get("countryCode"))) {
+          return respond(isAjax, {
+            error: `Enter a valid ${country?.name || ""} phone number, e.g. +${country?.phonePrefix || "65"} followed by the number.`.replace("  ", " "),
+          });
+        }
+      }
       const results = {
         create: () => addCompanyLocation(admin, customerId, { name, address: addressInputFrom(formData), setAsDefault }),
         update: () =>

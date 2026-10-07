@@ -291,6 +291,7 @@ function companyCard(company) {
           </div>
   
           ${field("forwarderName", "Freight forwarder (FOB Ningbo)", company.forwarderName, "e.g. Kuehne+Nagel")}
+          ${field("forwarderAccount", "Forwarder account number (FOB Ningbo)", company.forwarderAccount, "e.g. KN-00012345")}
         </div>
 
         ${locked

@@ -407,15 +407,19 @@ function renderAddressModal(company = null) {
               } <span class="hyve-label__opt">(Optional)</span></label>
               ${
                 companyMode
-                  ? `<input type="text" class="hyve-input" id="addr-province" name="province" placeholder="e.g. SGR for Selangor" maxlength="6" autocapitalize="characters">`
+                  ? `<input type="text" class="hyve-input" id="addr-province" name="province" placeholder="Region code" maxlength="6" autocapitalize="characters">`
                   : `<input type="text" class="hyve-input" id="addr-province" name="province" placeholder="e.g. Federal Territory">`
               }
               <!-- Shopify's own regions for the country, as the code Shopify takes (HYV-143). -->
               <select class="hyve-select" id="addr-province-select" name="province" hidden disabled></select>
             </div>
             <div class="hyve-form-group">
-              <label class="hyve-label" for="addr-phone">Phone Number</label>
-              <input type="tel" class="hyve-input" id="addr-phone" name="phone" placeholder="e.g. +65 9123 4567">
+              <label class="hyve-label" for="addr-phone">Phone Number${
+                companyMode ? "" : ' <span class="hyve-label__opt">(Optional)</span>'
+              }</label>
+              <input type="tel" class="hyve-input" id="addr-phone" name="phone" placeholder="e.g. +65 9123 4567"${
+                companyMode ? " required" : ""
+              }>
             </div>
           </div>
 
@@ -426,6 +430,8 @@ function renderAddressModal(company = null) {
               <span class="hyve-checkbox__label" id="addr-set-default-label">Set as default address</span>
             </label>
           </div>
+
+          <p class="hyve-addr__form-error" id="addr-form-error" role="alert" hidden></p>
 
           <div class="hyve-modal__actions">
             <button type="button" class="hyve-addr__btn hyve-addr__btn--ghost" data-modal-close>Cancel</button>
@@ -1021,6 +1027,23 @@ const ADDRESSES_STYLES = `
     flex-direction: column;
     gap: 5px;
   }
+  /* The country's layout hides fields it doesn't have (Singapore has no city
+     or region); without this the flex display above kept them on screen. */
+  .hyve-form-group[hidden] {
+    display: none;
+  }
+  .hyve-addr__form-error {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    font-size: 13px;
+  }
+  .hyve-addr__form-error[hidden] {
+    display: none;
+  }
   .hyve-label {
     font-size: 12px;
     font-weight: 700;
@@ -1316,7 +1339,41 @@ const ADDRESSES_SCRIPT = `
 
   countrySelect.addEventListener('change', () => applyCountry(''));
 
+  const formError = document.getElementById('addr-form-error');
+  function showFormError(message) {
+    formError.textContent = message || '';
+    formError.hidden = !message;
+  }
+
+  // Saved in place: a refused save keeps the form open with what was typed and
+  // Shopify's reason, instead of reloading the page and losing it (HYV-143).
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    showFormError('');
+    const label = submitBtn.querySelector('span');
+    const idle = label.textContent;
+    submitBtn.disabled = true;
+    label.textContent = 'Saving...';
+    try {
+      const res = await fetch(form.action, { method: 'POST', body: new FormData(form) });
+      const next = new URL(res.url, window.location.href);
+      const error = next.searchParams.get('error');
+      if (error || !res.ok) {
+        showFormError(error || 'The address could not be saved. Please try again.');
+        return;
+      }
+      window.location.href = window.location.pathname + next.search;
+    } catch (err) {
+      console.error('Failed to save address', err);
+      showFormError('The address could not be saved. Please check your connection and try again.');
+    } finally {
+      submitBtn.disabled = false;
+      label.textContent = idle;
+    }
+  });
+
   function openAddModal() {
+    showFormError('');
     form.reset();
     applyCountry('');
     intentInput.value = 'create';
@@ -1330,6 +1387,7 @@ const ADDRESSES_SCRIPT = `
   }
 
   function openEditModal(addr) {
+    showFormError('');
     form.reset();
     intentInput.value = 'update';
     idInput.value = addr.id || '';

@@ -118,13 +118,15 @@ const PRIMARY_DOMAIN = `#graphql
  * can sign in to their distributor account, and who their sales contact is.
  * Declined: a short, neutral note. The reason staff record stays internal,
  * since the wording of a decline is still open (OD18).
- * Never throws — the decision is already saved by this point.
+ * Never throws — the decision is already saved by this point. Says whether
+ * it went, so staff can see it on the record and send it again.
  *
- * @param {{approved:boolean, salesRep?:string, salesRepEmail?:string}} outcome
+ * @param {{approved:boolean, salesRep?:string, salesRepEmail?:string, hasCatalog?:boolean}} outcome
+ * @returns {Promise<boolean>}
  */
 export async function sendApplicationDecisionEmail(admin, application, outcome) {
   const to = application.customer_email || application.customerEmail;
-  if (!to) return;
+  if (!to) return false;
 
   try {
     const { shopName } = await internalNotifyTarget(admin);
@@ -142,6 +144,10 @@ export async function sendApplicationDecisionEmail(admin, application, outcome) 
             outcome.salesRepEmail ? ` (${escapeHtml(outcome.salesRepEmail)})` : ""
           }, and they'll be in touch to help you get started.`
         : "";
+      // Distributor pricing only exists once a tier catalog is on the company.
+      const signIn = outcome.hasCatalog
+        ? "Sign in to see your distributor pricing, place orders and manage quotes"
+        : "Sign in to place orders and manage quotes";
 
       await sendEmail({
         to,
@@ -150,7 +156,7 @@ export async function sendApplicationDecisionEmail(admin, application, outcome) 
           applicant ? `Hi ${applicant},` : "Hi,",
           "",
           `${company} is now set up as a ${shopName} distributor.`,
-          "Sign in to see your distributor pricing, place orders and manage quotes:",
+          `${signIn}:`,
           accountUrl,
           outcome.salesRep ? `\nYour sales representative is ${outcome.salesRep}${outcome.salesRepEmail ? ` (${outcome.salesRepEmail})` : ""}.` : "",
         ].join("\n"),
@@ -160,7 +166,7 @@ export async function sendApplicationDecisionEmail(admin, application, outcome) 
           body: `
             <p ${PARAGRAPH}>
               Good news: <strong>${escapeHtml(company)}</strong> is now set up as a ${escapeHtml(shopName)} distributor.
-              Sign in to see your distributor pricing, place orders and manage quotes.
+              ${signIn}.
             </p>
             ${rep ? `<p ${PARAGRAPH}>${rep}</p>` : ""}
             <div style="margin:22px 0;">
@@ -171,7 +177,7 @@ export async function sendApplicationDecisionEmail(admin, application, outcome) 
           details: [["Company", escapeHtml(company)]],
         }),
       });
-      return;
+      return true;
     }
 
     await sendEmail({
@@ -198,7 +204,9 @@ export async function sendApplicationDecisionEmail(admin, application, outcome) 
         details: [["Company", escapeHtml(company)]],
       }),
     });
+    return true;
   } catch (error) {
     console.error("[application] decision email failed", error?.message || error);
+    return false;
   }
 }
