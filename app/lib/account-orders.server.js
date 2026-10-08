@@ -46,6 +46,17 @@ export function mapOrders(nodes = []) {
     const tracking = (fulfillment?.trackingInfo || [])[0] || null;
     const statusKey = orderStatusKey(node);
     const money = node?.totalPriceSet?.presentmentMoney || {};
+    
+    let latestSample = {};
+    try {
+      if (node?.physicalSampleHistory?.value) {
+        const history = JSON.parse(node.physicalSampleHistory.value) || [];
+        history.sort((a, b) => (b.sampleVersion || 0) - (a.sampleVersion || 0));
+        latestSample = history[0] || {};
+      }
+    } catch (e) {
+      // ignore
+    }
 
     return {
       // Reorder and the invoice PDF both act on the order itself, so the row
@@ -88,12 +99,17 @@ export function mapOrders(nodes = []) {
           : "",
       proofUrl: node?.proofUrl?.value || "",
       onHoldReason: node?.onHoldReason?.value || "",
+      physicalSampleStatus: latestSample.status || "",
+      physicalSampleVersion: latestSample.sampleVersion || "0",
+      hasPhysicalSample: node?.physicalSampleRequired?.value === "true" || lineItems.some((li) => li.sku === "HYVE-PHYSICAL-SAMPLE"),
 
       // Order detail modal (J2)
       // The modal lists payment terms as a header fact. It read a field nobody
       // set, so the line was silently dropped on every order.
       paymentTerms: node?.paymentTerms?.paymentTermsName || "",
       productionPhotoUrl: node?.productionPhotoUrl?.value || "",
+      productionApprovalStatus: node?.productionApprovalStatus?.value || "",
+      productionPhotoVersion: node?.productionPhotoVersion?.value || "",
       note: node?.note || "",
       shippingAddress: node?.shippingAddress || null,
       shippingMethod: node?.shippingLine?.title || "",
@@ -235,7 +251,12 @@ export async function withArtworkDeadlines(admin, orders = []) {
 
 /** Orders waiting on the distributor — the H9 badge: Proof Sent or Awaiting Artwork. */
 export function awaitingActionCount(orders = []) {
-  return orders.filter((o) => AWAITING_DISTRIBUTOR.includes(o.statusKey)).length;
+  return orders.filter((o) => {
+    if (o.statusKey === "production-completed" && o.productionApprovalStatus !== "approved") return true;
+    if (o.hasPhysicalSample && o.physicalSampleStatus === "sent" && ["proof-approved", "on-hold"].includes(o.statusKey)) return true;
+    if (AWAITING_DISTRIBUTOR.includes(o.statusKey) && o.statusKey !== "production-completed") return true;
+    return false;
+  }).length;
 }
 
 /**
@@ -301,6 +322,9 @@ export function orderRow(order) {
   const haystack = [order.name, order.poNumber, order.items, status.label].join(" ").toLowerCase();
   const meta = metaLine(order, status.key);
 
+  const needsProductionApproval = order.statusKey === "production-completed" && order.productionApprovalStatus !== "approved";
+  const needsPhysicalSampleApproval = order.hasPhysicalSample && order.physicalSampleStatus === "sent" && ["proof-approved", "on-hold"].includes(order.statusKey);
+
   return `
     <article class="hyve-ord__row" data-modal-row="order-${esc(order.name)}" data-status="${esc(order.statusKey)}" data-search="${esc(haystack)}">
       <span class="hyve-ord__icon">${order.icon}</span>
@@ -309,7 +333,7 @@ export function orderRow(order) {
         <div class="hyve-ord__head">
           <span class="hyve-ord__name">${esc(order.name)}</span>
           <span class="hyve-ord__badge hyve-ord__badge--${status.tone}">${esc(status.label)}</span>
-          ${status.key === "proof-sent" ? `<span class="hyve-ord__badge hyve-ord__badge--action">Approval required</span>` : ""}
+          ${status.key === "proof-sent" || needsProductionApproval || needsPhysicalSampleApproval ? `<span class="hyve-ord__badge hyve-ord__badge--action">Approval required</span>` : ""}
         </div>
         <p class="hyve-ord__items">${esc(order.items)}</p>
         <p class="hyve-ord__date">
@@ -337,10 +361,17 @@ function rowActions(order, statusKey) {
 
   const actions = [];
 
+  const needsProductionApproval = statusKey === "production-completed" && order.productionApprovalStatus !== "approved";
+  const needsPhysicalSampleApproval = order.hasPhysicalSample && order.physicalSampleStatus !== "approved" && ["proof-approved", "on-hold"].includes(statusKey);
+
   if (statusKey === "proof-sent") {
     actions.push(openDetail(icoProof(), "Review Artwork Proof", "primary"));
   } else if (statusKey === "awaiting-artwork") {
     actions.push(openDetail(icoUpload(), "Upload Artwork", "primary"));
+  } else if (needsProductionApproval) {
+    actions.push(openDetail(icoImage(), "Review Production Photo", "primary"));
+  } else if (needsPhysicalSampleApproval) {
+    actions.push(openDetail(icoProof(), "Review Physical Sample", "primary"));
   } else {
     actions.push(openDetail(icoEye(), "View", "ghost"));
   }
@@ -375,6 +406,9 @@ function rowActions(order, statusKey) {
 
 /** J12 action-required line, plus the status-specific detail lines. */
 function metaLine(order, statusKey) {
+  const needsProductionApproval = statusKey === "production-completed" && order.productionApprovalStatus !== "approved";
+  const needsPhysicalSampleApproval = order.hasPhysicalSample && order.physicalSampleStatus !== "approved" && ["proof-approved", "on-hold"].includes(statusKey);
+
   if (statusKey === "proof-sent") {
     const by = order.proofDueBy ? ` by <strong>${esc(order.proofDueBy)}</strong>` : "";
     return `<p class="hyve-ord__meta is-action">${icoClock()}<span>Action Required: Approve your Artwork Proof or request changes${by} to avoid delays</span></p>`;
@@ -382,6 +416,12 @@ function metaLine(order, statusKey) {
   if (statusKey === "awaiting-artwork") {
     const by = order.artworkDueBy ? ` by <strong>${esc(order.artworkDueBy)}</strong>` : "";
     return `<p class="hyve-ord__meta is-action">${icoUpload()}<span>Action Required: Upload your artwork${by} so production can start</span></p>`;
+  }
+  if (needsProductionApproval) {
+    return `<p class="hyve-ord__meta is-action">${icoClock()}<span>Action Required: Approve your Production Photo or request changes to release for shipping</span></p>`;
+  }
+  if (needsPhysicalSampleApproval) {
+    return `<p class="hyve-ord__meta is-action">${icoClock()}<span>Action Required: Approve your Physical Sample or request changes so production can start</span></p>`;
   }
   if (statusKey === "credit-review") {
     return `<p class="hyve-ord__meta">${icoClock()}<span>Submitted for review: Hyve checks your credit terms, then confirms the order</span></p>`;
@@ -459,6 +499,7 @@ function icoEye() { return svg('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-1
 function icoTruck() { return svg('<path d="M10 17V6a1 1 0 0 0-1-1H2v11h2"/><path d="M14 17h-4"/><path d="M20 17h2v-4l-3-4h-5v8h2"/><circle cx="7" cy="17.5" r="2.5"/><circle cx="17" cy="17.5" r="2.5"/>'); }
 function icoUpload() { return svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'); }
 function icoProof() { return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="9 15 11 17 15 13"/>'); }
+function icoImage() { return svg('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>'); }
 function icoRepeat() { return svg('<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>'); }
 function icoInvoice() { return svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'); }
 function icoClock() { return svg('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'); }

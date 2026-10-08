@@ -31,6 +31,8 @@ export function orderModal(order, library = []) {
   // A proof waiting on the buyer is the one thing they have to act on, so it
   // is flagged beside the order number and decided at the top of the order.
   const awaitingApproval = order.statusKey === "proof-sent" && Boolean(order.id);
+  const awaitingPhysicalSample = order.hasPhysicalSample && order.physicalSampleStatus === "sent" && ["proof-approved", "on-hold"].includes(order.statusKey) && Boolean(order.id);
+  const awaitingProductionApproval = order.statusKey === "production-completed" && order.productionApprovalStatus !== "approved" && Boolean(order.id);
 
   return `
     <div class="hyve-modal" id="order-${esc(order.name)}" data-order-modal hidden>
@@ -47,6 +49,8 @@ export function orderModal(order, library = []) {
 
         <div class="hyve-modal__body">
           ${awaitingApproval ? proofDecision(order) : ""}
+          ${awaitingPhysicalSample ? physicalSampleDecision(order) : ""}
+          ${awaitingProductionApproval ? productionPhotoDecision(order) : ""}
           ${headerFacts(order, status)}
 
           <div class="hyve-modal__cols">
@@ -120,8 +124,22 @@ function headerFacts(order, status) {
 function timeline(order, chain, reachedIndex) {
   const isBranch = reachedIndex === -1;
 
+  let deducedIndex = 0;
+  if (isBranch && order.statusKey === "on-hold") {
+    if (order.productionPhotoUrl || order.productionApprovalStatus) {
+      deducedIndex = 3; // in-production
+    } else if (order.proofUrl) {
+      deducedIndex = 2; // proof-sent
+    } else {
+      deducedIndex = 1; // artwork-received
+    }
+  }
+
   const steps = chain.map((s, i) => {
-    const state = isBranch ? (i === 0 ? "done" : "todo") : i < reachedIndex ? "done" : i === reachedIndex ? "current" : "todo";
+    const state = isBranch 
+      ? (i <= deducedIndex ? "done" : "todo") 
+      : (i < reachedIndex ? "done" : i === reachedIndex ? "current" : "todo");
+      
     return `
       <li class="hyve-tl__step is-${state}">
         <span class="hyve-tl__dot">${state === "todo" ? "" : icoTick()}</span>
@@ -451,6 +469,7 @@ function proofDecision(order) {
       </div>
       <form method="post" action="/apps/account/orders/proof" class="hyve-modal__proof-actions">
         <input type="hidden" name="order" value="${esc(order.id)}">
+        <input type="hidden" name="client_user_agent" value="" class="js-user-agent">
         <label class="hyve-modal__proof-label" for="proof-msg-${esc(order.name)}">
           What needs changing? (only needed if you're requesting changes)
         </label>
@@ -463,6 +482,79 @@ function proofDecision(order) {
         <div class="hyve-modal__proof-buttons">
           <button type="submit" name="decision" value="approve" class="hyve-ord__btn hyve-ord__btn--primary">
             ${icoTick()}<span>Approve Artwork Proof</span>
+          </button>
+          <button type="submit" name="decision" value="changes" class="hyve-ord__btn hyve-ord__btn--ghost">
+            ${icoNote()}<span>Request Changes</span>
+          </button>
+        </div>
+      </form>
+    </section>`;
+}
+
+function physicalSampleDecision(order) {
+  return `
+    <section class="hyve-modal__approval">
+      <div class="hyve-modal__approval-head">
+        <span class="hyve-modal__approval-icon">${icoAlert()}</span>
+        <div>
+          <h3 class="hyve-modal__approval-title">Physical Sample Decision</h3>
+          <p class="hyve-modal__approval-text">Your physical sample has been prepared. Please review and approve it so we can start production.</p>
+        </div>
+      </div>
+      <form method="post" action="/apps/account/orders/physical-sample" class="hyve-modal__proof-actions">
+        <input type="hidden" name="order" value="${esc(order.id)}">
+        <input type="hidden" name="client_user_agent" value="" class="js-user-agent">
+        <label class="hyve-modal__proof-label" for="ps-msg-${esc(order.name)}">
+          What needs changing? (only needed if you're requesting changes)
+        </label>
+        <textarea
+          id="ps-msg-${esc(order.name)}"
+          name="message"
+          class="hyve-modal__proof-input"
+          rows="2"
+          placeholder="Adjust the sizing..."></textarea>
+        <div class="hyve-modal__proof-buttons">
+          <button type="submit" name="decision" value="approve" class="hyve-ord__btn hyve-ord__btn--primary">
+            ${icoTick()}<span>Approve Sample</span>
+          </button>
+          <button type="submit" name="decision" value="changes" class="hyve-ord__btn hyve-ord__btn--ghost">
+            ${icoNote()}<span>Request Changes</span>
+          </button>
+        </div>
+      </form>
+    </section>`;
+}
+
+function productionPhotoDecision(order) {
+  return `
+    <section class="hyve-modal__approval">
+      <div class="hyve-modal__approval-head">
+        <span class="hyve-modal__approval-icon">${icoAlert()}</span>
+        <div>
+          <h3 class="hyve-modal__approval-title">Production Photo Ready</h3>
+          <p class="hyve-modal__approval-text">Your production photo is ready for review. Please approve it so we can release your order for shipping.</p>
+        </div>
+        ${
+          order.productionPhotoUrl
+            ? `<a class="hyve-ord__btn hyve-ord__btn--ghost hyve-modal__approval-view" href="${esc(order.productionPhotoUrl)}" target="_blank" rel="noopener">${icoImage()}<span>View Production Photo</span></a>`
+            : ""
+        }
+      </div>
+      <form method="post" action="/apps/account/orders/production-photo" class="hyve-modal__proof-actions">
+        <input type="hidden" name="order" value="${esc(order.id)}">
+        <input type="hidden" name="client_user_agent" value="" class="js-user-agent">
+        <label class="hyve-modal__proof-label" for="production-msg-${esc(order.name)}">
+          What needs changing? (only needed if you're requesting changes)
+        </label>
+        <textarea
+          id="production-msg-${esc(order.name)}"
+          name="message"
+          class="hyve-modal__proof-input"
+          rows="2"
+          placeholder="Please revise the finishing..."></textarea>
+        <div class="hyve-modal__proof-buttons">
+          <button type="submit" name="decision" value="approve" class="hyve-ord__btn hyve-ord__btn--primary">
+            ${icoTick()}<span>Approve</span>
           </button>
           <button type="submit" name="decision" value="changes" class="hyve-ord__btn hyve-ord__btn--ghost">
             ${icoNote()}<span>Request Changes</span>
@@ -669,6 +761,13 @@ export const MODAL_SCRIPT = `
 /* Order detail modal: open, close on backdrop / X / Escape, lock body scroll. */
 (function () {
   var open = null;
+
+  // Capture real user-agent since Shopify App Proxy drops it
+  document.addEventListener("DOMContentLoaded", function() {
+    document.querySelectorAll('.js-user-agent').forEach(function(el) {
+      el.value = navigator.userAgent;
+    });
+  });
 
   function close() {
     if (!open) return;

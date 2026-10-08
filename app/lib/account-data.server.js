@@ -47,6 +47,10 @@ const PORTAL_ORDER_FIELDS = `#graphql
           onHoldReason: metafield(namespace: "$app", key: "on_hold_reason") { value }
           statusChangedAt: metafield(namespace: "$app", key: "status_changed_at") { value }
           productionPhotoUrl: metafield(namespace: "$app", key: "production_photo_url") { value }
+          productionApprovalStatus: metafield(namespace: "$app", key: "production_approval_status") { value }
+          productionPhotoVersion: metafield(namespace: "$app", key: "production_photo_version") { value }
+          physicalSampleHistory: metafield(namespace: "$app", key: "physical_sample_history") { value }
+          physicalSampleRequired: metafield(namespace: "$app", key: "physical_sample_required") { value }
           estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
           note
           customAttributes { key value }

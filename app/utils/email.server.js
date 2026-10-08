@@ -9,7 +9,7 @@ import { customerStatusLabel } from "../lib/portal.server";
 const BRAND = {
   name: "HYVE",
   supportEmail: CUSTOMER_SERVICE_EMAIL,
-  logoUrl:"https://hyve.promo/cdn/shop/files/Image_Hyve.Promo.png",
+  logoUrl: "https://hyve.promo/cdn/shop/files/Image_Hyve.Promo.png",
   primaryText: "#111827",
   secondaryText: "#6B7280",
   border: "#E5E7EB",
@@ -154,9 +154,8 @@ function lineItemsSection(lineItems = []) {
                   <table width="100%" cellspacing="0" cellpadding="0">
                     <tr>
                       <td style="width:72px; vertical-align:top;">
-                        ${
-                          imageUrl
-                            ? `
+                        ${imageUrl
+          ? `
                               <img
                                 src="${escapeHtml(imageUrl)}"
                                 alt="${escapeHtml(item.title || "Product")}"
@@ -173,7 +172,7 @@ function lineItemsSection(lineItems = []) {
                                 "
                               />
                             `
-                            : `
+          : `
                               <div
                                 style="
                                   width:56px;
@@ -184,7 +183,7 @@ function lineItemsSection(lineItems = []) {
                                 "
                               ></div>
                             `
-                        }
+        }
                       </td>
 
                       <td style="vertical-align:top;">
@@ -202,9 +201,8 @@ function lineItemsSection(lineItems = []) {
                           </span>
                         </div>
 
-                        ${
-                          variantDetails
-                            ? `
+                        ${variantDetails
+          ? `
                               <div
                                 style="
                                   margin-top:4px;
@@ -216,12 +214,11 @@ function lineItemsSection(lineItems = []) {
                                 ${escapeHtml(variantDetails)}
                               </div>
                             `
-                            : ""
-                        }
+          : ""
+        }
 
-                        ${
-                          item.sku
-                            ? `
+                        ${item.sku
+          ? `
                               <div
                                 style="
                                   margin-top:4px;
@@ -233,12 +230,11 @@ function lineItemsSection(lineItems = []) {
                                 SKU: ${escapeHtml(item.sku)}
                               </div>
                             `
-                            : ""
-                        }
+          : ""
+        }
 
-                        ${
-                          decoration
-                            ? `
+                        ${decoration
+          ? `
                               <div
                                 style="
                                   margin-top:8px;
@@ -251,12 +247,11 @@ function lineItemsSection(lineItems = []) {
                                 ${escapeHtml(decoration)}
                               </div>
                             `
-                            : ""
-                        }
+          : ""
+        }
 
-                        ${
-                          artworkState
-                            ? `
+                        ${artworkState
+          ? `
                               <div
                                 style="
                                   margin-top:4px;
@@ -269,8 +264,8 @@ function lineItemsSection(lineItems = []) {
                                 ${escapeHtml(artworkState)}
                               </div>
                             `
-                            : ""
-                        }
+          : ""
+        }
                       </td>
                     </tr>
                   </table>
@@ -652,7 +647,7 @@ function decisionButtons(approveUrl, changesUrl) {
             font-weight:700;
           "
         >
-          Approve Artwork Proof
+          Approve 
         </a>
         <a
           href="${escapeHtml(changesUrl)}"
@@ -855,11 +850,11 @@ export async function sendProofApprovedEmail({
 
   const estimatedShipDateOnly = estimatedShipDate
     ? new Intl.DateTimeFormat("en-GB", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-        timeZone: "Asia/Singapore",
-      }).format(new Date(estimatedShipDate))
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "Asia/Singapore",
+    }).format(new Date(estimatedShipDate))
     : null;
 
   const html = customerLayout({
@@ -962,11 +957,17 @@ export async function sendProductionCompleteEmail({
   orderName,
   orderDate,
   productionPhotoUrl,
+  productionPhotoVersion,
+  approveUrl,
+  changesUrl,
   lineItems = [],
   orderUrl,
 }) {
   if (!productionPhotoUrl) {
     throw new Error("Production photo URL is required.");
+  }
+  if (!approveUrl || !changesUrl) {
+    throw new Error("Approve and Request changes links are required.");
   }
 
   const photo = await productionPhotoAttachment(productionPhotoUrl);
@@ -979,6 +980,22 @@ export async function sendProductionCompleteEmail({
     lineItems,
     orderUrl,
     body: `
+      <div
+        style="
+          padding:16px;
+          background:#ecfeff;
+          border:1px solid #c7f9f1;
+          border-radius:12px;
+          margin-bottom:20px;
+        "
+      >
+        <div style="font-size:15px; line-height:1.6; color:${BRAND.primaryText};">
+          <strong>Action required:</strong>
+          Please review your Production Photo, then approve it or request changes with the buttons below.
+          No sign-in needed.
+        </div>
+      </div>
+
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
         Production for your order is complete.
       </p>
@@ -1011,6 +1028,13 @@ ${photo ? `
           View Production Photo
         </a>
       </div>
+
+      ${decisionButtons(approveUrl, changesUrl)}
+
+      <p style="margin:0; line-height:1.7; font-size:15px;">
+        <strong>Production Photo version:</strong>
+        ${escapeHtml(productionPhotoVersion || "1")}
+      </p>
     `,
   });
 
@@ -1018,8 +1042,101 @@ ${photo ? `
     to: customerEmail,
     subject: `${customerStatusLabel("production-complete")} - ${orderName}`,
     html,
-    text: `Production for ${orderName} is complete. Production Photo: ${productionPhotoUrl}\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    text: `Production for ${orderName} is complete. View photo: ${productionPhotoUrl}\nApprove: ${approveUrl}\nRequest changes: ${changesUrl}\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
     attachments: photo ? [photo] : undefined,
+    replyTo: process.env.EMAIL_REPLY_TO,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Physical Sample Ready                                                      */
+/* -------------------------------------------------------------------------- */
+
+export async function sendPhysicalSampleEmail({
+  customerEmail,
+  customerName,
+  orderName,
+  orderDate,
+  sampleVersion,
+  orderId,
+  fileUrl,
+}) {
+  const html = customerLayout({
+    title: "Physical Sample Ready For Review",
+    customerName,
+    orderName,
+    orderDate,
+    body: `
+      <div
+        style="
+          padding:16px;
+          background:#ecfeff;
+          border:1px solid #c7f9f1;
+          border-radius:12px;
+          margin-bottom:20px;
+        "
+      >
+        <div style="font-size:15px; line-height:1.6; color:${BRAND.primaryText};">
+          <strong>Action required:</strong>
+          Your Physical Sample has been prepared. Please review it and provide your decision.
+        </div>
+      </div>
+
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        A physical sample for your order is now ready for your review. Please visit your customer portal to approve it or request changes.
+      </p>
+
+      ${fileUrl ? `
+      <div style="margin:22px 0;">
+        <a
+          href="${escapeHtml(fileUrl)}"
+          style="
+            display:inline-block;
+            padding:14px 22px;
+            background:#f1f5f9;
+            color:#0f172a;
+            text-decoration:none;
+            border-radius:10px;
+            font-size:14px;
+            font-weight:700;
+          "
+        >
+          View Sample Images/Documents
+        </a>
+      </div>
+      ` : ""}
+
+      <div style="margin:22px 0;">
+        <a
+          href="${CUSTOMER_ORDERS_URL}"
+          style="
+            display:inline-block;
+            padding:14px 22px;
+            background:#0f172a;
+            color:#ffffff;
+            text-decoration:none;
+            border-radius:10px;
+            font-size:14px;
+            font-weight:700;
+          "
+        >
+          Review Physical Sample in Portal
+        </a>
+      </div>
+
+      <p style="margin:0; line-height:1.7; font-size:15px;">
+        <strong>Physical Sample version:</strong>
+        ${escapeHtml(sampleVersion || "1")}
+      </p>
+    `,
+  });
+
+  return sendEmail({
+    to: customerEmail,
+    subject: `Physical Sample Ready For Review - ${orderName}`,
+    html,
+    text: `Your physical sample for ${orderName} is ready. Review it here: ${CUSTOMER_ORDERS_URL}`,
+    replyTo: process.env.EMAIL_REPLY_TO,
   });
 }
 
@@ -1142,10 +1259,9 @@ export async function sendInternalSlaAlert({
     title: subject,
     body: `
       ${message ? `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;">${escapeHtml(message)}</p>` : ""}
-      ${
-        adminUrl
-          ? `<div style="margin:22px 0;"><a href="${escapeHtml(adminUrl)}" style="display:inline-block; padding:14px 22px; background:#0f172a; color:#ffffff; text-decoration:none; border-radius:10px; font-size:14px; font-weight:700;">Open order in Hyve admin</a></div>`
-          : ""
+      ${adminUrl
+        ? `<div style="margin:22px 0;"><a href="${escapeHtml(adminUrl)}" style="display:inline-block; padding:14px 22px; background:#0f172a; color:#ffffff; text-decoration:none; border-radius:10px; font-size:14px; font-weight:700;">Open order in Hyve admin</a></div>`
+        : ""
       }`,
     details: [
       ["Order", escapeHtml(orderName)],
@@ -1212,20 +1328,17 @@ export async function sendOrderOnHoldAlert({
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
         Order <strong>${escapeHtml(orderName)}</strong> has been placed <strong>On Hold</strong>.
       </p>
-      ${
-        onHoldReason
-          ? `<p style="margin:0 0 14px; line-height:1.7; font-size:14px; color:#475569;"><strong>Reason:</strong> ${escapeHtml(onHoldReason)}</p>`
-          : ""
+      ${onHoldReason
+        ? `<p style="margin:0 0 14px; line-height:1.7; font-size:14px; color:#475569;"><strong>Reason:</strong> ${escapeHtml(onHoldReason)}</p>`
+        : ""
       }
-      ${
-        note && note.trim() && note.trim() !== onHoldReason?.trim()
-          ? `<p style="margin:0 0 14px; line-height:1.7; font-size:14px; color:#475569;"><strong>Note:</strong> ${escapeHtml(note)}</p>`
-          : ""
+      ${note && note.trim() && note.trim() !== onHoldReason?.trim()
+        ? `<p style="margin:0 0 14px; line-height:1.7; font-size:14px; color:#475569;"><strong>Note:</strong> ${escapeHtml(note)}</p>`
+        : ""
       }
-      ${
-        adminUrl
-          ? `<div style="margin:22px 0;"><a href="${escapeHtml(adminUrl)}" style="display:inline-block; padding:14px 22px; background:#0f172a; color:#ffffff; text-decoration:none; border-radius:10px; font-size:14px; font-weight:700;">Open order in Hyve admin</a></div>`
-          : ""
+      ${adminUrl
+        ? `<div style="margin:22px 0;"><a href="${escapeHtml(adminUrl)}" style="display:inline-block; padding:14px 22px; background:#0f172a; color:#ffffff; text-decoration:none; border-radius:10px; font-size:14px; font-weight:700;">Open order in Hyve admin</a></div>`
+        : ""
       }`,
     details,
   });
@@ -1322,3 +1435,5 @@ export async function sendEstimatedShipDateEmail({
     text: `We have an update regarding the estimated ship date for your order. Estimated ship date: ${estimatedShipDateOnly}.\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
   });
 }
+
+/* -------------------------------------------------------------------------- */

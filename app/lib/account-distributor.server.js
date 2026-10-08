@@ -208,6 +208,8 @@ export function distributorPage({
                 class="hyve-dist__input"
                 placeholder="e.g. +65 9123 4567"
                 value="${typed("contactPhone", customer?.phone || "")}"
+                pattern="^\\+?[\\d\\s\\-\\(\\)]+$"
+                title="Please enter a valid phone number."
                 required
                 ${fieldError("contactPhone") ? 'aria-invalid="true"' : ""}
                 aria-describedby="dist-phone-error"

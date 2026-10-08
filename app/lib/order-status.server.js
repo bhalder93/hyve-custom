@@ -42,6 +42,7 @@ export const SOURCES = { portal: "CUSTOMER_PORTAL", proofEmail: "PROOF_EMAIL", s
 const PORTAL_MOVES = {
   "order-placed": ["artwork-received"],
   "proof-sent": ["proof-approved", "on-hold"],
+  "production-complete": ["on-hold"],
 };
 
 /**
@@ -151,7 +152,7 @@ export function productionStatusOf(order) {
 export async function changeProductionStatus(
   admin,
   order,
-  { to, changedBy, note = "", onHoldReason = "", source = SOURCES.portal },
+  { to, changedBy, note = "", onHoldReason = "", source = SOURCES.portal, ipAddress = "", userAgent = "" },
 ) {
   const from = productionStatusOf(order);
   if (!(PORTAL_MOVES[from] || []).includes(to)) {
@@ -189,7 +190,7 @@ export async function changeProductionStatus(
     );
   }
 
-  await recordStatusHistory(admin, { order, from, to, changedAt, changedBy: changedBy || "Customer", source, note });
+  await recordStatusHistory(admin, { order, from, to, changedAt, changedBy: changedBy || "Customer", source, note, ipAddress, userAgent });
 
   if (to === "artwork-received") {
     try {
@@ -231,7 +232,7 @@ export async function changeProductionStatus(
  * the buyer in the portal or from the proof email, and the automatic day-10
  * hold, which used to leave no entry at all.
  */
-export async function recordStatusHistory(admin, { order, from, to, changedAt, changedBy, source, note = "" }) {
+export async function recordStatusHistory(admin, { order, from, to, changedAt, changedBy, source, note = "", ipAddress = "", userAgent = "" }) {
   const fields = [
     { key: "order_id", value: order.id },
     { key: "order_name", value: order.name },
@@ -242,6 +243,8 @@ export async function recordStatusHistory(admin, { order, from, to, changedAt, c
     { key: "source", value: source },
   ];
   if (String(note).trim()) fields.push({ key: "note", value: String(note).trim() });
+  if (ipAddress) fields.push({ key: "ip_address", value: ipAddress });
+  if (userAgent) fields.push({ key: "user_agent", value: userAgent });
   check(
     await gql(admin, HISTORY_CREATE, { metaobject: { type: "$app:order_status_history", fields } }),
     "metaobjectCreate",

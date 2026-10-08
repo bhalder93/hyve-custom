@@ -55,6 +55,8 @@ export async function recordProofDecision(admin, orderGid, decision, by = {}) {
     message,
     where: "in the portal",
     source: SOURCES.portal,
+    ipAddress: by.ipAddress,
+    userAgent: by.userAgent,
   });
 }
 
@@ -67,7 +69,7 @@ export async function recordProofDecision(admin, orderGid, decision, by = {}) {
  * @param {{orderGid:string, version:string}} link from readProofLink
  * @returns {Promise<{ok:boolean, error?:string, orderName?:string}>}
  */
-export async function recordEmailProofDecision(admin, link, decision, rawMessage) {
+export async function recordEmailProofDecision(admin, link, decision, rawMessage, ipAddress = "", userAgent = "") {
   const message = cleanMessage(rawMessage);
   const invalid = checkDecision(decision, message);
   if (invalid) return { ok: false, error: invalid };
@@ -83,6 +85,8 @@ export async function recordEmailProofDecision(admin, link, decision, rawMessage
     message,
     where: "from the proof email",
     source: SOURCES.proofEmail,
+    ipAddress,
+    userAgent,
   });
 }
 
@@ -163,7 +167,7 @@ function checkDecision(decision, message) {
   return null;
 }
 
-async function decide(admin, order, decision, { who, message, where, source }) {
+async function decide(admin, order, decision, { who, message, where, source, ipAddress, userAgent }) {
   if (productionStatusOf(order) !== "proof-sent") {
     return { ok: false, error: `There's no Artwork Proof waiting for a decision on ${order.name}.` };
   }
@@ -176,6 +180,8 @@ async function decide(admin, order, decision, { who, message, where, source }) {
     to: chosen.to,
     changedBy: who,
     source,
+    ipAddress,
+    userAgent,
     note: [
       `${chosen.verb}${version ? ` (version ${version})` : ""} ${where}.`,
       message ? `"${message}"` : "",

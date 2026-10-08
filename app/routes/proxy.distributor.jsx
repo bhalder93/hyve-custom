@@ -222,7 +222,7 @@ export const action = async ({ request }) => {
       .get("accept")
       ?.includes("application/json") ||
     request.headers.get("x-requested-with") ===
-      "XMLHttpRequest";
+    "XMLHttpRequest";
 
 
   /* ------------------------------------------------------------------------ */
@@ -305,7 +305,7 @@ export const action = async ({ request }) => {
 
       const countryBased = String(
         formData.get("countryBased") ||
-          "Singapore",
+        "Singapore",
       ).trim();
 
 
@@ -316,13 +316,13 @@ export const action = async ({ request }) => {
 
       const relationToBusiness = String(
         formData.get("relationToBusiness") ||
-          "",
+        "",
       ).trim();
 
 
       const preferredCurrency = String(
         formData.get("preferredCurrency") ||
-          "",
+        "",
       ).trim();
 
 
@@ -333,8 +333,8 @@ export const action = async ({ request }) => {
       const marketsSold =
         marketsArray.length
           ? marketsArray
-              .map(String)
-              .join(", ")
+            .map(String)
+            .join(", ")
           : "Singapore";
 
 
@@ -345,7 +345,7 @@ export const action = async ({ request }) => {
 
       const registrationNumber = String(
         formData.get("registrationNumber") ||
-          "",
+        "",
       ).trim();
 
 
@@ -458,7 +458,7 @@ export const action = async ({ request }) => {
         ? "Contact phone number is required."
         : validPhone(contactPhone, addressFormatFor(countryBased)?.code)
           ? null
-          : `Enter a valid ${countryBased} phone number.`;
+          : `Enter a valid phone number.`;
 
       if (phoneProblem) {
         addressValidation.valid = false;
@@ -590,7 +590,7 @@ export const action = async ({ request }) => {
         docFile &&
         typeof docFile === "object" &&
         typeof docFile.arrayBuffer ===
-          "function" &&
+        "function" &&
         docFile.size > 0
       ) {
         registrationDocName =
@@ -1022,12 +1022,12 @@ function respond(
 
   const param = error
     ? `error=${encodeURIComponent(
-        error,
-      )}`
+      error,
+    )}`
     : `notice=${encodeURIComponent(
-        notice ||
-          "Application received",
-      )}`;
+      notice ||
+      "Application received",
+    )}`;
 
 
   return new Response(null, {

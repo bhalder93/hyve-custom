@@ -314,6 +314,9 @@ async function getOrder(admin, orderId) {
                 id
                 title
                 sku
+                variant {
+                  id
+                }
 
                 originalUnitPriceSet {
                   shopMoney {
@@ -464,6 +467,7 @@ async function initializeMetafields(
     setInitialStatus,
     setArtworkRequired,
     setRush,
+    physicalSampleRequired,
   },
 ) {
   const metafields = [];
@@ -473,6 +477,8 @@ async function initializeMetafields(
   /* ---------------------------------------------------------------------- */
 
   if (setInitialStatus) {
+    const initialStatus = ORDER_STATUS;
+
     metafields.push(
       {
         ownerId: orderId,
@@ -483,7 +489,7 @@ async function initializeMetafields(
 
         type: "single_line_text_field",
 
-        value: ORDER_STATUS,
+        value: initialStatus,
       },
 
       {
@@ -498,6 +504,25 @@ async function initializeMetafields(
         value: changedAt,
       },
     );
+
+    if (physicalSampleRequired) {
+      metafields.push(
+        {
+          ownerId: orderId,
+          namespace: "$app",
+          key: "on_hold_reason",
+          type: "single_line_text_field",
+          value: "Physical Sample Required",
+        },
+        {
+          ownerId: orderId,
+          namespace: "$app",
+          key: "physical_sample_required",
+          type: "boolean",
+          value: "true",
+        }
+      );
+    }
   }
 
   /* ---------------------------------------------------------------------- */
@@ -663,7 +688,7 @@ async function removeProductionWorkflowMetafields(admin, order) {
 /*                           Initial status history                           */
 /* -------------------------------------------------------------------------- */
 
-async function upsertInitialHistory(admin, { orderId, orderName, changedAt }) {
+async function upsertInitialHistory(admin, { orderId, orderName, changedAt, initialStatus }) {
   const numericId = getNumericOrderId(orderId);
 
   /**
@@ -720,7 +745,7 @@ async function upsertInitialHistory(admin, { orderId, orderName, changedAt }) {
             {
               key: "to_status",
 
-              value: ORDER_STATUS,
+              value: initialStatus || ORDER_STATUS,
             },
 
             {
@@ -981,12 +1006,24 @@ export async function action({ request }) {
     const setRush = order.rush == null;
 
     /* -------------------------------------------------------------------- */
+    /* Physical Sample Detection                                            */
+    /* -------------------------------------------------------------------- */
+    
+    const PHYSICAL_SAMPLE_VARIANT_ID = process.env.PHYSICAL_SAMPLE_VARIANT_ID || "gid://shopify/ProductVariant/52315361280216";
+    const physicalSampleRequired = lineItems.some(
+      (line) => String(line.variant?.id) === PHYSICAL_SAMPLE_VARIANT_ID
+    );
+
+    const initialStatusString = ORDER_STATUS;
+    const initialStatusTag = `hyve-status:${initialStatusString}`;
+
+    /* -------------------------------------------------------------------- */
     /* Initial status tags                                                  */
     /* -------------------------------------------------------------------- */
 
     if (setInitialStatus) {
       const incorrectStatusTags = statusTags.filter(
-        (tag) => tag !== STATUS_TAG,
+        (tag) => tag !== initialStatusTag,
       );
 
       if (incorrectStatusTags.length) {
@@ -1002,8 +1039,8 @@ export async function action({ request }) {
        * Ensure exactly the correct initial
        * production status exists.
        */
-      if (!statusTags.includes(STATUS_TAG)) {
-        await addTags(admin, order.id, [STATUS_TAG]);
+      if (!statusTags.includes(initialStatusTag)) {
+        await addTags(admin, order.id, [initialStatusTag]);
       }
     } else {
       /**
@@ -1034,6 +1071,8 @@ export async function action({ request }) {
       setArtworkRequired,
 
       setRush,
+
+      physicalSampleRequired,
     });
 
     /* -------------------------------------------------------------------- */
@@ -1047,6 +1086,8 @@ export async function action({ request }) {
         orderName: order.name,
 
         changedAt,
+
+        initialStatus: initialStatusString,
       });
     }
 

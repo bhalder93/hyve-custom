@@ -363,6 +363,14 @@ type = "single_line_text_field"
 name = "Note"
 type = "multi_line_text_field"
 
+[metaobjects.app.order_status_history.fields.ip_address]
+name = "IP Address"
+type = "single_line_text_field"
+
+[metaobjects.app.order_status_history.fields.user_agent]
+name = "User Agent"
+type = "single_line_text_field"
+
 
 
 # ============================================================
@@ -630,6 +638,27 @@ name = "Ends on"
 description = "Optional. Leave blank to keep showing it until you set it to Draft."
 type = "date"
 
+
+# ============================================================
+# PHYSICAL SAMPLE WORKFLOW
+# ============================================================
+
+[order.metafields.app.physical_sample_required]
+name = "Physical Sample Required"
+description = "Whether the order requires a physical sample workflow"
+type = "boolean"
+
+[order.metafields.app.physical_sample_required.access]
+admin = "merchant_read_write"
+
+
+[order.metafields.app.physical_sample_history]
+name = "Physical Sample History"
+description = "JSON array storing the history and status of physical samples"
+type = "json"
+
+[order.metafields.app.physical_sample_history.access]
+admin = "merchant_read_write"
 
 [webhooks]
 api_version = "2026-10"

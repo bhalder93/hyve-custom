@@ -101,7 +101,7 @@ const STORED_TO_DISPLAY = {
 export const ARTWORK_PENDING = "Artwork Pending";
 
 /** Statuses that are waiting on the distributor — drives the Orders badge (H9). */
-export const AWAITING_DISTRIBUTOR = ["proof-sent", "awaiting-artwork"];
+export const AWAITING_DISTRIBUTOR = ["proof-sent", "awaiting-artwork", "production-completed"];
 
 /** @param {object} customer Admin API customer with companyContactProfiles */
 export function isDistributor(customer) {

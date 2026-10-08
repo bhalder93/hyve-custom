@@ -19,6 +19,7 @@ import {
   sendProductionCompleteEmail,
   sendReadyForCollectionEmail,
   sendEstimatedShipDateEmail,
+  sendPhysicalSampleEmail,
 } from "../utils/email.server";
 import { proofDecisionLinks } from "../lib/proof.server";
 import {
@@ -26,6 +27,7 @@ import {
   productionCalendar,
   productionDueDate,
 } from "../lib/order-status.server";
+import { productionDecisionLinks } from "../lib/production-approval.server";
 import {
   syncLineItemArtworkReceived,
   updateLineItemArtworkAttributesInPayload,
@@ -453,6 +455,20 @@ totalPriceSet {
             ) {
               value
             }
+
+            physicalSampleRequired: metafield(
+              namespace: "$app"
+              key: "physical_sample_required"
+            ) {
+              value
+            }
+
+            physicalSampleHistory: metafield(
+              namespace: "$app"
+              key: "physical_sample_history"
+            ) {
+              value
+            }
           }
         }
       `,
@@ -495,6 +511,8 @@ async function getStatusHistory(admin, orderId) {
           metaobjects(
             type: "$app:order_status_history"
             first: 250
+            sortKey: "updated_at"
+            reverse: true
           ) {
             nodes {
               id
@@ -541,6 +559,18 @@ async function getStatusHistory(admin, orderId) {
               ) {
                 value
               }
+
+              ipAddress: field(
+                key: "ip_address"
+              ) {
+                value
+              }
+
+              userAgent: field(
+                key: "user_agent"
+              ) {
+                value
+              }
             }
           }
         }
@@ -565,12 +595,18 @@ async function getStatusHistory(admin, orderId) {
       source: item.source?.value || "",
 
       note: item.note?.value || "",
+
+      ipAddress: item.ipAddress?.value || "",
+
+      userAgent: item.userAgent?.value || "",
     }))
     .sort(
       (a, b) =>
         new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime(),
     );
 }
+
+
 
 async function addTags(admin, orderId, tags) {
   if (!tags?.length) {
@@ -978,7 +1014,7 @@ async function setOrderMetafields(
 
 async function createHistory(
   admin,
-  { orderId, orderName, fromStatus, toStatus, changedAt, changedBy, note },
+  { orderId, orderName, fromStatus, toStatus, changedAt, changedBy, note, ipAddress, userAgent },
 ) {
   const fields = [
     {
@@ -1031,6 +1067,20 @@ async function createHistory(
       key: "note",
 
       value: note.trim(),
+    });
+  }
+
+  if (ipAddress?.trim()) {
+    fields.push({
+      key: "ip_address",
+      value: ipAddress.trim(),
+    });
+  }
+
+  if (userAgent?.trim()) {
+    fields.push({
+      key: "user_agent",
+      value: userAgent.trim(),
     });
   }
 
@@ -1141,6 +1191,8 @@ async function sendCustomerStatusEmail({
 
         productionPhotoUrl,
         productionPhotoVersion,
+
+        ...(await productionDecisionLinks(admin, orderId, productionPhotoVersion || 1)),
       });
 
     case READY_FOR_COLLECTION_STATUS:
@@ -1244,7 +1296,6 @@ export async function loader({ request, params }) {
 
     const [order, history] = await Promise.all([
       getOrder(admin, orderId),
-
       getStatusHistory(admin, orderId),
     ]);
 
@@ -1264,6 +1315,20 @@ export async function loader({ request, params }) {
     const proofEmailSent = proofNotificationTag
       ? (order.tags ?? []).includes(proofNotificationTag)
       : false;
+
+    let physicalSampleHistory = [];
+    try {
+      if (order.physicalSampleHistory?.value) {
+        physicalSampleHistory = JSON.parse(order.physicalSampleHistory.value) || [];
+      }
+    } catch (e) {
+      console.error("Failed to parse physicalSampleHistory", e);
+    }
+
+    // Sort descending by sampleVersion
+    physicalSampleHistory.sort((a, b) => (b.sampleVersion || 0) - (a.sampleVersion || 0));
+
+    const latestSample = physicalSampleHistory[0] || {};
 
     return {
       order: {
@@ -1311,9 +1376,22 @@ export async function loader({ request, params }) {
         productionApprovalNote: order.productionApprovalNote?.value || "",
 
         onHoldReason: order.onHoldReason?.value || "",
+
+        // Physical Sample Approval Workflow
+        physicalSampleRequired: order.physicalSampleRequired?.value === "true",
+        physicalSampleVersion: Number(latestSample.sampleVersion || 0),
+        physicalSampleStatus: latestSample.status || "",
+        physicalSampleSentAt: latestSample.sentAt || "",
+        physicalSampleSentBy: latestSample.sentBy || "",
+        physicalSampleApprovedBy: latestSample.approvedBy || "",
+        physicalSampleApprovedAt: latestSample.responseDate || "", // renamed for compatibility
+        physicalSampleApprovalSource: latestSample.approvalSource || "",
+        physicalSampleResponse: latestSample.response || "",
       },
 
       history,
+
+      physicalSampleHistory,
 
       loaderError: null,
     };
@@ -1346,6 +1424,9 @@ export async function action({ request, params }) {
     const formData = await request.formData();
 
     const intent = String(formData.get("intent") || "").trim();
+
+    const ipAddress = (request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "").split(",")[0].trim();
+    const userAgent = request.headers.get("user-agent") || "";
 
     // HYV-110: pause or resume this order's automatic messages.
     if (intent === "toggle_notifications") {
@@ -1491,6 +1572,8 @@ export async function action({ request, params }) {
         changedAt: approvedAt,
         changedBy,
         note: "Production photo approved. Order may proceed to shipping.",
+        ipAddress,
+        userAgent,
       });
 
       return {
@@ -1528,6 +1611,13 @@ export async function action({ request, params }) {
 
       const declinedAt = new Date().toISOString();
 
+      await setOrderMetafields(admin, {
+        orderId,
+        status: "on-hold",
+        changedAt: declinedAt,
+        onHoldReason: `Changes requested to Production Photo: ${approvalNote}`,
+      });
+
       await setProductionApprovalDecision(admin, {
         orderId,
         status: "declined",
@@ -1540,17 +1630,19 @@ export async function action({ request, params }) {
       await createHistory(admin, {
         orderId,
         orderName: order.name,
-        fromStatus: "production-complete",
-        toStatus: "production-complete",
+        fromStatus: currentStatus,
+        toStatus: "on-hold",
         changedAt: declinedAt,
         changedBy,
         note: `Production photo declined: ${approvalNote}`,
+        ipAddress,
+        userAgent,
       });
 
       return {
         success: true,
         message:
-          "Production changes requested. The order remains Production Complete.",
+          "Production changes requested. The order has been placed On Hold.",
       };
     }
 
@@ -1561,12 +1653,12 @@ export async function action({ request, params }) {
         formData.get("productionPhotoUrl") || "",
       ).trim();
 
-      if (currentStatus !== "production-complete") {
+      if (currentStatus !== "production-complete" && currentStatus !== "on-hold") {
         return {
           success: false,
           fieldErrors: {},
           formError:
-            "A revised production photo can only be submitted while the order is Production Complete.",
+            "A revised production photo can only be submitted while the order is Production Complete or On Hold.",
         };
       }
 
@@ -1608,6 +1700,8 @@ export async function action({ request, params }) {
         changedAt: new Date().toISOString(),
         changedBy,
         note: `Production photo version ${nextProductionPhotoVersion} submitted for approval: ${revisedPhotoUrl}`,
+        ipAddress,
+        userAgent,
       });
 
       let emailWarning = null;
@@ -1731,6 +1825,125 @@ export async function action({ request, params }) {
               : "Unable to send proof email.",
         };
       }
+    }
+
+    if (intent === "send_physical_sample") {
+      const order = await getOrder(admin, orderId);
+
+      let currentHistory = [];
+      try {
+        if (order.physicalSampleHistory?.value) {
+          currentHistory = JSON.parse(order.physicalSampleHistory.value) || [];
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      // We determine version based on the largest version in history
+      const currentVersion = currentHistory.reduce((max, entry) => Math.max(max, entry.sampleVersion || 0), 0);
+      const nextVersion = currentVersion + 1;
+      const sentAt = new Date().toISOString();
+      const sentBy = (await staffMemberLabel(request, sessionToken)) || "Shopify Admin";
+
+      const fileUrl = String(formData.get("fileUrl") || "").trim();
+      const note = String(formData.get("note") || "").trim();
+
+      const newHistoryEntry = {
+        sampleVersion: nextVersion,
+        status: "sent",
+        sentAt,
+        sentBy,
+        fileUrl,
+        response: note,
+      };
+
+      currentHistory.unshift(newHistoryEntry);
+
+      const onHoldReason = "Waiting for physical sample approval";
+
+      // 1. Update order metafield and set on-hold status
+      const metafields = [
+        {
+          ownerId: orderId,
+          namespace: "$app",
+          key: "physical_sample_history",
+          type: "json",
+          value: JSON.stringify(currentHistory),
+        },
+      ];
+
+      const response = await admin.graphql(
+        `#graphql
+            mutation SendPhysicalSample($metafields: [MetafieldsSetInput!]!) {
+              metafieldsSet(metafields: $metafields) {
+                userErrors { field message code }
+              }
+            }
+          `,
+        { variables: { metafields } },
+      );
+      const data = await parseGraphQL(response, "SendPhysicalSample");
+      throwUserErrors(data.data?.metafieldsSet?.userErrors, "SendPhysicalSample");
+
+      // 2. Put order on hold
+      const productionTags = (order.tags ?? []).filter((tag) =>
+        tag.startsWith("hyve-status:"),
+      );
+      const currentStatus =
+        order.productionStatus?.value ||
+        productionTags[0]?.replace("hyve-status:", "") ||
+        "";
+
+      await setOrderMetafields(admin, {
+        orderId,
+        status: "on-hold",
+        changedAt: sentAt,
+        onHoldReason,
+      });
+
+      await removeTags(admin, orderId, productionTags);
+      await addTags(admin, orderId, [`hyve-status:on-hold`]);
+
+      await createHistory(admin, {
+        orderId,
+        orderName: order.name,
+        fromStatus: currentStatus,
+        toStatus: "on-hold",
+        changedAt: sentAt,
+        changedBy: sentBy,
+        ipAddress,
+        userAgent,
+        note: `Physical Sample Version ${nextVersion} sent.\nReason: ${onHoldReason}\nNote: ${note}${fileUrl ? `\nFile: ${fileUrl}` : ''}`,
+      });
+
+      // 3. Send email to customer (stubbed, assuming we'll add it to email.server.js)
+      let emailWarning = null;
+      try {
+        const customerEmail = getCustomerEmail(order);
+        if (customerEmail) {
+          if (typeof sendPhysicalSampleEmail === "function") {
+            await sendPhysicalSampleEmail({
+              customerEmail,
+              customerName: order.customer?.displayName || order.shippingAddress?.name || "Customer",
+              orderName: order.name,
+              orderDate: order.createdAt,
+              sampleVersion: nextVersion,
+              orderId,
+            });
+          }
+        }
+      } catch (error) {
+        emailWarning =
+          error instanceof Error
+            ? `Sample marked as sent, but email could not be sent: ${error.message}`
+            : "Sample marked as sent, but email could not be sent.";
+      }
+
+      return {
+        success: true,
+        message: `Physical Sample Version ${nextVersion} marked as sent.`,
+        emailWarning,
+      };
     }
 
     if (intent !== "change_status") {
@@ -1867,6 +2080,20 @@ export async function action({ request, params }) {
       };
     }
 
+    if (
+      nextStatus === "in-production" &&
+      order.physicalSampleRequired?.value === "true" &&
+      order.physicalSampleStatus?.value !== "approved"
+    ) {
+      return {
+        success: false,
+        fieldErrors: {
+          nextStatus: "The Physical Sample must be approved by the customer before starting production.",
+        },
+        formError: "Waiting for the Physical Sample to be approved.",
+      };
+    }
+
     // A paid physical sample ships and is approved before the full run
     // (ORS-03).
     if (
@@ -1987,6 +2214,10 @@ ${collectionAudit}`
       changedBy,
 
       note: historyNote,
+
+      ipAddress,
+
+      userAgent,
     });
 
     let emailSent = false;
@@ -2179,6 +2410,14 @@ function TimelineItem({ item, isLatest }) {
               <s-text tone="subdued">Source: {item.source}</s-text>
             )}
 
+            {item.ipAddress && (
+              <s-text tone="subdued">IP Address: {item.ipAddress}</s-text>
+            )}
+
+            {item.userAgent && (
+              <s-text tone="subdued">User Agent: {item.userAgent}</s-text>
+            )}
+
             {item.note && (
               <s-box padding="small" background="subdued" borderRadius="base">
                 <s-paragraph>{item.note}</s-paragraph>
@@ -2223,6 +2462,8 @@ export default function ProductionOrderDetailsPage() {
   );
 
   const [shipDate, setShipDate] = useState(order?.estimatedShipDate || "");
+  const [physicalSampleFileUrl, setPhysicalSampleFileUrl] = useState("");
+  const [physicalSampleNote, setPhysicalSampleNote] = useState("");
   useEffect(() => {
     setProofUrl(order?.proofUrl || "");
   }, [order?.proofUrl]);
@@ -2670,6 +2911,20 @@ export default function ProductionOrderDetailsPage() {
                     </s-stack>
                   </s-box>
                 )}
+                {nextStatus === "shipped" && (
+                  <s-box padding="base" border="base" borderRadius="base">
+                    <s-stack direction="block" gap="base">
+                      <s-banner tone="warning">
+                        <s-paragraph>
+                          Please update shipping info from the Shopify admin to provide tracking details to the customer.
+                        </s-paragraph>
+                      </s-banner>
+                      <s-button href={`shopify:admin/orders/${order.id.split('/').pop()}`} target="_blank">
+                        Open Order in Shopify Admin
+                      </s-button>
+                    </s-stack>
+                  </s-box>
+                )}
                 {nextStatus === "on-hold" && (
                   <s-text-field
                     label="On hold reason"
@@ -2688,17 +2943,19 @@ export default function ProductionOrderDetailsPage() {
                   />
                 )}
 
-                <s-text-area
-                  label="Internal note"
-                  value={note}
-                  placeholder="Optional note about this status change"
-                  onInput={(event) => setNote(event.currentTarget.value)}
-                />
+                {nextStatus !== "shipped" && (
+                  <s-text-area
+                    label="Internal note"
+                    value={note}
+                    placeholder="Optional note about this status change"
+                    onInput={(event) => setNote(event.currentTarget.value)}
+                  />
+                )}
 
                 <s-stack direction="inline" justifyContent="end">
                   <s-button
                     variant="primary"
-                    disabled={busy || !nextStatus}
+                    disabled={busy || !nextStatus || nextStatus === "shipped"}
                     onClick={saveStatus}
                   >
                     {busy ? "Updating..." : "Update status"}
@@ -2706,6 +2963,94 @@ export default function ProductionOrderDetailsPage() {
                 </s-stack>
               </s-stack>
             </s-section>
+
+            {(order.physicalSampleRequired || order.hasPhysicalSample) && ["proof-approved", "in-production", "production-complete", "on-hold"].includes(order.productionStatus) && (
+              <s-section heading="Manage Physical Sample">
+                <s-stack direction="block" gap="base">
+                  <s-stack
+                    direction="inline"
+                    justifyContent="space-between"
+                    alignItems="center"
+                  >
+                    <s-text>Current Status</s-text>
+
+                    <s-badge tone={order.physicalSampleStatus === "approved" ? "success" : order.physicalSampleStatus === "changes_requested" ? "warning" : "info"}>
+                      {order.physicalSampleStatus ? order.physicalSampleStatus.replace("_", " ").toUpperCase() : "AWAITING SAMPLE"}
+                    </s-badge>
+                  </s-stack>
+
+                  {(!order.physicalSampleStatus || order.physicalSampleStatus === "changes_requested") && (
+                    <s-box padding="base" border="base" borderRadius="base">
+                      <s-stack direction="block" gap="base">
+                        <s-heading>Version {order.physicalSampleVersion + 1}</s-heading>
+                        <s-text tone="subdued">
+                          Send a sample to the customer. When you record this, the order will be placed on hold, and the customer will be notified by email.
+                        </s-text>
+
+                        <ShopifyFileUpload
+                          label="Upload Physical Sample Image/Document"
+                          prefix={`${order.name}-sample-v${order.physicalSampleVersion + 1}`}
+                          onUploaded={(url) => setPhysicalSampleFileUrl(url)}
+                        />
+                        <s-text-field
+                          label="File URL (optional)"
+                          type="url"
+                          placeholder="https://..."
+                          value={physicalSampleFileUrl}
+                          onInput={(event) => setPhysicalSampleFileUrl(event.currentTarget.value)}
+                        />
+                        <s-text-area
+                          label="Note (optional)"
+                          placeholder="Enter a note about this sample"
+                          value={physicalSampleNote}
+                          onInput={(event) => setPhysicalSampleNote(event.currentTarget.value)}
+                        />
+
+                        <s-button
+                          variant="primary"
+                          disabled={busy}
+                          onClick={() => {
+                            const formData = new FormData();
+                            formData.set("intent", "send_physical_sample");
+                            formData.set("fileUrl", physicalSampleFileUrl);
+                            formData.set("note", physicalSampleNote);
+                            submit(formData, { method: "post" });
+                          }}
+                        >
+                          {busy ? "Processing..." : "Send Physical Sample for Review"}
+                        </s-button>
+                      </s-stack>
+                    </s-box>
+                  )}
+
+                  {loaderData.physicalSampleHistory?.length > 0 && (
+                    <s-stack direction="block" gap="small">
+                      <s-heading>Sample History</s-heading>
+                      {loaderData.physicalSampleHistory.map((item, index) => (
+                        <s-box key={item.sampleVersion || index} padding="base" border="base" borderRadius="base">
+                          <s-stack direction="block" gap="small">
+                            <s-heading>Version {item.sampleVersion}</s-heading>
+                            <s-text tone="subdued">Sent at: {formatDate(item.sentAt)} by {item.sentBy}</s-text>
+                            <s-text>Status: <strong>{item.status.toUpperCase()}</strong></s-text>
+                            {item.fileUrl && (
+                              <s-button href={item.fileUrl} target="_blank">View Attached File</s-button>
+                            )}
+                            {item.response && (
+                              <s-text tone="subdued">
+                                {item.status === "changes_requested" ? "Changes requested:" : "Note:"} {item.response}
+                              </s-text>
+                            )}
+                            {item.responseDate && (
+                              <s-text tone="subdued">Responded at: {formatDate(item.responseDate)} by {item.approvedBy}</s-text>
+                            )}
+                          </s-stack>
+                        </s-box>
+                      ))}
+                    </s-stack>
+                  )}
+                </s-stack>
+              </s-section>
+            )}
 
             <s-section heading="Products">
               <s-stack direction="block" gap="base">
@@ -3095,7 +3440,7 @@ export default function ProductionOrderDetailsPage() {
                       </s-banner>
                     )}
 
-                    {order.productionStatus === "production-complete" &&
+                    {(order.productionStatus === "production-complete" || order.productionStatus === "on-hold") &&
                       order.productionApprovalStatus !== "approved" && (
                         <>
                           <s-divider />
