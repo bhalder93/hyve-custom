@@ -4,6 +4,8 @@ import { useLoaderData, useFetcher, useRouteError } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import { quoteStatus as quoteStatusFor } from "../lib/account-quotes.server";
+import { STAFF_QUOTE_LABELS, STAFF_QUOTE_TONES, quoteReference } from "../lib/quote-labels";
 import { AdminTheme, Pill } from "../lib/admin-theme";
 
 /* ==========================================================================
@@ -92,10 +94,10 @@ function getInitials(name) {
    Loader
    ========================================================================== */
 
-export const loader = async ({ request, params }) => {
-  const { admin, session } = await authenticate.admin(request);
-  const shop = session?.shop || "";
 
+export const loader = async ({ request, params }) => {
+  const { admin, session, sessionToken } = await authenticate.admin(request);
+  const shop = session?.shop || "";
   const paramId = params?.id;
   if (!paramId) {
     throw new Response("Draft Order ID is required.", { status: 400 });
@@ -116,6 +118,8 @@ export const loader = async ({ request, params }) => {
           updatedAt
           status
           invoiceUrl
+          invoiceSentAt
+          order { id name }
           tags
           totalPriceSet {
             presentmentMoney {
@@ -146,6 +150,12 @@ export const loader = async ({ request, params }) => {
             displayName
             email
             phone
+          }
+          purchasingEntity {
+            ... on PurchasingCompany {
+              company { name }
+              contact { customer { displayName defaultEmailAddress { emailAddress } defaultPhoneNumber { phoneNumber } } }
+            }
           }
           shippingAddress {
             address1
@@ -213,11 +223,17 @@ export const loader = async ({ request, params }) => {
 
     const quoteStatus = parseQuoteStatus(draftOrder.metafield);
 
+    // Where the quote stands with the buyer, by the same rules and names as
+    // the Quotes list and the dashboard (HYV-165). The pill beside it is
+    // Hyve's own Approve/Reject decision.
+    const listStatus = quoteStatusFor({ ...draftOrder, hyveStatus: draftOrder.metafield });
+
     return {
       quote: {
         ...draftOrder,
         numericId: cleanDraftOrderId(draftOrder.id),
         quoteStatus,
+        listStatus,
       },
       shop,
     };
@@ -233,13 +249,21 @@ export const loader = async ({ request, params }) => {
    ========================================================================== */
 
 export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  const formData = await request.formData();
+  const { admin, sessionToken } = await authenticate.admin(request);  const formData = await request.formData();
   const intent = String(formData.get("intent") || "").trim();
   const draftOrderId = String(formData.get("draftOrderId") || "").trim();
 
   if (!draftOrderId) {
     return { success: false, error: "Missing draft order ID." };
+  }
+
+  // Our own quotation email, with the PDF attached (HYV-166).
+  if (intent === "email_quotation") {
+    const { emailStaffQuote } = await import("../lib/staff-quote-email.server");
+    const result = await emailStaffQuote(admin, draftOrderId);
+    return result.ok
+      ? { success: true, emailed: true, message: `Quotation emailed to ${result.to}.` }
+      : { success: false, error: result.error };
   }
 
   if (intent === "update_status") {
@@ -248,6 +272,13 @@ export const action = async ({ request }) => {
     try {
       if (targetStatus === "accepted" || targetStatus === "rejected") {
         const boolValue = targetStatus === "accepted" ? "true" : "false";
+
+        // A buyer's request can't be checked out until Hyve approves it
+        // (quote-hold): approving releases it, declining keeps it held. Done
+        // first, so a quote never reads approved while checkout still refuses.
+        const { setQuoteHold } = await import("../lib/quote-hold.server");
+        const holdError = await setQuoteHold(admin, draftOrderId, targetStatus !== "accepted");
+        if (holdError) return { success: false, error: holdError };
 
         const setRes = await admin.graphql(
           `#graphql
@@ -293,7 +324,7 @@ export const action = async ({ request }) => {
           draftOrderId,
           targetStatus,
           metafield: updatedMetafield,
-          message: `Quote marked as ${targetStatus === "accepted" ? "Accepted" : "Rejected"}.`,
+          message: `Quote ${targetStatus === "accepted" ? "approved" : "declined"}.`,
         };
       }
 
@@ -321,6 +352,11 @@ export const action = async ({ request }) => {
         );
         const lookupJson = await lookup.json();
         const existing = lookupJson?.data?.draftOrder?.metafield;
+
+        // Back to undecided: a buyer's request is held again until Hyve decides.
+        const { setQuoteHold } = await import("../lib/quote-hold.server");
+        const holdError = await setQuoteHold(admin, draftOrderId, true);
+        if (holdError) return { success: false, error: holdError };
 
         // Nothing stored means it is already awaiting action.
         if (existing?.namespace) {
@@ -361,7 +397,7 @@ export const action = async ({ request }) => {
           draftOrderId,
           targetStatus: "awaiting_action",
           metafield: null,
-          message: "Quote status reset to Awaiting Action.",
+          message: "Hyve's decision cleared.",
         };
       }
 
@@ -407,6 +443,11 @@ export default function QuoteDetailPage() {
 
   useEffect(() => {
     if (!fetcher.data) return;
+
+    if (fetcher.data.emailed) {
+      shopify?.toast?.show?.(fetcher.data.message);
+      return;
+    }
 
     if (fetcher.data.success) {
       const { targetStatus, metafield, message } = fetcher.data;
@@ -477,24 +518,49 @@ export default function QuoteDetailPage() {
 
   const currency = quote.totalPriceSet?.presentmentMoney?.currencyCode || "USD";
   const lines = quote.lineItems?.nodes || [];
-  const customerName = quote.customer?.displayName || quote.customer?.email || "Guest";
+  // A distributor's quote belongs to their company and has no customer on it,
+  // so the company and its contact are named instead of "Guest".
+  const contact = quote.purchasingEntity?.contact?.customer || null;
+  const companyName = quote.purchasingEntity?.company?.name || "";
+  const buyerEmail = quote.customer?.email || contact?.defaultEmailAddress?.emailAddress || "";
+  const buyerPhone = quote.customer?.phone || contact?.defaultPhoneNumber?.phoneNumber || "";
+  const customerName =
+    companyName || quote.customer?.displayName || contact?.displayName || buyerEmail || "Guest";
 
   const address = quote.shippingAddress || quote.billingAddress;
   const addressLines = address
     ? [
-        address.name,
-        address.address1,
-        address.address2,
-        [address.city, address.province, address.zip].filter(Boolean).join(" "),
-        address.country,
-      ].filter(Boolean)
+      address.name,
+      address.address1,
+      address.address2,
+      [address.city, address.province, address.zip].filter(Boolean).join(" "),
+      address.country,
+    ].filter(Boolean)
     : [];
 
   return (
-    <s-page heading={`Quote ${quote.name}`} inlineSize="large">
+    <s-page heading={`Quote ${quoteReference(quote.name)}`} inlineSize="large">
+      <s-link slot="breadcrumb-actions" href="/app/quotes">
+        All quotes
+      </s-link>
+
       <s-button slot="primary-action" href={shopifyAdminUrl} target="_blank" variant="primary">
         Open in Shopify
       </s-button>
+      {/* Our quotation email with the PDF attached, instead of Shopify's
+          "Send invoice", which can't carry the PDF (HYV-166). Not offered
+          once the quote has become an order or been declined. */}
+      {quote.listStatus !== "accepted" && quote.listStatus !== "declined" ? (
+        <s-button
+          slot="secondary-actions"
+          onClick={() => fetcher.submit({ intent: "email_quotation", draftOrderId: quote.id }, { method: "post" })}
+          disabled={fetcher.state !== "idle" || undefined}
+        >
+          {fetcher.state !== "idle" && fetcher.formData?.get("intent") === "email_quotation"
+            ? "Sending…"
+            : "Email quotation"}
+        </s-button>
+      ) : null}
       <s-button slot="secondary-actions" onClick={downloadQuotation} disabled={downloading || undefined}>
         {downloading ? "Preparing PDF…" : "Download quotation"}
       </s-button>
@@ -522,10 +588,18 @@ export default function QuoteDetailPage() {
                       <span style={{ fontSize: "17px", fontWeight: 700, letterSpacing: "-0.01em" }}>
                         {customerName}
                       </span>
-                      <Pill tone={quote.quoteStatus.tone}>{quote.quoteStatus.label}</Pill>
+                      <Pill tone={STAFF_QUOTE_TONES[quote.listStatus] || "info"}>
+                        {STAFF_QUOTE_LABELS[quote.listStatus] || quote.listStatus}
+                      </Pill>
+                      {/* Staff approval is Hyve agreeing the quote, not the buyer
+                          accepting it, so it's "Approved", not "Accepted". A
+                          declined quote already reads Declined in the pill before. */}
+                      {quote.quoteStatus.key === STATUS_KEYS.ACCEPTED ? (
+                        <Pill tone="success">Approved by Hyve</Pill>
+                      ) : null}
                     </div>
                     <p className="hyv-muted" style={{ margin: "3px 0 0" }}>
-                      {quote.customer?.email || "No email on file"} · raised{" "}
+                      {buyerEmail || "No email on file"} · raised{" "}
                       {formatDateTime(quote.createdAt)}
                     </p>
                   </div>
@@ -541,10 +615,13 @@ export default function QuoteDetailPage() {
               </div>
             </div>
 
-            {!decided ? (
+            {/* Only a buyer's request waits on Hyve: it reads Created until
+                staff approve it. A quote sales made, or one from the cart, is
+                already with the buyer whatever the decision says. */}
+            {!decided && quote.listStatus === "created" && (quote.tags || []).includes("awaiting_review") ? (
               <s-banner tone="warning" heading="Waiting on your decision">
                 <s-paragraph>
-                  The buyer sees this quote as awaiting action until you accept or decline it.
+                  The buyer asked for this quote. They see it as Created until you approve or decline it.
                 </s-paragraph>
               </s-banner>
             ) : null}
@@ -577,8 +654,8 @@ export default function QuoteDetailPage() {
                         {lines.map((line) => {
                           const unit = Number(
                             line.discountedUnitPriceSet?.presentmentMoney?.amount ??
-                              line.originalUnitPriceSet?.presentmentMoney?.amount ??
-                              0,
+                            line.originalUnitPriceSet?.presentmentMoney?.amount ??
+                            0,
                           );
                           return (
                             <tr key={line.id}>
@@ -639,11 +716,11 @@ export default function QuoteDetailPage() {
               <div className="hyv-kv">
                 <div className="hyv-kv__item">
                   <div className="hyv-kv__key">Contact email</div>
-                  <div className="hyv-kv__val">{quote.customer?.email || "—"}</div>
+                  <div className="hyv-kv__val">{buyerEmail || "—"}</div>
                 </div>
                 <div className="hyv-kv__item">
                   <div className="hyv-kv__key">Contact phone</div>
-                  <div className="hyv-kv__val">{quote.customer?.phone || "—"}</div>
+                  <div className="hyv-kv__val">{buyerPhone || "—"}</div>
                 </div>
                 <div className="hyv-kv__item">
                   <div className="hyv-kv__key">Last updated</div>
@@ -673,10 +750,10 @@ export default function QuoteDetailPage() {
                   <div className="hyv-panel__title">Decision</div>
                   <p className="hyv-muted" style={{ margin: "3px 0 0" }}>
                     {isAccepted
-                      ? "The buyer sees this quote as accepted and can order from it."
+                      ? "Approved. The buyer sees it as Sent and can confirm it from their portal."
                       : isRejected
                         ? "The buyer sees this quote as declined and is offered a requote."
-                        : "Accepting or declining updates the buyer's portal straight away."}
+                        : "Approving or declining updates the buyer's portal straight away."}
                   </p>
                 </div>
                 <s-stack direction="inline" gap="small-200">
@@ -686,7 +763,7 @@ export default function QuoteDetailPage() {
                     loading={isSubmitting && fetcher.formData?.get("targetStatus") === "accepted"}
                     onClick={() => handleUpdateStatus("accepted")}
                   >
-                    Accept quote
+                    Approve quote
                   </s-button>
                   <s-button
                     tone="critical"

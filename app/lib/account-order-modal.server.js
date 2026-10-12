@@ -24,7 +24,7 @@ import { WHATSAPP_URL, SUPPORT_EMAIL } from "./customer-service.server";
 // (artworkRulesFor): vector only for laser, as on the product page.
 const ARTWORK_MAX_LABEL = MAX_FILE_LABEL;
 
-export function orderModal(order, library = []) {
+export function orderModal(order, library = [], pickupConfig = {}) {
   const status = statusByKey(order.statusKey) || VISIBLE_STATUSES[0];
   const chain = statusChain(order);
   const reachedIndex = chain.findIndex((s) => s.key === order.statusKey);
@@ -63,6 +63,7 @@ export function orderModal(order, library = []) {
             <div class="hyve-modal__col">
               ${productPanel(order)}
               ${shippingPanel(order)}
+              ${pickupPanel(order, pickupConfig)}
               ${order.note ? notePanel(order.note) : ""}
             </div>
           </div>
@@ -228,6 +229,46 @@ function shippingPanel(order) {
             }</div>`
           : ""
       }
+    </section>`;
+}
+
+function pickupPanel(order, pickupConfig) {
+  // Only show this if there are collection details (meaning it was marked Ready for Collection with these inputs)
+  if (!order.collectionReadyDate && !order.collectionCartons && !order.collectionGrossWeight) return "";
+
+  const rows = [
+    ["Ready Date", order.collectionReadyDate],
+    ["Number of Cartons", order.collectionCartons],
+    ["Gross Weight", order.collectionGrossWeight],
+    ["Total CBM", order.collectionCbm],
+  ].filter(([, v]) => v);
+
+  const pickupRows = [];
+  if (pickupConfig && pickupConfig.values) {
+    const v = pickupConfig.values;
+    if (v.pickup_address) pickupRows.push(["Pickup Address", v.pickup_address]);
+    if (v.contact_name) pickupRows.push(["Contact Name", v.contact_name]);
+    if (v.contact_phone) pickupRows.push(["Contact Phone", v.contact_phone]);
+    
+    const hours = [
+      ["Monday", v.monday_hours],
+      ["Tuesday", v.tuesday_hours],
+      ["Wednesday", v.wednesday_hours],
+      ["Thursday", v.thursday_hours],
+      ["Friday", v.friday_hours],
+      ["Saturday", v.saturday_hours],
+      ["Sunday", v.sunday_hours]
+    ].filter(([, h]) => h).map(([d, h]) => `${d}: ${h}`).join("\n");
+    
+    if (hours) pickupRows.push(["Opening Hours", hours]);
+  }
+
+  return `
+    <section class="hyve-modal__panel-box">
+      <h3 class="hyve-modal__panel-title">${icoTruck()} Pickup & Packing Details</h3>
+      ${rows.map(([l, v]) => `<div class="hyve-modal__row"><span>${esc(l)}</span><strong>${esc(v)}</strong></div>`).join("")}
+      ${pickupRows.length ? `<div class="hyve-modal__divider"></div>` : ""}
+      ${pickupRows.map(([l, v]) => `<div class="hyve-modal__row"><span>${esc(l)}</span><strong style="white-space: pre-wrap; text-align: right;">${esc(v)}</strong></div>`).join("")}
     </section>`;
 }
 
@@ -638,8 +679,11 @@ export const MODAL_STYLES = `
   .hyve-modal__line-unit { display: block; font-size: 10.5px; color: var(--hyve-muted); }
   .hyve-modal__line-money strong { font-size: 12.5px; font-weight: 700; }
   .hyve-modal__shipping { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 13px; color: var(--hyve-600, #475569); }
+  /* The amount stays on one line; the rate's name wraps instead. */
+  .hyve-modal__shipping span:last-child { white-space: nowrap; flex-shrink: 0; }
   .hyve-modal__total { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hyve-border); font-size: 12px; color: var(--hyve-500); }
   .hyve-modal__total strong { font-family: var(--hyve-display); font-size: 16px; font-weight: 800; color: var(--hyve-900); }
+  .hyve-modal__divider { height: 1px; background: var(--hyve-border); margin: 8px 0; }
 
   .hyve-modal__row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 12px; }
   .hyve-modal__row span { color: var(--hyve-muted); flex-shrink: 0; }

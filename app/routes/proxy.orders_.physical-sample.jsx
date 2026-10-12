@@ -101,6 +101,14 @@ export const action = async ({ request }) => {
       const ipAddress = (request.headers.get("true-client-ip") || request.headers.get("x-shopify-client-ip") || request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "").split(",")[0].trim();
       const userAgent = String(form.get("client_user_agent") || "").trim() || request.headers.get("user-agent") || "";
 
+      let fileUrl = "";
+      if (order.physicalSampleHistory?.value) {
+        try {
+          const hist = JSON.parse(order.physicalSampleHistory.value);
+          if (hist && hist.length > 0) fileUrl = hist[0].fileUrl || "";
+        } catch (e) {}
+      }
+
       // Add a history item for the transition
       const historyFields = [
         { key: "order_id", value: orderGid },
@@ -108,9 +116,9 @@ export const action = async ({ request }) => {
         { key: "from_status", value: order.productionStatus?.value || "on-hold" },
         { key: "to_status", value: "in-production" },
         { key: "changed_at", value: inProdAt },
-        { key: "changed_by", value: "System" },
+        { key: "changed_by", value: chrome.customer?.name || chrome.customer?.email || "The buyer" },
         { key: "source", value: "CUSTOMER_PORTAL" },
-        { key: "note", value: "Automatically moved to In Production after Physical Sample Approved." },
+        { key: "note", value: `Physical Sample Approved${fileUrl ? `\nIMAGE: ${fileUrl}` : ""}` },
         ...(ipAddress ? [{ key: "ip_address", value: ipAddress }] : []),
         ...(userAgent ? [{ key: "user_agent", value: userAgent }] : [])
       ];
@@ -166,7 +174,7 @@ export const action = async ({ request }) => {
         { key: "from_status", value: order.productionStatus?.value || "" },
         { key: "to_status", value: "on-hold" },
         { key: "changed_at", value: heldAt },
-        { key: "changed_by", value: "System" },
+        { key: "changed_by", value: chrome.customer?.name || chrome.customer?.email || "The buyer" },
         { key: "source", value: "CUSTOMER_PORTAL" },
         { key: "note", value: `Changes requested to Physical Sample: ${message}` },
         ...(ipAddress ? [{ key: "ip_address", value: ipAddress }] : []),

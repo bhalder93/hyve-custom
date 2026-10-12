@@ -37,6 +37,7 @@ export function dashboardPage({
   payment = null,
   recentOrders = [],
   promotions = [],
+  pickupConfig = {},
 } = {}) {
   const firstName = customer?.firstName || customer?.name || "";
 
@@ -82,7 +83,7 @@ export function dashboardPage({
       ${promotionsPanel(promotions)}
       ${NEW_PRODUCTS_PANEL}
     </div>
-    ${recentOrders.map(orderModal).join("")}
+    ${recentOrders.map(order => orderModal(order, [], pickupConfig)).join("")}
     ${MODAL_SCRIPT}`;
 }
 

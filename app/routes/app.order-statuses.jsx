@@ -39,9 +39,9 @@ const HELD_UNTIL = {
   "production-complete": "Shipped or Ready For Collection only once the production photo is approved",
 };
 
-export const loader = async ({ request }) => {
-  await authenticate.admin(request);
 
+export const loader = async ({ request }) => {
+  const { admin, sessionToken } = await authenticate.admin(request);
   const labelOf = (value) => STATUS_OPTIONS.find((status) => status.value === value)?.label || value;
   const emailFor = (value) => {
     if (OTHER_EMAIL[value]) return OTHER_EMAIL[value];

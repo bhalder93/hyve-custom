@@ -69,6 +69,7 @@ export const PRODUCTION_ORDER_FRAGMENT = `#graphql
     rush: metafield(namespace: "$app", key: "rush") { value }
     proofVersion: metafield(namespace: "$app", key: "proof_version") { value }
     proofUrl: metafield(namespace: "$app", key: "proof_url") { value }
+    physicalSampleHistory: metafield(namespace: "$app", key: "physical_sample_history") { value }
     estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
     lineItems(first: 100) {
       nodes {

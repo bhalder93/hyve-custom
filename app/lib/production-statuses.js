@@ -42,6 +42,8 @@ export const STATUS_TRANSITIONS = {
 
   "production-complete": ["shipped", "on-hold"],
 
+  "ready-for-collection": ["delivered", "on-hold"],
+
   shipped: ["delivered", "on-hold"],
 
   delivered: [],
@@ -71,7 +73,11 @@ export function allowedMoves(currentStatus, history = []) {
 
   const heldFrom = history.find((entry) => entry?.toStatus === "on-hold")?.fromStatus || "";
   const step = heldFrom && heldFrom !== "on-hold" && STATUS_TRANSITIONS[heldFrom] ? heldFrom : "proof-sent";
-  return [step, ...STATUS_TRANSITIONS[step].filter((status) => status !== "on-hold")];
+  const moves = [step, ...STATUS_TRANSITIONS[step].filter((status) => status !== "on-hold")];
+  if (step === "production-complete" && !moves.includes("ready-for-collection")) {
+    moves.push("ready-for-collection");
+  }
+  return moves;
 }
 
 /** The statuses that email the buyer when staff set them on the order page. */
@@ -83,13 +89,24 @@ export const CUSTOMER_EMAIL_STATUSES = new Set([
   "ready-for-collection",
 ]);
 
+export const CUSTOMER_ARRANGED_FREIGHT_TAG = "hyve-freight:customer-arranged";
+
 /**
  * True when the buyer arranges the order's freight: the FOB rate was chosen at
  * checkout ("FOB (Freight Arranged Separately)"). Such an order ends at Ready
  * For Collection instead of Shipped, and has no delivery-scan check.
  *
- * @param {{shippingLine?:{title?:string}}} order
+ * @param {{shippingLine?:{title?:string}, tags?:string[]|string}} order
  */
 export function customerArrangesFreight(order) {
-  return /^FOB\b/i.test(String(order?.shippingLine?.title || "").trim());
+  const tags = order?.tags;
+  const hasTag = Array.isArray(tags)
+    ? tags.includes(CUSTOMER_ARRANGED_FREIGHT_TAG)
+    : typeof tags === "string"
+      ? tags.split(",").map((t) => t.trim()).includes(CUSTOMER_ARRANGED_FREIGHT_TAG)
+      : false;
+
+  if (hasTag) return true;
+
+  return /\bFOB\b/i.test(String(order?.shippingLine?.title || "").trim());
 }

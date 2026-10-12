@@ -10,6 +10,7 @@ import {
   useLoaderData,
   useNavigate,
   useRouteError,
+  isRouteErrorResponse,
 } from "react-router";
 
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -561,9 +562,9 @@ async function assignOrUpdateCompanyCatalog(admin, { companyId, catalogId }) {
 /* Loader                                                                     */
 /* ========================================================================== */
 
-export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
 
+export const loader = async ({ request }) => {
+  const { admin, sessionToken } = await authenticate.admin(request);
   const [applications, catalogs] = await Promise.all([
     withAccessState(
       admin,
@@ -586,8 +587,7 @@ export const loader = async ({ request }) => {
 /* ========================================================================== */
 
 export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-
+  const { admin, sessionToken } = await authenticate.admin(request);
   try {
     const formData = await request.formData();
 
@@ -1545,7 +1545,6 @@ export default function DistributorApplicationsPage() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
-
   console.error("[distributors] render failed:", error);
 
   return (

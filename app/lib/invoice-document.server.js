@@ -10,16 +10,29 @@
  *
  * An order without payment terms still gets a document — it was simply paid at
  * checkout rather than on terms, and the buyer may still want the paperwork.
+ *
+ * It is the quotation's family (HYV-155): the same address blocks, product
+ * rows, charge rows and bank account, built by the same functions as the
+ * quote (quote-document.server.js), so the two documents can't drift apart.
  */
-import { ARTWORK_PENDING, formatMoney, formatDate, orderBelongsTo } from "./portal.server";
-import { artworkSupplied } from "./artwork-zones.server";
+import { formatDate, orderBelongsTo } from "./portal.server";
 import { incotermFromShipping } from "./incoterm";
-import { LEGAL_NAME, BUSINESS_REGISTRATION_NUMBER, LEGAL_ADDRESS } from "./legal-entity.server";
+import { bankAccountFor } from "./bank-details.server";
+import {
+  COMPANY_ADDRESS,
+  CURRENCY_COUNTRY,
+  MAILING_ADDRESS,
+  chargeLabel,
+  companyBlock,
+  isChargeLine,
+  isDutyLine,
+  itemRow,
+  mailingBlock,
+} from "./quote-document.server";
 
 const DOCUMENT_QUERY = `#graphql
   query InvoiceDocument($id: ID!) {
     shop {
-      name
       contactEmail
     }
     order(id: $id) {
@@ -27,14 +40,16 @@ const DOCUMENT_QUERY = `#graphql
       name
       createdAt
       poNumber
-      customAttributes { key value }
       presentmentCurrencyCode
-      displayFinancialStatus
-      displayFulfillmentStatus
       # The ship date customer service gives, as on the order (HYV-102).
       estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
-      customer { id }
-      billingAddress { company name address1 address2 city province zip country }
+      customer {
+        id
+        displayName
+        defaultPhoneNumber { phoneNumber }
+      }
+      billingAddress { ${MAILING_ADDRESS} }
+      shippingAddress { ${MAILING_ADDRESS} }
       purchasingEntity {
         ... on PurchasingCompany {
           company {
@@ -42,7 +57,12 @@ const DOCUMENT_QUERY = `#graphql
             name
             taxRegistrationNumber: metafield(namespace: "hyve", key: "tax_registration_number") { value }
           }
-          location { id name }
+          location {
+            id
+            billingAddress { ${COMPANY_ADDRESS} }
+            shippingAddress { ${COMPANY_ADDRESS} }
+            salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
+          }
         }
       }
       lineItems(first: 100) {
@@ -51,7 +71,9 @@ const DOCUMENT_QUERY = `#graphql
           variantTitle
           sku
           quantity
+          image { url }
           customAttributes { key value }
+          variant { selectedOptions { name value } }
           originalUnitPriceSet { presentmentMoney { amount currencyCode } }
           discountedTotalSet { presentmentMoney { amount currencyCode } }
         }
@@ -59,7 +81,6 @@ const DOCUMENT_QUERY = `#graphql
       shippingLine { title }
       subtotalPriceSet { presentmentMoney { amount currencyCode } }
       totalShippingPriceSet { presentmentMoney { amount currencyCode } }
-      totalTaxSet { presentmentMoney { amount currencyCode } }
       totalPriceSet { presentmentMoney { amount currencyCode } }
       totalReceivedSet { presentmentMoney { amount currencyCode } }
       totalOutstandingSet { presentmentMoney { amount currencyCode } }
@@ -70,8 +91,6 @@ const DOCUMENT_QUERY = `#graphql
             issuedAt
             dueAt
             completedAt
-            balanceDue { amount currencyCode }
-            totalBalance { amount currencyCode }
           }
         }
       }
@@ -107,99 +126,93 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
 
   // The currency the buyer paid in (HYV-103). `currencyCode` is the shop's
   // own, which printed an SGD order in USD.
-  const currency = order.presentmentCurrencyCode || order.totalPriceSet?.presentmentMoney?.currencyCode || "";
-  const amount = (set) => Number(set?.presentmentMoney?.amount ?? 0);
-  const outstanding = amount(order.totalOutstandingSet);
+  const currency = order.presentmentCurrencyCode || order.totalPriceSet?.presentmentMoney?.currencyCode || "USD";
+  // The renderer works in cents, as the quotation's does.
+  const cents = (set) => Math.round((Number(set?.presentmentMoney?.amount) || 0) * 100);
+  const outstanding = cents(order.totalOutstandingSet);
   const paid = Boolean(schedule?.completedAt) || outstanding <= 0;
 
   const dueAt = schedule?.dueAt ? new Date(schedule.dueAt) : null;
   const overdue = !paid && dueAt ? dueAt.getTime() < Date.now() : false;
 
+  const company = order.purchasingEntity?.company || null;
+  const location = order.purchasingEntity?.location || null;
+  const contactName = order.customer?.displayName || "";
+  const contactPhone = order.customer?.defaultPhoneNumber?.phoneNumber || "";
+
+  const invoicing =
+    mailingBlock(order.billingAddress) ||
+    companyBlock(location?.billingAddress, company?.name, contactName, contactPhone) ||
+    { name: company?.name || contactName, lines: [], phone: contactPhone };
+  const shipping =
+    mailingBlock(order.shippingAddress) ||
+    companyBlock(location?.shippingAddress, company?.name, contactName, contactPhone) ||
+    null;
+  // The shipping block names its own contact only when it isn't the person
+  // billed, as on the quotation.
+  const shippingContact =
+    shipping && shipping.name && (shipping.name !== invoicing.name || shipping.phone !== invoicing.phone)
+      ? { name: shipping.name, phone: shipping.phone }
+      : null;
+
+  const country =
+    order.billingAddress?.countryCodeV2 ||
+    order.shippingAddress?.countryCodeV2 ||
+    location?.billingAddress?.countryCode ||
+    CURRENCY_COUNTRY[currency] ||
+    "";
+
+  const lines = order.lineItems?.nodes || [];
+  const rows = [
+    ...lines.filter((li) => !isChargeLine(li) && !isDutyLine(li)).map((li) => itemRow(li, cents, { artwork: false })),
+    ...lines.filter(isChargeLine).map((li) => ({
+      kind: "charge",
+      code: li.sku || "",
+      image: "",
+      title: chargeLabel(li),
+      details: [],
+      qty: li.quantity,
+      unit: cents(li.originalUnitPriceSet),
+      total: cents(li.discountedTotalSet),
+    })),
+    ...lines
+      .filter(isDutyLine)
+      .map((li) => ({ ...itemRow(li, cents, { artwork: false }), kind: "charge", code: "", image: "" })),
+  ];
+
   return {
-    shopName: LEGAL_NAME,
-    shopRegistrationNumber: BUSINESS_REGISTRATION_NUMBER,
     shopEmail: body.data.shop?.contactEmail || "",
-    shopAddress: LEGAL_ADDRESS,
 
     reference: order.name,
-    orderName: order.name,
     poNumber: order.poNumber || "",
     currency,
-
-    billTo: billingLines(order, order.purchasingEntity),
-    billToTaxNumber: order.purchasingEntity?.company?.taxRegistrationNumber?.value || "",
+    status: paid ? "PAID" : overdue ? "OVERDUE" : "DUE",
 
     issuedLabel: formatDate(schedule?.issuedAt || order.createdAt),
-    dueLabel: formatDate(schedule?.dueAt) || "on receipt",
+    dueLabel: formatDate(schedule?.dueAt) || "On receipt",
     paidLabel: formatDate(schedule?.completedAt) || formatDate(order.createdAt),
     termsName: order.paymentTerms?.paymentTermsName || "",
     shipDateLabel: formatDate(order.estimatedShipDate?.value),
-    status: paid ? "PAID" : overdue ? "OVERDUE" : "DUE",
-
-    lines: (order.lineItems?.nodes || []).map((li) => ({
-      title: li.title,
-      variantTitle: li.variantTitle || "",
-      sku: li.sku || "",
-      quantity: li.quantity,
-      // K3: the decoration the buyer chose is part of what they are being
-      // billed for, so it belongs on the invoice next to the item.
-      options: decorationOptions(li.customAttributes, order.customAttributes),
-      unitLabel: formatMoney(amount(li.originalUnitPriceSet), currency),
-      totalLabel: formatMoney(amount(li.discountedTotalSet), currency),
-    })),
-
-    subtotalLabel: formatMoney(amount(order.subtotalPriceSet), currency),
-    shippingLabel: formatMoney(amount(order.totalShippingPriceSet), currency),
-    // G9: name the rate rather than just "Shipping", so an FOB Ningbo charge is
-    // identifiable on the invoice instead of hiding inside a generic total.
-    shippingName: order.shippingLine?.title || "Shipping",
     // HYV-140: the term the order ships under, DDP or FOB Ningbo.
     incoterm: incotermFromShipping(order.shippingLine?.title),
-    taxLabel: formatMoney(amount(order.totalTaxSet), currency),
-    totalLabel: formatMoney(amount(order.totalPriceSet), currency),
-    paidAmountLabel: formatMoney(amount(order.totalReceivedSet), currency),
-    outstandingLabel: formatMoney(outstanding, currency),
+    accountManager: location?.salesRep?.value || "",
+
+    invoicing,
+    shipping,
+    shippingContact,
+    billToTaxNumber: company?.taxRegistrationNumber?.value || "",
+
+    rows,
+    subtotal: cents(order.subtotalPriceSet),
+    // G9: name the rate rather than just "Shipping", so the buyer sees which
+    // delivery they chose (FOB or a UPS rate), not a generic total.
+    shippingName: order.shippingLine?.title || "",
+    shippingTotal: cents(order.totalShippingPriceSet),
+    total: cents(order.totalPriceSet),
+    amountPaid: cents(order.totalReceivedSet),
+    outstanding,
+
+    // Where to pay, for an invoice still owed (HYV-151).
+    bank: paid ? null : bankAccountFor(country),
   };
-}
-
-/**
- * The decoration and extras recorded on a line at add-to-cart time.
- *
- * Keys beginning with an underscore are Shopify's convention for a hidden
- * property — ours carry plumbing like `_hyve_setup`, which means nothing to a
- * buyer reading an invoice. An uploaded artwork file is recorded as its link,
- * which reads as noise on paper, so the invoice says the file was supplied.
- */
-function decorationOptions(attributes, orderAttributes) {
-  // Artwork sent after the order is saved on the order, not the line, so a
-  // line placed as "Artwork Pending" or "Design it for me" reads as supplied once it has arrived.
-  const supplied = artworkSupplied(attributes, orderAttributes);
-  return (attributes || [])
-    .filter((attr) => attr?.key && !attr.key.startsWith("_") && attr.value)
-    .map((attr) =>
-      attr.key === "Artwork" &&
-      (attr.value === ARTWORK_PENDING || String(attr.value).trim().toLowerCase() === "design it for me") &&
-      supplied
-        ? "Artwork: file supplied"
-        : `${attr.key}: ${/^https?:\/\//i.test(attr.value) ? "file supplied" : attr.value}`,
-    );
-}
-
-/** Who the invoice is addressed to: the company first, then the postal address. */
-function billingLines(order, entity) {
-  const address = order.billingAddress || {};
-  const company = entity?.company?.name || address.company || "";
-  const location = entity?.location?.name || "";
-
-  return [
-    company,
-    // The location name is only worth showing when it isn't just the company
-    // or the street again — locations are often named after their address.
-    location && location !== company && location !== address.address1 ? location : "",
-    address.name || "",
-    address.address1 || "",
-    address.address2 || "",
-    [address.city, address.province, address.zip].filter(Boolean).join(" "),
-    address.country || "",
-  ].filter(Boolean);
 }

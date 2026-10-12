@@ -15,9 +15,9 @@ import {
  * cart and quote promise and every production due date is counted from; and
  * the artwork deadline (HYV-102), the "by" date on an order waiting for artwork.
  */
+
 export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  // The field list travels with the data: the settings module is server-only,
+  const { admin, sessionToken } = await authenticate.admin(request);  // The field list travels with the data: the settings module is server-only,
   // so the page can't import it directly.
   const settings = COMMERCIAL_SETTINGS.map(({ key, section, kind, optional, name, description }) => ({
     key,
@@ -35,8 +35,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  const form = await request.formData();
+  const { admin, sessionToken } = await authenticate.admin(request);  const form = await request.formData();
   const values = Object.fromEntries(
     COMMERCIAL_SETTINGS.map((setting) => [setting.key, String(form.get(setting.key) ?? "")]),
   );

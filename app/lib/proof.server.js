@@ -182,15 +182,17 @@ async function decide(admin, order, decision, { who, message, where, source, ipA
     source,
     ipAddress,
     userAgent,
-    note: [
-      `${chosen.verb}${version ? ` (version ${version})` : ""} ${where}.`,
-      message ? `"${message}"` : "",
-      chargeable
-        ? `Revision ${version}: beyond the ${INCLUDED_REVISIONS} included revisions, so chargeable.`
-        : "",
-    ]
-      .filter(Boolean)
-      .join("\n"),
+    note: decision === "approve" 
+      ? `Proof Image Approved\nIMAGE: ${order.proofUrl?.value || ""}`
+      : [
+          `${chosen.verb}${version ? ` (version ${version})` : ""} ${where}.`,
+          message ? `"${message}"` : "",
+          chargeable
+            ? `Revision ${version}: beyond the ${INCLUDED_REVISIONS} included revisions, so chargeable.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
     onHoldReason: decision === "changes" ? `Changes requested to Artwork Proof${version ? ` v${version}` : ""}` : "",
   });
   if (!moved.ok) return moved;

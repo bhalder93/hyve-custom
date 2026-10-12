@@ -84,8 +84,9 @@ export function distributorPage({
         </h1>
 
         <p class="hyve-dist__sub">
-          Join the Hyve distributor network for commercial
-          payment terms and exclusive tier pricing.
+          Join the Hyve distributor network for exclusive
+          tier pricing. Get up to Net 30 day terms, subject
+          to credit approval.
         </p>
       </header>
 
@@ -208,8 +209,6 @@ export function distributorPage({
                 class="hyve-dist__input"
                 placeholder="e.g. +65 9123 4567"
                 value="${typed("contactPhone", customer?.phone || "")}"
-                pattern="^\\+?[\\d\\s\\-\\(\\)]+$"
-                title="Please enter a valid phone number."
                 required
                 ${fieldError("contactPhone") ? 'aria-invalid="true"' : ""}
                 aria-describedby="dist-phone-error"
@@ -565,14 +564,14 @@ export function distributorPage({
             <div class="hyve-dist__terms-text">
 
               <h3 class="hyve-dist__terms-title">
-                Request Commercial / Credit Terms
-                (Net 30/60)
+                Request credit terms
+                (up to Net 30, subject to credit approval)
               </h3>
 
               <p class="hyve-dist__terms-sub">
-                Prepayment is standard. Enable this to
-                request custom credit limits and billing
-                accounts.
+                Prepayment is standard. Turn this on to
+                apply for credit terms; Hyve reviews every
+                request before terms are given.
               </p>
 
             </div>
@@ -1297,7 +1296,7 @@ function renderExistingApplicationView(app, customer) {
 
   const termsRequested =
     app.request_credit === "true" || app.request_credit === true
-      ? "Net 30 terms requested"
+      ? "Credit terms requested (subject to approval)"
       : "Prepayment only";
 
   let bannerTitle = "Application Pending Evaluation";
@@ -4269,6 +4268,36 @@ const DISTRIBUTOR_SCRIPT = `
     // On load too: the starting choice used to follow the shopper's cart
     // currency, so a Hong Kong applicant browsing in USD was put down as USD.
     followMarket();
+  }
+
+  // Markets You Sell Into includes the market they're based in, ticked for
+  // them when they pick it. Changing the country moves that tick, unless they
+  // set it themselves; markets they ticked are never touched.
+  if (basedIn) {
+    const marketBox = (name) =>
+      [...document.querySelectorAll('input[name="markets"]')].find((box) => box.value === name);
+    const setMarket = (box, on) => {
+      box.checked = on;
+      box.closest('.hyve-dist__market-pill')?.classList.toggle('is-checked', on);
+    };
+    const ticked = () => [...document.querySelectorAll('input[name="markets"]:checked')];
+    // Only the based-in market ticked: that's the form's own default.
+    let autoTicked = ticked().length === 1 && ticked()[0].value === basedIn.value ? basedIn.value : null;
+    document.querySelectorAll('input[name="markets"]').forEach((box) => {
+      box.addEventListener('change', () => {
+        if (box.value === autoTicked) autoTicked = null;
+      });
+    });
+    basedIn.addEventListener('change', () => {
+      const previous = autoTicked && marketBox(autoTicked);
+      if (previous) setMarket(previous, false);
+      autoTicked = null;
+      const box = marketBox(basedIn.value);
+      if (box && !box.checked) {
+        setMarket(box, true);
+        autoTicked = box.value;
+      }
+    });
   }
 
 })();

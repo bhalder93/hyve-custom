@@ -410,6 +410,89 @@ export async function assignLocationAddress(admin, locationId, address) {
   }
 }
 
+export async function findLikelyCompanyMatches(admin, application) {
+  if (!application) return [];
+
+  const normalizeName = (name) => String(name || "").replace(/[^\w\s]/g, "").replace(/\s+/g, "").toLowerCase();
+  
+  const wantedName = normalizeName(application.company_name);
+  const wantedReg = String(application.registration_number || "").replace(/[\s.\-/]/g, "").toUpperCase();
+  const wantedTax = String(application.tax_registration_number || "").replace(/[\s.\-/]/g, "").toUpperCase();
+  
+  const emailParts = String(application.customer_email || "").split("@");
+  const wantedDomain = emailParts.length === 2 ? emailParts[1].toLowerCase() : null;
+  const commonDomains = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com"];
+  const checkDomain = wantedDomain && !commonDomains.includes(wantedDomain) ? wantedDomain : null;
+
+  try {
+    const response = await admin.graphql(`
+      query {
+        companies(first: 250) {
+          nodes {
+            id
+            name
+            externalId
+            mainContact {
+              customer {
+                email
+              }
+            }
+            locations(first: 1) {
+              nodes {
+                taxRegistrationId
+              }
+            }
+          }
+        }
+      }
+    `);
+    
+    const data = await response.json();
+    const companies = data?.data?.companies?.nodes || [];
+    
+    const matches = [];
+    
+    for (const comp of companies) {
+      let matchReasons = [];
+      
+      if (wantedName && normalizeName(comp.name) === wantedName) {
+        matchReasons.push("Company Name");
+      }
+      
+      const compReg = String(comp.externalId || "").replace(/[\s.\-/]/g, "").toUpperCase();
+      if (wantedReg && wantedReg !== "NA" && wantedReg !== "NIL" && wantedReg !== "NONE" && compReg === wantedReg) {
+        matchReasons.push("Registration Number");
+      }
+      
+      const compTax = String(comp.locations?.nodes?.[0]?.taxRegistrationId || "").replace(/[\s.\-/]/g, "").toUpperCase();
+      if (wantedTax && wantedTax !== "NA" && wantedTax !== "NIL" && wantedTax !== "NONE" && compTax === wantedTax) {
+        matchReasons.push("Tax ID");
+      }
+      
+      if (checkDomain && comp.mainContact?.customer?.email) {
+        const compEmailParts = comp.mainContact.customer.email.split("@");
+        if (compEmailParts.length === 2 && compEmailParts[1].toLowerCase() === checkDomain) {
+          matchReasons.push("Email Domain");
+        }
+      }
+      
+      if (matchReasons.length > 0) {
+        matches.push({
+          id: comp.id,
+          name: comp.name,
+          reasons: matchReasons
+        });
+      }
+    }
+    
+    return matches;
+  } catch (error) {
+    console.error("Error finding likely company matches:", error);
+    return [];
+  }
+}
+
+
 export async function approveAndCreateB2BCustomer(admin, application, options = {}) {
   if (!admin || !application) {
     return { error: "Missing admin client or application data" };
@@ -523,7 +606,7 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
       const updateInput = {
         id: customerGid,
         tags: mergedTags,
-        note: `Approved B2B Distributor. Company: ${companyName}. UEN: ${registrationNumber || "—"}. Credit: ${requestCredit ? "Net 30/60" : "Prepayment"}. Volume: ${expectedVolume || "—"}`,
+        note: `Approved B2B Distributor. Company: ${companyName}. UEN: ${registrationNumber || "—"}. Credit: ${requestCredit ? "Credit terms requested" : "Prepayment"}. Volume: ${expectedVolume || "—"}`,
       };
       // Their own address book is left alone: a distributor's orders take their
       // address from the company location, and this used to write the whole
@@ -570,7 +653,7 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
         firstName,
         lastName,
         tags: distributorTags,
-        note: `Approved B2B Distributor Partner.\nCompany: ${companyName}\nUEN: ${registrationNumber || "—"}\nCredit: ${requestCredit ? "Net 30/60 Requested" : "Prepayment"}\nExpected Volume: ${expectedVolume || "—"}`,
+        note: `Approved B2B Distributor Partner.\nCompany: ${companyName}\nUEN: ${registrationNumber || "—"}\nCredit: ${requestCredit ? "Credit terms requested" : "Prepayment"}\nExpected Volume: ${expectedVolume || "—"}`,
       };
 
       if (cleanPhone.length >= 7 && cleanPhone.startsWith("+")) {
@@ -683,26 +766,38 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
   const shippingAddressInput = parseAddressDetails(addressSource, country);
 
   try {
-    // Reuse a company of the same name if one exists, so re-approving doesn't
-    // split one business across two companies.
-    // Only when it's the same business: no registration number on it yet, or
-    // the same one. Two businesses can share a name ("ABC Trading" in two
-    // markets), and reusing would overwrite the first one's details.
-    const existing = await getCompanyDetails(admin, null, companyName);
-    const existingId = String(cleanExternalId(existing?.externalId) || "").toLowerCase();
-    const sameBusiness =
-      !existingId || existingId === String(cleanExternalId(registrationNumber) || "").toLowerCase();
-    if (existing?.id && sameBusiness) {
+    if (options.linkCompanyId && options.linkCompanyId !== "new") {
       reusedCompany = true;
-      console.log("[b2b] Reusing existing company:", existing.id);
-      fullCompany = existing;
-      companyGid = existing.id;
+      console.log("[b2b] Linking to explicitly chosen existing company:", options.linkCompanyId);
+      const existing = await getCompanyDetails(admin, options.linkCompanyId);
+      if (existing?.id) {
+        fullCompany = existing;
+        companyGid = existing.id;
+      } else {
+        return { error: "The chosen company to link does not exist." };
+      }
+    } else if (options.linkCompanyId !== "new") {
+      // Reuse a company of the same name if one exists, so re-approving doesn't
+      // split one business across two companies.
+      // Only when it's the same business: no registration number on it yet, or
+      // the same one. Two businesses can share a name ("ABC Trading" in two
+      // markets), and reusing would overwrite the first one's details.
+      const existing = await getCompanyDetails(admin, null, companyName);
+      const existingId = String(cleanExternalId(existing?.externalId) || "").toLowerCase();
+      const sameBusiness =
+        !existingId || existingId === String(cleanExternalId(registrationNumber) || "").toLowerCase();
+      if (existing?.id && sameBusiness) {
+        reusedCompany = true;
+        console.log("[b2b] Reusing existing company:", existing.id);
+        fullCompany = existing;
+        companyGid = existing.id;
+      }
     }
 
     const companyNote = `Distributor Partner Company.
 UEN / Registration: ${registrationNumber || "—"}
 Annual Volume: ${expectedVolume || "—"}
-Credit Terms: ${requestCredit ? "Net 30/60 Terms Requested" : "Prepayment"}
+Credit Terms: ${requestCredit ? "Credit terms requested" : "Prepayment"}
 Website: ${application.company_website || "—"}
 Contact: ${contactName || "—"} (${email})
 Address: ${address || "—"}`;

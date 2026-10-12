@@ -11,7 +11,7 @@ import {
   useParams,
 
   useNavigate,
-
+  isRouteErrorResponse,
 } from "react-router";
 
 import { useAppBridge } from "@shopify/app-bridge-react";
@@ -49,6 +49,7 @@ import {
   getCompanyDetails,
 
   getPaymentTermsTemplates,
+  findLikelyCompanyMatches,
 
 } from "../lib/distributor-b2b.server";
 import {
@@ -577,10 +578,10 @@ async function removeCompanyCatalogs({ admin, companyId }) {
 
 
 
+
 export const loader = async ({ request, params }) => {
 
-  const { admin, session } = await authenticate.admin(request);
-
+  const { admin, session, sessionToken } = await authenticate.admin(request);
   const shop = session?.shop || "";
 
 
@@ -639,18 +640,18 @@ export const loader = async ({ request, params }) => {
 
 
 
-  const [paymentTermsTemplates, catalogs, taxDuplicates] = await Promise.all([
+  const [paymentTermsTemplates, catalogs, taxDuplicates, likelyCompanyMatches] = await Promise.all([
     getPaymentTermsTemplates(admin),
     fetchAllCatalogs(admin),
     // Other applications with the same tax number, shown as a warning.
     applicationsWithTaxNumber(admin, application?.tax_registration_number, application?.id),
+    // Likely existing Shopify companies that match the applicant details
+    findLikelyCompanyMatches(admin, application),
   ]);
 
   const [assignedCatalog] = [...(await tierCatalogsOnCompany(admin, company?.id, catalogs))].map(
     ([catalogId, entry]) => ({ id: catalogId, title: entry.title }),
   );
-
-
 
   const addressDetails = normalizeRegisteredAddress(application);
 
@@ -658,8 +659,6 @@ export const loader = async ({ request, params }) => {
     addressDetails.country,
     countryToCode(application?.country_based, "SG"),
   );
-
-
 
   return {
 
@@ -678,6 +677,7 @@ export const loader = async ({ request, params }) => {
     addressDetails,
     shop,
     taxDuplicates,
+    likelyCompanyMatches,
   };
 
 };
@@ -696,8 +696,7 @@ export const action = async ({ request, params }) => {
 
   try {
 
-    const { admin } = await authenticate.admin(request);
-
+    const { admin, sessionToken } = await authenticate.admin(request);
     const formData = await request.formData();
 
 
@@ -1038,6 +1037,8 @@ export const action = async ({ request, params }) => {
 
     const shippingCountry = String(formData.get("shippingCountry") || "").trim();
 
+    const linkCompanyId = String(formData.get("linkCompanyId") || "").trim();
+
     const shippingProvince = String(formData.get("shippingProvince") || "").trim();
 
     const shippingProvinceCode = String(
@@ -1280,7 +1281,7 @@ export const action = async ({ request, params }) => {
 
         { ...application, registration_number: registrationNumber },
 
-        { shippingAddress: structuredAddress, phone: shippingPhone },
+        { shippingAddress: structuredAddress, phone: shippingPhone, linkCompanyId: linkCompanyId || null },
 
       );
 
@@ -1487,6 +1488,11 @@ export const action = async ({ request, params }) => {
     if (status === APPLICATION_STATUSES.REJECTED) {
 
       updates.rejection_message = rejectionMessage;
+
+      // A declined applicant is a retail customer again: the distributor tags
+      // a failed approval left (or any others) come off, unless they're a
+      // contact on a company and so a distributor through it (HYV-143).
+      await removeDistributorTagsWithoutCompany(admin, application.customer_id, "all");
 
 
     }
@@ -1897,6 +1903,7 @@ export default function DistributorDetailPage() {
     addressDetails = {},
     shop = "",
     taxDuplicates = [],
+    likelyCompanyMatches = [],
   } = useLoaderData();
 
   const params = useParams();
@@ -2401,6 +2408,8 @@ export default function DistributorDetailPage() {
 
   const [catalogChangeId, setCatalogChangeId] = useState(assignedCatalogId || "");
 
+  const [linkToCompanyId, setLinkToCompanyId] = useState("");
+
   // The loader runs again after every action, so the assigned catalog follows
   // it: approving with a catalog chosen used to leave this panel on "No
   // catalog" until the page was reloaded.
@@ -2431,6 +2440,9 @@ export default function DistributorDetailPage() {
     salesRepEmail,
     salesRepPhone,
   });
+  if (likelyCompanyMatches.length > 0 && !linkToCompanyId) {
+    missingForApproval.push("a company linking decision");
+  }
 
   // Price Tier Catalog is optional during approval.
   const approvalComplete = missingForApproval.length === 0;
@@ -2463,6 +2475,42 @@ export default function DistributorDetailPage() {
 
   }, [application?.contact_person, application?.company_name]);
 
+  const emailWarningMemo = useMemo(() => {
+    if (!application?.customer_email || !application?.company_name) return null;
+    
+    const emailParts = application.customer_email.split('@');
+    if (emailParts.length !== 2) return null;
+    
+    const domain = emailParts[1].toLowerCase();
+    const domainName = domain.split('.')[0];
+    const companyNameClean = application.company_name.replace(/[^\w]/g, '').toLowerCase();
+    
+    const commonDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'aol.com', 'protonmail.com'];
+    
+    if (commonDomains.includes(domain)) {
+       return `Applicant is using a generic email domain (${domain}). Please verify their affiliation with ${application.company_name}.`;
+    }
+    
+    let hasMatch = false;
+    if (domainName.length < 3) {
+      hasMatch = companyNameClean.includes(domainName) || domainName.includes(companyNameClean);
+    } else {
+      for (let i = 0; i <= domainName.length - 3; i++) {
+         const substr = domainName.substring(i, i + 3);
+         if (companyNameClean.includes(substr)) {
+            hasMatch = true;
+            break;
+         }
+      }
+    }
+    
+    if (!hasMatch) {
+       return `The email domain (${domain}) does not appear to match the company name (${application.company_name}). Please verify their affiliation.`;
+    }
+    
+    return null;
+  }, [application?.customer_email, application?.company_name]);
+
 
 
   const handleApprove = () => {
@@ -2486,6 +2534,7 @@ export default function DistributorDetailPage() {
         status: APPLICATION_STATUSES.APPROVED,
 
         paymentTermsTemplateId: selectedPaymentTerms,
+        linkCompanyId: linkToCompanyId,
 
         shippingAddress1,
 
@@ -3193,7 +3242,7 @@ export default function DistributorDetailPage() {
 
                       {hasCreditTerms ? (
 
-                        <s-badge tone="info">Net 30/60 Terms Requested</s-badge>
+                        <s-badge tone="info">Credit terms requested</s-badge>
 
                       ) : (
 
@@ -3676,6 +3725,12 @@ export default function DistributorDetailPage() {
                     </s-stack>
                   </s-banner>
                 )}
+                
+                {isPending && emailWarningMemo && (
+                  <s-banner tone="warning" heading="Suspicious Email Domain">
+                    <s-text>{emailWarningMemo}</s-text>
+                  </s-banner>
+                )}
 
                 {isPending ? (
 
@@ -3718,6 +3773,33 @@ export default function DistributorDetailPage() {
                     {selectedDecision === "approve" ? (
 
                       <s-stack direction="block" gap="base">
+
+                        {likelyCompanyMatches.length > 0 && (
+                          <s-banner tone="warning" heading="Likely Existing Company Matches Found">
+                            <s-stack direction="block" gap="small">
+                              <s-text>
+                                There are existing Shopify Companies that match this applicant's details. You can link this application to an existing company to prevent duplicates.
+                              </s-text>
+                              <s-choice-list
+                                name="linkCompanyId"
+                                label="Link to existing company"
+                                labelAccessibilityVisibility="exclusive"
+                                values={[linkToCompanyId]}
+                                onInput={(e) => {
+                                  const val = e?.currentTarget?.values?.[0] || e?.target?.value || "";
+                                  setLinkToCompanyId(val);
+                                }}
+                              >
+                                {likelyCompanyMatches.map((match) => (
+                                  <s-choice key={match.id} value={match.id} helpText={`Matched on: ${match.reasons.join(", ")}`}>
+                                    Link to {match.name}
+                                  </s-choice>
+                                ))}
+                                <s-choice value="new">Do not link (create a new company)</s-choice>
+                              </s-choice-list>
+                            </s-stack>
+                          </s-banner>
+                        )}
 
                         {/* Payment Terms Dropdown as per Shopify */}
 
@@ -4356,11 +4438,7 @@ export default function DistributorDetailPage() {
 
 
 export function ErrorBoundary() {
-
   const error = useRouteError();
-
-
-
   const errorMessage =
 
     error?.data ||

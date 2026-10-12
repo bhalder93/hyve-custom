@@ -280,9 +280,9 @@ async function createDefaultSlaRules(admin) {
   return created;
 }
 
-export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
 
+export const loader = async ({ request }) => {
+  const { admin, sessionToken } = await authenticate.admin(request);
   try {
     let rules = await getSlaRules(admin);
 
@@ -347,8 +347,7 @@ function validateRule(rule) {
 
 export const action = async ({ request }) => {
   console.log("Action Reached.....");
-  const { admin } = await authenticate.admin(request);
-
+  const { admin, sessionToken } = await authenticate.admin(request);
   try {
     // Parse the JSON payload instead of formData
     const data = await request.json();

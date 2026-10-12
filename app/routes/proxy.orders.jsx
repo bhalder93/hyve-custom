@@ -11,6 +11,7 @@ import {
 } from "../lib/account-orders.server";
 import { listArtwork, artworkOwnerGid } from "../lib/artwork.server";
 import { signedOutPage } from "../lib/account-signed-out.server";
+import { loadPickupConfig } from "../lib/pickup-config.server";
 
 /**
  * Orders list.
@@ -27,10 +28,8 @@ export const loader = async ({ request }) => {
     const customerId = url.searchParams.get("logged_in_customer_id");
     if (!customerId) return liquid(signedOutPage("/apps/account/orders"));
 
-    const { customer, isDistributor, terms, orderNodes, reviewDraftIds, awaitingQuotes, failed } = await loadAccount(
-      admin,
-      customerId,
-    );
+    const { customer, isDistributor, applicationPending, terms, orderNodes, reviewDraftIds, awaitingQuotes, failed } =
+      await loadAccount(admin, customerId);
     if (failed) {
       return liquid(accountShell({ active: "orders", main: errorState(), customer }));
     }
@@ -54,18 +53,23 @@ export const loader = async ({ request }) => {
         ).files
       : [];
 
+    const pickupConfig = await loadPickupConfig(admin);
+
     return liquid(
       accountShell({
         active: "orders",
         main: ordersPage({
           orders,
           library,
+          pickupConfig,
           showDistributorPromo: !isDistributor,
+          applicationPending,
           notice: url.searchParams.get("notice") || "",
           error: url.searchParams.get("error") || "",
         }),
         customer,
         isDistributor,
+        applicationPending,
         counts: { orders: awaitingActionCount(orders), quotes: awaitingQuotes },
         terms,
       }),

@@ -713,6 +713,14 @@ export async function sendProofSentEmail({
         </div>
       </div>
 
+      ${/[.](jpg|jpeg|png|webp|gif|bmp)$/i.test((proofUrl || "").split("?")[0].split("#")[0].trim()) ? `
+        <div style="margin:22px 0;">
+          <a href="${escapeHtml(proofUrl)}" target="_blank" style="display: block;">
+            <img src="${escapeHtml(proofUrl)}" alt="Artwork Proof" style="max-width: 100%; max-height: 500px; border-radius: 8px; border: 1px solid #e2e8f0; display: block;" />
+          </a>
+        </div>
+      ` : ''}
+
       <div style="margin:22px 0;">
         <a
           href="${escapeHtml(proofUrl)}"
@@ -1060,6 +1068,8 @@ export async function sendPhysicalSampleEmail({
   sampleVersion,
   orderId,
   fileUrl,
+  approveUrl,
+  changesUrl,
 }) {
   const html = customerLayout({
     title: "Physical Sample Ready For Review",
@@ -1078,33 +1088,45 @@ export async function sendPhysicalSampleEmail({
       >
         <div style="font-size:15px; line-height:1.6; color:${BRAND.primaryText};">
           <strong>Action required:</strong>
-          Your Physical Sample has been prepared. Please review it and provide your decision.
+          Please review your Physical Sample, then approve it or request changes with the buttons below.
+          No sign-in needed.
         </div>
       </div>
 
-      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
-        A physical sample for your order is now ready for your review. Please visit your customer portal to approve it or request changes.
-      </p>
+      ${/[.](jpg|jpeg|png|webp|gif|bmp)$/i.test((fileUrl || "").split("?")[0].split("#")[0].trim()) ? `
+        <div style="margin:22px 0;">
+          <a href="${escapeHtml(fileUrl)}" target="_blank" style="display: block;">
+            <img src="${escapeHtml(fileUrl)}" alt="Physical Sample" style="max-width: 100%; max-height: 500px; border-radius: 8px; border: 1px solid #e2e8f0; display: block;" />
+          </a>
+        </div>
+      ` : ''}
 
-      ${fileUrl ? `
       <div style="margin:22px 0;">
         <a
           href="${escapeHtml(fileUrl)}"
           style="
             display:inline-block;
             padding:14px 22px;
-            background:#f1f5f9;
-            color:#0f172a;
+            background:#0f172a;
+            color:#fff;
             text-decoration:none;
             border-radius:10px;
             font-size:14px;
             font-weight:700;
           "
+          target="_blank"
+          rel="noopener"
         >
-          View Sample Images/Documents
+          View Physical Sample Photos/Docs
         </a>
       </div>
-      ` : ""}
+
+      ${decisionButtons(approveUrl, changesUrl)}
+
+      <p style="margin:0; line-height:1.7; font-size:15px;">
+        <strong>Physical Sample version:</strong>
+        ${escapeHtml(sampleVersion || "1")}
+      </p>
 
       <div style="margin:22px 0;">
         <a
@@ -1152,6 +1174,8 @@ export async function sendReadyForCollectionEmail({
   orderDate,
   lineItems = [],
   orderUrl,
+  collectionDetails = {},
+  pickupConfig = {},
 }) {
   const html = customerLayout({
     title: customerStatusLabel("ready-for-collection"),
@@ -1174,6 +1198,47 @@ export async function sendReadyForCollectionEmail({
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
         As freight for this order is customer-arranged, please coordinate collection with your nominated carrier.
       </p>
+
+      <div style="margin: 20px 0; padding: 16px; background-color: #f6f6f7; border-radius: 8px;">
+        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 16px; color: ${BRAND.primaryText};">Collection Details</h3>
+        <table style="width: 100%; font-size: 14px; color: ${BRAND.primaryText}; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 4px 0; width: 40%; font-weight: 600;">Ready Date</td>
+            <td style="padding: 4px 0;">${collectionDetails.readyDate || "—"}</td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0; font-weight: 600;">Number of Cartons</td>
+            <td style="padding: 4px 0;">${collectionDetails.numberOfCartons || "—"}</td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0; font-weight: 600;">Gross Weight</td>
+            <td style="padding: 4px 0;">${collectionDetails.grossWeight || "—"} Kg</td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0; font-weight: 600;">CBM</td>
+            <td style="padding: 4px 0;">${collectionDetails.cbm || "—"}</td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="margin: 20px 0; padding: 16px; background-color: #f6f6f7; border-radius: 8px;">
+        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 16px; color: ${BRAND.primaryText};">Pickup Location</h3>
+        <div style="font-size: 14px; color: ${BRAND.primaryText}; line-height: 1.5;">
+          ${pickupConfig.pickup_address ? `<p style="margin: 0 0 8px;"><strong>Address:</strong><br/>${pickupConfig.pickup_address.replace(/\n/g, '<br/>')}</p>` : ''}
+          ${pickupConfig.contact_name ? `<p style="margin: 0 0 8px;"><strong>Contact:</strong> ${pickupConfig.contact_name} ${pickupConfig.contact_phone ? `(${pickupConfig.contact_phone})` : ''}</p>` : ''}
+          <p style="margin: 0 0 4px;"><strong>Opening Hours:</strong></p>
+          <ul style="margin: 0; padding-left: 20px; color: ${BRAND.secondaryText};">
+            ${['monday_hours', 'tuesday_hours', 'wednesday_hours', 'thursday_hours', 'friday_hours', 'saturday_hours', 'sunday_hours'].map(day => {
+      const val = pickupConfig[day];
+      if (val) {
+        const dayName = day.split('_')[0].charAt(0).toUpperCase() + day.split('_')[0].slice(1);
+        return `<li>${dayName}: ${val}</li>`;
+      }
+      return '';
+    }).join('')}
+          </ul>
+        </div>
+      </div>
 
       <p style="margin:0; line-height:1.7; font-size:15px;">
         If your carrier needs collection details or assistance, please contact our customer service team.
@@ -1436,4 +1501,4 @@ export async function sendEstimatedShipDateEmail({
   });
 }
 
-/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */

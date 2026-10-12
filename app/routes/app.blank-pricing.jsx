@@ -16,11 +16,11 @@ import {
  * product's `hyve.blank_pricing` metafield, which Tier Prices then works from.
  * Preview first; Fill writes.
  */
+
 const SOURCE_TITLE = "Test B2B Catalog";
 
 export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  // The page can't import the server module, so the metafield's name travels with the data.
+  const { admin, sessionToken } = await authenticate.admin(request);  // The page can't import the server module, so the metafield's name travels with the data.
   const field = `${LADDER_NAMESPACE}.${LADDER_KEY}`;
   try {
     const [definition, catalogs, ladders] = await Promise.all([
@@ -37,8 +37,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  const form = await request.formData();
+  const { admin, sessionToken } = await authenticate.admin(request);  const form = await request.formData();
   try {
     return {
       ok: true,

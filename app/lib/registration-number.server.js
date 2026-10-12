@@ -80,7 +80,11 @@ const DISTRIBUTOR_TAGS = ["b2b", "distributor", "wholesale"];
  * approval added come off, and someone who is a contact on any company keeps
  * them.
  *
- * @param {string[]} added the tags the approval added
+ * On a decline all three come off (pass "all"): a declined applicant is a
+ * retail customer, whoever tagged them (HYV-143). Anyone who is a contact on
+ * a company keeps them either way, since they're a distributor through it.
+ *
+ * @param {string[]|"all"} added the tags the approval added, or "all"
  */
 export async function removeDistributorTagsWithoutCompany(admin, customerId, added = []) {
   const numeric = String(customerId || "").replace(/\D/g, "");
@@ -100,7 +104,9 @@ export async function removeDistributorTagsWithoutCompany(admin, customerId, add
     );
     const customer = (await response.json())?.data?.customer;
     if (!customer || customer.companyContactProfiles?.length) return;
-    const tags = DISTRIBUTOR_TAGS.filter((tag) => added.includes(tag) && (customer.tags || []).includes(tag));
+    const tags = DISTRIBUTOR_TAGS.filter(
+      (tag) => (added === "all" || added.includes(tag)) && (customer.tags || []).includes(tag),
+    );
     if (!tags.length) return;
     await admin.graphql(
       `#graphql

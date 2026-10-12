@@ -74,13 +74,23 @@ function linkQuery(params, decision) {
 function decisionForm(order, params) {
   const version = order.proofVersion?.value;
   const proofUrl = order.proofUrl?.value;
+  const isImage = proofUrl ? /[.](jpg|jpeg|png|webp|gif|bmp)$/i.test(proofUrl.split("?")[0].split("#")[0].trim()) : false;
 
   return `
     <h1 class="hyve-proof__title">Artwork Proof Decision</h1>
     <p class="hyve-proof__meta">Order ${esc(order.name)}${version ? ` · Artwork Proof version ${esc(version)}` : ""}</p>
-    ${proofUrl ? `<a class="hyve-proof__view" href="${esc(proofUrl)}" target="_blank" rel="noopener">View proof</a>` : ""}
+    
+    ${isImage ? `
+      <div style="margin-top: 16px; margin-bottom: 8px;">
+        <a href="${esc(proofUrl)}" target="_blank" style="display: block;">
+          <img src="${esc(proofUrl)}" alt="Artwork Proof" style="max-width: 100%; max-height: 500px; border-radius: 8px; border: 1px solid var(--hyve-border-strong); display: block; margin: 0 auto;" />
+        </a>
+      </div>
+    ` : ""}
+    
+    ${proofUrl ? `<a class="hyve-proof__view" style="display: inline-block; margin-top: 8px;" href="${esc(proofUrl)}" target="_blank" rel="noopener">View full Artwork Proof</a>` : ""}
 
-    <p class="hyve-proof__text" style="margin-top: 12px; margin-bottom: 24px;">Please check spelling, colours, size and placement carefully before deciding.</p>
+    <p class="hyve-proof__text" style="margin-top: 16px; margin-bottom: 24px;">Please check spelling, colours, size and placement carefully before deciding.</p>
 
     <form method="post" action="${esc(linkQuery(params))}" class="hyve-proof__form" style="padding: 20px; background: #f9fafb; border: 1px solid var(--hyve-border-strong); border-radius: 12px; margin-bottom: 24px;">
       <input type="hidden" name="decision" value="approve">

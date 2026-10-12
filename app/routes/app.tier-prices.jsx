@@ -18,9 +18,9 @@ import {
  * from Shopify Flow (/api/tier-prices) and on demand here. Either way the
  * update runs in the background and the page shows the last run.
  */
+
 export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  try {
+  const { admin, sessionToken } = await authenticate.admin(request);  try {
     const [catalogs, ladders, lastRun] = await Promise.all([
       listCompanyCatalogs(admin),
       ladderSummary(admin),
@@ -43,8 +43,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  const form = await request.formData();
+  const { admin, sessionToken } = await authenticate.admin(request);  const form = await request.formData();
   const catalogIds = form.getAll("catalogId").map(String);
   if (!catalogIds.length) return { ok: false, error: "Choose at least one catalog." };
   return startInBackground(admin, { catalogIds, trigger: "manual" })

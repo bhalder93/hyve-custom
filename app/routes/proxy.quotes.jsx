@@ -10,8 +10,9 @@ import {
   expiredQuoteToRow,
   quotesPage,
 } from "../lib/account-quotes.server";
-import { purchasingCompanyFor, purchasingEntity } from "../lib/purchasing-company.server";
+import { locationPaymentTerms, purchasingCompanyFor, purchasingEntity } from "../lib/purchasing-company.server";
 import { notifyQuoteRaised } from "../lib/quote-notification.server";
+import { HOLD_CUSTOM_ATTRIBUTE } from "../lib/quote-hold.server";
 
 const ADMIN_TIMEOUT_MS = 4500;
 
@@ -72,7 +73,7 @@ export const loader = async ({ request }) => {
     const chrome = await portalChrome(admin, customerId);
     if (!chrome.isDistributor) {
       return liquid(
-        accountShell({ active: "quotes", main: distributorOnly("Quotes"), ...chrome }),
+        accountShell({ active: "quotes", main: distributorOnly("Quotes", chrome), ...chrome }),
       );
     }
     const notice = url.searchParams.get("notice");
@@ -191,6 +192,13 @@ export const action = async ({ request }) => {
             // `storefront-quote` is what the admin Quotes screen filters on;
             // without it a portal request never reaches the staff queue.
             tags: ["storefront-quote", "quote", "b2b_quote", "awaiting_review"],
+            // Checkout refuses it until Hyve approves the request (quote-hold).
+            customAttributes: [HOLD_CUSTOM_ATTRIBUTE],
+            // The company's own terms, so once approved a Net 30 buyer isn't
+            // asked to pay upfront.
+            ...(await locationPaymentTerms(admin, company?.companyLocationId).then((terms) =>
+              terms ? { paymentTerms: terms } : {},
+            )),
             lineItems: [
               {
                 title: items,

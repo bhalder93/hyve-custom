@@ -110,6 +110,10 @@ export function mapOrders(nodes = []) {
       productionPhotoUrl: node?.productionPhotoUrl?.value || "",
       productionApprovalStatus: node?.productionApprovalStatus?.value || "",
       productionPhotoVersion: node?.productionPhotoVersion?.value || "",
+      collectionReadyDate: node?.collectionReadyDate?.value || "",
+      collectionCartons: node?.collectionCartons?.value || "",
+      collectionGrossWeight: node?.collectionGrossWeight?.value || "",
+      collectionCbm: node?.collectionCbm?.value || "",
       note: node?.note || "",
       shippingAddress: node?.shippingAddress || null,
       shippingMethod: node?.shippingLine?.title || "",
@@ -264,7 +268,15 @@ export function awaitingActionCount(orders = []) {
  * @param {Array<object>} opts.orders
  * @param {boolean} [opts.showDistributorPromo]  only for non-distributor accounts
  */
-export function ordersPage({ orders = [], library = [], showDistributorPromo = false, notice = "", error = "" } = {}) {
+export function ordersPage({
+  orders = [],
+  library = [],
+  pickupConfig = {},
+  showDistributorPromo = false,
+  applicationPending = false,
+  notice = "",
+  error = "",
+} = {}) {
   // Ready For Collection is a filter only while an order is at it, so a buyer
   // who never collects keeps the six.
   const collecting = orders.some((o) => o.statusKey === COLLECTION_STATUS.key);
@@ -284,7 +296,7 @@ export function ordersPage({ orders = [], library = [], showDistributorPromo = f
     : `<div class="hyve-ord__empty">You have not placed any orders yet.</div>`;
 
   // One modal per order, rendered alongside the list and toggled client-side.
-  const modals = orders.map((order) => orderModal(order, library)).join("");
+  const modals = orders.map((order) => orderModal(order, library, pickupConfig)).join("");
 
   return `
     ${ORDERS_STYLES}
@@ -304,7 +316,7 @@ export function ordersPage({ orders = [], library = [], showDistributorPromo = f
           <div class="hyve-ord__tabs" role="group" aria-label="Filter orders by status">${tabs}</div>
         </div>
 
-        ${showDistributorPromo ? promoCard() : ""}
+        ${showDistributorPromo ? (applicationPending ? pendingCard() : promoCard()) : ""}
         ${list}
       </div>
     </div>
@@ -447,6 +459,22 @@ function action(href, icon, label, variant = "ghost") {
   return `<a class="hyve-ord__btn hyve-ord__btn--${variant}" href="${esc(href)}">${icon}<span>${esc(label)}</span></a>`;
 }
 
+/** In place of the promo once they've applied: no second application. */
+function pendingCard() {
+  return `
+    <section class="hyve-promo">
+      <span class="hyve-promo__icon">${icoAward()}</span>
+      <div class="hyve-promo__body">
+        <h2 class="hyve-promo__title">
+          Your distributor application is under review
+          <span class="hyve-promo__tag">UNDER REVIEW</span>
+        </h2>
+        <p class="hyve-promo__sub">Thanks for applying. Hyve is checking your details, and we'll email you as soon as it's decided. Tier pricing and your account features open up once it's approved.</p>
+      </div>
+      <a class="hyve-promo__cta" href="/apps/account/distributor">View application ${icoArrow()}</a>
+    </section>`;
+}
+
 function promoCard() {
   return `
     <section class="hyve-promo" data-promo>
@@ -458,7 +486,7 @@ function promoCard() {
         </h2>
         <p class="hyve-promo__sub">Unlock enterprise benefits by joining the Hyve distributor network. Perfect for marketing agencies, wholesalers, and corporate procurement teams.</p>
         <ul class="hyve-promo__perks">
-          <li>${icoCard()}<span>Special Commercial Payment Terms (Net 30)</span></li>
+          <li>${icoCard()}<span>Get up to Net 30 day terms, subject to credit approval</span></li>
           <li>${icoTag()}<span>Exclusive Tier Pricing (Up to Diamond)</span></li>
           <li>${icoTruck()}<span>Flexible Shipping Terms (FOB/DDP)</span></li>
         </ul>

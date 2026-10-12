@@ -132,5 +132,11 @@ export async function saveCompanyProfile(admin, numericCustomerId, form) {
     const error = cleared.metafieldsDelete?.userErrors?.[0]?.message;
     if (error) return { ok: false, error };
   }
+  // A new currency moves every address to it at checkout (HYV-183). The
+  // details are saved either way.
+  if (value("preferredCurrency") !== current.preferredCurrency) {
+    const { keepCompanyCurrency } = await import("./company-currency.server");
+    await keepCompanyCurrency(admin, current.companyId);
+  }
   return { ok: true };
 }

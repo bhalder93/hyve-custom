@@ -197,6 +197,13 @@ export async function completeB2BOnboarding(
     }
   }
 
+  // 8. Every address checks out in that currency, wherever it ships (HYV-183).
+  if (profileFields.some(([key]) => key === "preferred_currency")) {
+    const { keepCompanyCurrency } = await import("./company-currency.server");
+    const kept = await keepCompanyCurrency(admin, companyGid);
+    record("checkout currency", kept.ok, kept.detail);
+  }
+
   return { ok: steps.every((s) => s.ok), steps, locationId };
 }
 

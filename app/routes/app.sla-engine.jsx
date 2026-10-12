@@ -1012,9 +1012,9 @@ async function runSlaEngine(admin) {
 }
 
 
-export async function loader({ request }) {
-  await authenticate.admin(request);
 
+export async function loader({ request }) {
+  const { admin, sessionToken } = await authenticate.admin(request);
   return {
     rules: [
       {
@@ -1072,8 +1072,7 @@ export async function loader({ request }) {
 
 
 export async function action({ request }) {
-  const { admin } = await authenticate.admin(request);
-
+  const { admin, sessionToken } = await authenticate.admin(request);
   try {
     const formData = await request.formData();
 

@@ -11,6 +11,7 @@ import {
   quoteValidUntil,
 } from "../lib/quote-document.server";
 import { formatMoney, formatDate } from "../lib/portal.server";
+import { DRAFT_ORIGIN_FIELDS, QUOTE_STATUSES, quoteStatus, submittedForReview } from "../lib/account-quotes.server";
 
 /**
  * Retrieve a Quote.
@@ -51,6 +52,11 @@ const QUOTE_QUERY = `#graphql
       status
       createdAt
       invoiceUrl
+      invoiceSentAt
+      tags
+      order { id name }
+      hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
+      ${DRAFT_ORIGIN_FIELDS}
       customAttributes { key value }
       totalPriceSet { presentmentMoney { amount currencyCode } }
       lineItems(first: 50) {
@@ -163,7 +169,20 @@ export const action = async ({ request }) => {
     const full = await admin.graphql(QUOTE_QUERY, { variables: { id: match.id } });
     const fullBody = await full.json();
     const node = fullBody?.data?.draftOrder;
-    if (!node) return notFound();
+    // An order on terms waiting on its credit review is a draft too, but it's
+    // an order, not a quote, and paying it here would skip the review (HYV-99).
+    if (!node || submittedForReview(node)) return notFound();
+
+    // Confirm Order only while the quote is with the buyer. A request Hyve is
+    // still pricing, a quote sales hasn't sent, or one Hyve declined has a
+    // checkout link too, and it used to be offered here, so a buyer could
+    // order without approval.
+    const state = quoteStatus(node);
+    const statusText = {
+      [QUOTE_STATUSES.ACCEPTED]: "Already ordered",
+      [QUOTE_STATUSES.CREATED]: "Hyve is preparing this quote",
+      [QUOTE_STATUSES.DECLINED]: "Declined",
+    }[state] || "";
 
     // In the currency the quote was raised in, the one the buyer pays (HYV-98).
     const money = node.totalPriceSet?.presentmentMoney || {};
@@ -175,10 +194,9 @@ export const action = async ({ request }) => {
         createdAt: formatDate(node.createdAt),
         validUntil: node.status === "COMPLETED" ? "" : quoteValidUntil(node.createdAt).label,
         leadTime: (node.customAttributes || []).find((attr) => attr.key === LEAD_TIME_ATTRIBUTE)?.value || "",
-        status: node.status === "COMPLETED" ? "Already ordered" : "",
+        status: statusText,
         total: formatMoney(money.amount, money.currencyCode),
-        // A completed quote is already an order, so there is nothing to pay.
-        invoiceUrl: node.status === "COMPLETED" ? "" : node.invoiceUrl || "",
+        invoiceUrl: state === QUOTE_STATUSES.SENT ? node.invoiceUrl || "" : "",
         // A charge is named by its variant ("Setup"), and an item carries the
         // options chosen for it, as on the quote PDF.
         lines: (node.lineItems?.nodes || []).map((line) => ({

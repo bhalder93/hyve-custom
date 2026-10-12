@@ -73,3 +73,39 @@ export async function purchasingCompanyFor(admin, customerId) {
 export function purchasingEntity(company, customerGid) {
   return company ? { purchasingCompany: company } : { customerId: customerGid };
 }
+
+const LOCATION_TERMS = `#graphql
+  query LocationTerms($id: ID!) {
+    companyLocation(id: $id) {
+      id
+      buyerExperienceConfiguration { paymentTermsTemplate { id paymentTermsType } }
+    }
+  }`;
+
+/**
+ * The payment terms a quote for this company location carries, as Shopify's
+ * `paymentTerms` input, or null when the location has none (it pays upfront).
+ *
+ * A draft sales make in Shopify admin picks up the location's terms by itself;
+ * one the app creates doesn't, so cart quotes and portal requests for a Net 30
+ * company checked out asking for a card. Net terms count from the day the
+ * quote is issued, as they do on a draft made in admin.
+ */
+export async function locationPaymentTerms(admin, companyLocationId) {
+  if (!admin || !companyLocationId) return null;
+  try {
+    const response = await admin.graphql(LOCATION_TERMS, { variables: { id: companyLocationId } });
+    const template = (await response.json())?.data?.companyLocation?.buyerExperienceConfiguration
+      ?.paymentTermsTemplate;
+    if (!template?.id) return null;
+    // A fixed date can't be known for a new quote, so those terms are left to sales.
+    if (template.paymentTermsType === "FIXED") return null;
+    return {
+      paymentTermsTemplateId: template.id,
+      ...(template.paymentTermsType === "NET" ? { paymentSchedules: [{ issuedAt: new Date().toISOString() }] } : {}),
+    };
+  } catch (error) {
+    console.warn("[portal] location payment terms lookup failed", error?.message || error);
+    return null;
+  }
+}

@@ -31,7 +31,7 @@ const DUTY_NOTE = "Import duties and taxes are added at checkout — once paid, 
 const GREEN = "#67ad5b";
 const RULE = "#cfcfcf";
 
-function money(cents, currency) {
+export function money(cents, currency) {
   try {
     // Always the code, "SGD 26.12" not "$26.12": the store sells in several
     // currencies and a bare "$" says which of them only for some (HYV-98).
@@ -45,9 +45,10 @@ function money(cents, currency) {
   }
 }
 
-const COL = { no: 24, code: 80, image: 48, qty: 46, unit: 74, total: 82 };
+export const COL = { no: 24, code: 80, image: 48, qty: 46, unit: 74, total: 82 };
 
-const styles = StyleSheet.create({
+/** Shared with the invoice (HYV-155), so the two print as one family. */
+export const styles = StyleSheet.create({
   page: {
     paddingTop: 36,
     paddingBottom: 48,
@@ -129,7 +130,7 @@ const styles = StyleSheet.create({
   pageNumber: { position: "absolute", bottom: 20, left: 36, right: 36, fontSize: 7.5, color: "#9ca3af", textAlign: "right" },
 });
 
-function Pair({ label, value, labelStyle = styles.pairLabel }) {
+export function Pair({ label, value, labelStyle = styles.pairLabel }) {
   return (
     <View style={styles.pairRow}>
       <Text style={labelStyle}>{label}</Text>
@@ -138,7 +139,7 @@ function Pair({ label, value, labelStyle = styles.pairLabel }) {
   );
 }
 
-function AddressBlock({ heading, block, contact, empty }) {
+export function AddressBlock({ heading, block, contact, empty }) {
   return (
     <View style={styles.addressCol}>
       <Text style={styles.heading}>{heading}</Text>
@@ -167,7 +168,7 @@ function AddressBlock({ heading, block, contact, empty }) {
   );
 }
 
-function HeadCell({ width, flex, children, last, align }) {
+export function HeadCell({ width, flex, children, last, align }) {
   return (
     <View style={[{ width, flex }, last ? null : { borderRightWidth: 1, borderColor: "#ffffff" }]}>
       <Text style={[styles.headCell, align ? { textAlign: align } : null]}>{children}</Text>

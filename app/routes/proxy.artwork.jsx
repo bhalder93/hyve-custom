@@ -78,6 +78,7 @@ async function renderPage({ liquid, admin, request, flash = null }) {
         main: artworkPage({ files: library.files, flash }),
         customer: account.customer,
         isDistributor: account.isDistributor,
+        applicationPending: account.applicationPending,
         counts: { orders: awaitingActionCount(orders) },
         terms: account.terms,
       }),

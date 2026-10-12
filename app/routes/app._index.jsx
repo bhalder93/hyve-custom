@@ -1,7 +1,8 @@
 import { Link, useLoaderData, useRouteError } from "react-router";
 import { authenticate } from "../shopify.server";
 import { getAllDistributorApplications } from "../lib/distributor-metaobject.server";
-import { DRAFT_ORIGIN_FIELDS, QUOTE_STATUSES, quoteStatus, submittedForReview } from "../lib/account-quotes.server";
+import { QUOTE_STATUSES, loadStaffQuotes } from "../lib/account-quotes.server";
+import { STAFF_QUOTE_LABELS as QUOTE_LABELS, STAFF_QUOTE_TONES as QUOTE_TONES } from "../lib/quote-labels";
 import { formatMoney } from "../lib/portal.server";
 import {
   AdminTheme,
@@ -22,37 +23,15 @@ import {
  * live records, so a zero is a real zero rather than a placeholder.
  */
 
-const QUOTES_QUERY = `#graphql
-  query DashboardQuotes {
-    draftOrders(first: 100, sortKey: UPDATED_AT, reverse: true) {
-      nodes {
-        id
-        name
-        createdAt
-        status
-        invoiceSentAt
-        tags
-        order { id name }
-        totalPriceSet { presentmentMoney { amount currencyCode } }
-        customer { displayName }
-        hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
-        ${DRAFT_ORIGIN_FIELDS}
-      }
-    }
-  }`;
-
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
 
   const applications = await getAllDistributorApplications(admin);
 
+  // The same list, with the same statuses, as the Quotes page (HYV-165).
   let quotes = [];
   try {
-    const response = await admin.graphql(QUOTES_QUERY);
-    const body = await response.json();
-    // A terms order waiting on its credit review is a draft too, but it is an
-    // order, not a quote (HYV-99), so it is not counted here.
-    quotes = (body?.data?.draftOrders?.nodes || []).filter((node) => !submittedForReview(node));
+    quotes = await loadStaffQuotes(admin);
   } catch (error) {
     console.warn("[dashboard] quotes query failed:", error?.message || error);
   }
@@ -62,7 +41,7 @@ export const loader = async ({ request }) => {
 
   // The same statuses the buyer sees in the portal: Accepted once the quote
   // became an order, so Q-35 no longer read Awaiting after it became #1064.
-  const count = (status) => quotes.filter((q) => quoteStatus(q) === status).length;
+  const count = (status) => quotes.filter((q) => q.status === status).length;
 
   return {
     applications: {
@@ -82,33 +61,25 @@ export const loader = async ({ request }) => {
       awaiting: count(QUOTE_STATUSES.SENT),
       approved: count(QUOTE_STATUSES.ACCEPTED),
       rejected: count(QUOTE_STATUSES.DECLINED),
-      recent: quotes.slice(0, 5).map((q) => ({
+      expired: count(QUOTE_STATUSES.EXPIRED),
+      // An expired quote's draft is gone, so only live ones link here.
+      recent: quotes.filter((q) => q.numericId).slice(0, 5).map((q) => ({
         id: q.id,
         // The quote detail route is keyed on the bare draft order number, the
         // same as the quotes list uses. Passing the GID put encoded slashes in
         // the path segment, which is not the address that route answers on.
-        numericId: String(q.id).replace("gid://shopify/DraftOrder/", ""),
-        name: quoteReference(q.name),
-        customer: q.customer?.displayName || "—",
+        numericId: q.numericId,
+        name: q.reference,
+        customer: q.companyName || q.customer?.displayName || "—",
         total: q.totalPriceSet?.presentmentMoney
           ? formatMoney(q.totalPriceSet.presentmentMoney.amount, q.totalPriceSet.presentmentMoney.currencyCode)
           : "—",
-        status: quoteStatus(q),
+        status: q.status,
       })),
     },
   };
 };
 
-/** The dashboard's short form of the portal's quote statuses. */
-const QUOTE_LABELS = { created: "Created", sent: "Sent", accepted: "Accepted", declined: "Declined" };
-const QUOTE_TONES = { created: "info", sent: "info", accepted: "success", declined: "critical" };
-
-function quoteReference(name) {
-  const raw = String(name || "");
-  if (raw.startsWith("#D")) return `Q-${raw.slice(2)}`;
-  if (raw.startsWith("#")) return `Q-${raw.slice(1)}`;
-  return raw || "Quote";
-}
 
 function formatDate(value) {
   if (!value) return "—";
@@ -210,7 +181,7 @@ export default function DashboardPage() {
               <Metric
                 label="Quotes accepted"
                 value={quotes.approved}
-                foot={`${quotes.rejected} declined`}
+                foot={`${quotes.rejected} declined · ${quotes.expired} expired`}
                 icon={<IconQuote />}
                 accent="#5a3ea8"
                 soft="#f1edfb"

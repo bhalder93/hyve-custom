@@ -13,6 +13,7 @@ import {
 import { signedOutPage } from "../lib/account-signed-out.server";
 import { loadPromotions } from "../lib/promotions.server";
 import { loadInvoices, paymentDue } from "../lib/invoices.server";
+import { loadPickupConfig } from "../lib/pickup-config.server";
 
 /**
  * Account portal landing page.
@@ -34,12 +35,13 @@ export const loader = async ({ request }) => {
 
     // Promotions are loaded alongside the account; a failure there leaves
     // the dashboard without them rather than failing the whole page.
-    const [{ customer, isDistributor, terms, orderNodes, reviewDraftIds, awaitingQuotes, failed }, promotions] = await Promise.all([
+    const [{ customer, isDistributor, applicationPending, terms, orderNodes, reviewDraftIds, awaitingQuotes, failed }, promotions, pickupConfig] = await Promise.all([
       loadAccount(admin, customerId),
       loadPromotions(admin).catch((error) => {
         console.error("[portal] promotions failed to load", error);
         return [];
       }),
+      loadPickupConfig(admin),
     ]);
     if (failed) {
       return liquid(accountShell({ active: "dashboard", main: errorState(), customer }));
@@ -70,8 +72,9 @@ export const loader = async ({ request }) => {
           payment: invoices && !invoices.failed ? paymentDue(invoices.invoices) : null,
           recentOrders: orders.slice(0, 3),
           promotions,
+          pickupConfig,
         })
-      : ordersPage({ orders, showDistributorPromo: true });
+      : ordersPage({ orders, showDistributorPromo: true, applicationPending, pickupConfig });
 
     return liquid(
       accountShell({
@@ -79,6 +82,7 @@ export const loader = async ({ request }) => {
         main,
         customer,
         isDistributor,
+        applicationPending,
         counts,
         terms,
       }),

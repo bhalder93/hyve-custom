@@ -83,7 +83,7 @@ async function decide(admin, order, decision, by = {}) {
     });
     if (!moved.ok) return moved;
   } else {
-    const note = "Production photo approved by customer. Order may proceed to shipping.";
+    const note = `Production photo approved\nIMAGE: ${order.productionPhotoUrl?.value || ""}`;
 
     await recordStatusHistory(admin, {
       order,

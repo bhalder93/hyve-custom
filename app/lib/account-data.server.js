@@ -7,6 +7,7 @@
  * scopes, GraphQL errors or a timeout — so the caller shows the error panel
  * instead of an empty portal.
  */
+import { getCustomerApplication } from "./distributor-metaobject.server";
 import { buyerQuoteNodes, DRAFT_ORIGIN_FIELDS, QUOTE_STATUSES, quoteStatus, submittedForReview } from "./account-quotes.server";
 import {
   isDistributor,
@@ -40,6 +41,8 @@ const PORTAL_ORDER_FIELDS = `#graphql
           customer { id }
           purchasingEntity { ... on PurchasingCompany { company { id } location { id } } }
           totalPriceSet { presentmentMoney { amount currencyCode } }
+          # The freight, shown above the total on the order window (HYV-140).
+          totalShippingPriceSet { presentmentMoney { amount currencyCode } }
           paymentTerms { paymentTermsName }
           productionStatus: metafield(namespace: "$app", key: "production_status") { value }
           productionDueAt: metafield(namespace: "$app", key: "production_due_at") { value }
@@ -52,6 +55,10 @@ const PORTAL_ORDER_FIELDS = `#graphql
           physicalSampleHistory: metafield(namespace: "$app", key: "physical_sample_history") { value }
           physicalSampleRequired: metafield(namespace: "$app", key: "physical_sample_required") { value }
           estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
+          collectionReadyDate: metafield(namespace: "$app", key: "collection_ready_date") { value }
+          collectionCartons: metafield(namespace: "$app", key: "collection_cartons") { value }
+          collectionGrossWeight: metafield(namespace: "$app", key: "collection_gross_weight") { value }
+          collectionCbm: metafield(namespace: "$app", key: "collection_cbm") { value }
           note
           customAttributes { key value }
           shippingAddress { name company address1 address2 city provinceCode zip countryCodeV2 }
@@ -142,6 +149,23 @@ const ACCOUNT_QUERY = `#graphql
   }
   ${PORTAL_ORDER_FIELDS}`;
 
+/**
+ * Whether a customer who isn't a distributor yet has an application waiting
+ * on Hyve, so the portal says it's under review instead of asking them to
+ * apply again. A declined application asks them to apply again, as before.
+ */
+async function applicationPending(admin, customerId) {
+  try {
+    const application = await getCustomerApplication(admin, String(customerId));
+    if (!application) return false;
+    const status = String(application.status || "Pending Review").trim().toLowerCase();
+    return status === "pending review" || status === "pending";
+  } catch (error) {
+    console.warn("[portal] application lookup failed", error?.message || error);
+    return false;
+  }
+}
+
 export async function loadAccount(admin, customerId, { first = 25 } = {}) {
   const empty = {
     customer: null,
@@ -209,6 +233,7 @@ export async function loadAccount(admin, customerId, { first = 25 } = {}) {
         tier: catalogTier(c),
       },
       isDistributor: distributor,
+      applicationPending: distributor ? false : await applicationPending(admin, customerId),
       terms: distributor ? buildTerms(c) : null,
       orderNodes,
       reviewDraftIds,
@@ -414,6 +439,7 @@ export async function portalChrome(admin, customerId) {
         tier: catalogTier(c),
       },
       isDistributor: distributor,
+      applicationPending: distributor ? false : await applicationPending(admin, customerId),
       counts: { orders: awaiting, quotes: distributor ? awaitingQuotes : 0 },
       terms: distributor ? buildTerms(c) : null,
     };

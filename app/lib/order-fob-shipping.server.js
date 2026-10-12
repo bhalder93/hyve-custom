@@ -18,21 +18,6 @@ export function isStorefrontQuoteOrder(payload, order) {
   ].map((t) => String(t).trim().toLowerCase());
 
   const hasTag = allTags.includes(STOREFRONT_QUOTE_TAG.toLowerCase());
-  if (!hasTag) return false;
-
-  const sourceName = String(
-    payload?.source_name || order?.sourceName || "",
-  ).trim().toLowerCase();
-
-  const isDraftSource =
-    sourceName === "draft_order" ||
-    sourceName === "shopify_draft_order" ||
-    payload?.draft_order_id != null ||
-    String(payload?.landing_site || "").includes("/invoices/") ||
-    String(order?.sourceIdentifier || "").toLowerCase().includes("draft");
-
-  // Having the storefront-quote tag identifies it as originating from a
-  // quote draft order (whether completed via admin or checkout invoice URL).
   return hasTag;
 }
 
@@ -262,6 +247,31 @@ export async function checkAndAddFobShippingIfStorefrontQuote(
           },
         },
       };
+
+      try {
+        await admin.graphql(
+          `#graphql
+          mutation AddFobCustomerArrangedTag($id: ID!, $tags: [String!]!) {
+            tagsAdd(id: $id, tags: $tags) {
+              userErrors {
+                field
+                message
+              }
+            }
+          }`,
+          {
+            variables: {
+              id: orderId,
+              tags: ["hyve-freight:customer-arranged"],
+            },
+          },
+        );
+        if (Array.isArray(currentOrder.tags)) {
+          currentOrder.tags.push("hyve-freight:customer-arranged");
+        }
+      } catch (tagErr) {
+        console.warn(`[fob-shipping] Failed adding customer-arranged tag:`, tagErr);
+      }
     }
 
     return { evaluated: true, applied: result.ok, ...result };

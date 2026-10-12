@@ -92,19 +92,24 @@ const FAIL_STYLES = `
  * distributor-only routes render this instead of their content.
  *
  * @param {string} pageName e.g. "Quotes"
+ * @param {{applicationPending?: boolean}} [state] an application is already
+ *   under review, so it says so instead of asking them to apply
  */
-export function distributorOnly(pageName = "This page") {
+export function distributorOnly(pageName = "This page", { applicationPending = false } = {}) {
+  const text = applicationPending
+    ? `${esc(pageName)} opens up once your distributor application is approved. Your application is under review, and we'll email you as soon as it's decided.`
+    : `${esc(pageName)} opens up once your distributor application is approved. Apply to get
+        tier pricing, a shared account for your team, and up to Net 30 day terms, subject to credit approval.`;
   return `
     ${FAIL_STYLES}
     <div class="hyve-fail">
       <span class="hyve-fail__icon">${icoLock()}</span>
       <h2 class="hyve-fail__title">Distributor accounts only</h2>
       <p class="hyve-fail__text">
-        ${esc(pageName)} opens up once your distributor application is approved. Apply to get
-        commercial payment terms, tier pricing and a shared account for your team.
+        ${text}
       </p>
       <div class="hyve-fail__actions">
-        <a class="hyve-fail__btn hyve-fail__btn--primary" href="/apps/account/distributor">${icoBuilding()}<span>Apply as Distributor</span></a>
+        <a class="hyve-fail__btn hyve-fail__btn--primary" href="/apps/account/distributor">${icoBuilding()}<span>${applicationPending ? "View application" : "Apply as Distributor"}</span></a>
         <a class="hyve-fail__btn hyve-fail__btn--ghost" href="/apps/account/orders">${icoBox()}<span>Back to Orders</span></a>
       </div>
     </div>

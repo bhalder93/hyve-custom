@@ -469,16 +469,9 @@ function getMarketLabel(
 /*                                   Loader                                   */
 /* -------------------------------------------------------------------------- */
 
-export async function loader({
-  request,
-}) {
-  const {
-    admin,
-  } =
-    await authenticate.admin(
-      request,
-    );
 
+export async function loader({ request }) {
+  const { admin, sessionToken } = await authenticate.admin(request);
   try {
     const holidays =
       await getBusinessHolidays(
@@ -536,16 +529,8 @@ async function rescheduleNote(admin) {
   }
 }
 
-export async function action({
-  request,
-}) {
-  const {
-    admin,
-  } =
-    await authenticate.admin(
-      request,
-    );
-
+export async function action({ request }) {
+  const { admin, sessionToken } = await authenticate.admin(request);
   try {
     const formData =
       await request.formData();

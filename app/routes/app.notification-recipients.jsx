@@ -409,9 +409,9 @@ async function deleteRecipient(admin, id) {
   return data.data?.metaobjectDelete?.deletedId || null;
 }
 
-export async function loader({ request }) {
-  const { admin } = await authenticate.admin(request);
 
+export async function loader({ request }) {
+  const { admin, sessionToken } = await authenticate.admin(request);
   try {
     const recipients = await getRecipients(admin);
 
@@ -434,8 +434,7 @@ export async function loader({ request }) {
 }
 
 export async function action({ request }) {
-  const { admin } = await authenticate.admin(request);
-
+  const { admin, sessionToken } = await authenticate.admin(request);
   // Returned with every result. The page reads it back to close the right
   // modal and to show field errors against the right form, so a result
   // without it left the editor open after a save.

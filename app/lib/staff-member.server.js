@@ -14,13 +14,13 @@
  * @param {object} sessionToken its decoded payload, from authenticate.admin
  * @returns {Promise<string>} "" when it can't be read
  */
-export async function staffMemberLabel(request, sessionToken) {
+export async function getStaffMember(request, sessionToken) {
   const idToken =
     String(request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "") ||
     new URL(request.url).searchParams.get("id_token") ||
     "";
   const shop = String(sessionToken?.dest || "").replace(/^https?:\/\//, "");
-  if (!idToken || !shop) return "";
+  if (!idToken || !shop) return null;
 
   try {
     const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
@@ -37,13 +37,18 @@ export async function staffMemberLabel(request, sessionToken) {
     });
     if (!response.ok) {
       console.warn("[staff-member] token exchange failed", response.status);
-      return "";
+      return null;
     }
-    const user = (await response.json())?.associated_user || {};
-    const name = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
-    return name || String(user.email || "").trim();
+    return (await response.json())?.associated_user || null;
   } catch (error) {
     console.warn("[staff-member] token exchange threw", error?.message || error);
-    return "";
+    return null;
   }
+}
+
+export async function staffMemberLabel(request, sessionToken) {
+  const user = await getStaffMember(request, sessionToken);
+  if (!user) return "";
+  const name = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
+  return name || String(user.email || "").trim();
 }

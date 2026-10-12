@@ -10,6 +10,7 @@
  */
 
 import { formatDate } from "./portal.server";
+import { quoteReference } from "./quote-labels";
 import { bankAccountFor } from "./bank-details.server";
 import { FOB_INCOTERM, incotermFromShipping } from "./incoterm";
 
@@ -128,13 +129,13 @@ const CART_QUOTE_SOURCE = "Cart quote";
  * the country. USD is only a Vietnam distributor's, and a distributor always
  * has an address.
  */
-const CURRENCY_COUNTRY = { SGD: "SG", HKD: "HK", MYR: "MY", THB: "TH", IDR: "ID", PHP: "PH", VND: "VN", CNY: "CN" };
+export const CURRENCY_COUNTRY = { SGD: "SG", HKD: "HK", MYR: "MY", THB: "TH", IDR: "ID", PHP: "PH", VND: "VN", CNY: "CN" };
 
 /** The Incoterm a quote states when nothing on the draft chooses one. */
 const RETAIL_INCOTERM = "DDP";
 
-const MAILING_ADDRESS = "firstName lastName name company address1 address2 city province zip country countryCodeV2 phone";
-const COMPANY_ADDRESS = "firstName lastName recipient companyName address1 address2 city province zip country countryCode phone";
+export const MAILING_ADDRESS = "firstName lastName name company address1 address2 city province zip country countryCodeV2 phone";
+export const COMPANY_ADDRESS = "firstName lastName recipient companyName address1 address2 city province zip country countryCode phone";
 
 const QUOTE_QUERY = `#graphql
   query QuoteDocument($id: ID!) {
@@ -344,12 +345,17 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
 }
 
 /** The import duties line a checkout or sales can add, priced like a product. */
-function isDutyLine(line) {
+export function isDutyLine(line) {
   return /^import duties/i.test(String(line?.title || ""));
 }
 
-/** The quotation's line for a product: its decorated code and full specification. */
-function itemRow(li, cents) {
+/**
+ * The quotation's line for a product: its decorated code and full
+ * specification. The invoice prints the same rows (HYV-155), without the
+ * artwork state, which says nothing about what is owed and went stale once
+ * the artwork arrived.
+ */
+export function itemRow(li, cents, { artwork = true } = {}) {
   const attributes = li.customAttributes || [];
   const { method, positions, count } = decorationOf(attributes);
   const options = (li.variant?.selectedOptions || []).filter(
@@ -370,6 +376,7 @@ function itemRow(li, cents) {
     positions.length && `Imprint Location: ${positions.join(", ")}`,
     ...attributes
       .filter((attr) => attr.key && !attr.key.startsWith("_") && attr.key !== "Imprint Locations" && attr.value)
+      .filter((attr) => artwork || !/^artwork\b/i.test(attr.key))
       .map((attr) =>
         /^https?:/i.test(String(attr.value)) ? `${attr.key}: file received` : `${attr.key}: ${attr.value}`,
       ),
@@ -434,7 +441,7 @@ function remarksFrom(note) {
 }
 
 /** A draft order's own address, for the address blocks. */
-function mailingBlock(address) {
+export function mailingBlock(address) {
   if (!address?.address1 && !address?.city) return null;
   const name = address.name || [address.firstName, address.lastName].filter(Boolean).join(" ");
   return {
@@ -445,7 +452,7 @@ function mailingBlock(address) {
 }
 
 /** A company location's address, named after the person buying for it. */
-function companyBlock(address, companyName, contactName, contactPhone) {
+export function companyBlock(address, companyName, contactName, contactPhone) {
   if (!address?.address1 && !address?.city) return null;
   const name = address.recipient || [address.firstName, address.lastName].filter(Boolean).join(" ") || contactName;
   return {
@@ -463,13 +470,8 @@ function placeOf(address) {
   return [address.city, address.province, address.zip].filter(Boolean).join(" ");
 }
 
-/** Draft orders are named #D1055; the portal calls that quote Q-1055. */
-export function quoteReference(name) {
-  const raw = String(name || "");
-  if (raw.startsWith("#D")) return `Q-${raw.slice(2)}`;
-  if (raw.startsWith("#")) return `Q-${raw.slice(1)}`;
-  return raw || "Quote";
-}
+/** Draft orders are named #D1055; the portal calls that quote Q-1055. One copy, in quote-labels.js. */
+export { quoteReference };
 
 function addDays(iso, days) {
   if (!iso) return null;

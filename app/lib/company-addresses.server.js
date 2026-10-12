@@ -18,6 +18,7 @@
  */
 import { canManageTeam } from "./account-team.server";
 import { internationalPhone } from "./address-formats.server";
+import { keepCompanyCurrency } from "./company-currency.server";
 
 const DEFAULT_KEYS = { shipping: "default_shipping_location", billing: "default_billing_location" };
 
@@ -308,6 +309,9 @@ export async function addCompanyLocation(admin, numericCustomerId, input) {
   }
 
   if (input.setAsDefault) await setDefaultLocation(admin, numericCustomerId, { locationId, type: "shipping" });
+  // A new address in another country still checks out in the company's
+  // currency (HYV-183). The address is saved either way.
+  await keepCompanyCurrency(admin, book.companyId);
   return { ok: true };
 }
 
@@ -338,6 +342,8 @@ export async function updateCompanyLocation(admin, numericCustomerId, input) {
   if (input.setAsDefault) {
     await setDefaultLocation(admin, numericCustomerId, { locationId: location.id, type: input.type });
   }
+  // Moving an address to another country mustn't change its currency (HYV-183).
+  await keepCompanyCurrency(admin, book.companyId);
   return { ok: true };
 }
 

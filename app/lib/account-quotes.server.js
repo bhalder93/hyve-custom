@@ -13,6 +13,8 @@
 import { esc } from "./account-shell.server";
 import { quoteValidUntil } from "./quote-document.server";
 import { formatDate, formatMoney } from "./portal.server";
+import { quoteReference } from "./quote-labels";
+import { listAllExpiredQuotes } from "./expired-quotes.server";
 
 /**
  * Quote statuses.
@@ -157,7 +159,12 @@ export function quoteStatus(node) {
 
   const tags = node?.tags || [];
   const fromCart = tags.includes("storefront-quote") && !tags.includes("awaiting_review");
-  return node?.invoiceSentAt || fromCart || decision === true ? QUOTE_STATUSES.SENT : QUOTE_STATUSES.CREATED;
+  // `quote-sent`: staff emailed it from Hyve Custom (HYV-166) instead of
+  // Shopify's Send invoice, which is what sets invoiceSentAt.
+  const emailedByStaff = tags.includes("quote-sent");
+  return node?.invoiceSentAt || emailedByStaff || fromCart || decision === true
+    ? QUOTE_STATUSES.SENT
+    : QUOTE_STATUSES.CREATED;
 }
 
 /**
@@ -1269,3 +1276,113 @@ const QUOTES_STYLES = `
     }
   }
 </style>`;
+
+
+const STAFF_QUOTES_QUERY = `#graphql
+  query StaffQuotes($after: String) {
+    draftOrders(first: 100, after: $after, sortKey: UPDATED_AT, reverse: true) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id
+        name
+        createdAt
+        updatedAt
+        status
+        invoiceSentAt
+        invoiceUrl
+        tags
+        order { id name }
+        totalPriceSet { presentmentMoney { amount currencyCode } }
+        customer { id displayName defaultEmailAddress { emailAddress } }
+        purchasingEntity { ... on PurchasingCompany { company { name } } }
+        lineItems(first: 20) { nodes { id title name quantity } }
+        hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
+        ${DRAFT_ORIGIN_FIELDS}
+      }
+    }
+  }`;
+
+/**
+ * Pages of drafts read for the staff lists. The store passed 100 drafts on
+ * Oct 9, and reading only the latest 100 left older quotes out of the counts.
+ */
+const STAFF_QUOTE_PAGES = 10;
+
+async function allStaffDrafts(admin) {
+  const nodes = [];
+  let after = null;
+  for (let page = 0; page < STAFF_QUOTE_PAGES; page += 1) {
+    const body = await (await admin.graphql(STAFF_QUOTES_QUERY, { variables: { after } })).json();
+    if (body?.errors?.length) throw new Error(body.errors.map((e) => e.message).join(", "));
+    const block = body?.data?.draftOrders;
+    nodes.push(...(block?.nodes || []));
+    if (!block?.pageInfo?.hasNextPage) return nodes;
+    after = block.pageInfo.endCursor;
+  }
+  console.warn(`[quotes] more than ${STAFF_QUOTE_PAGES * 100} drafts; the oldest aren't counted`);
+  return nodes;
+}
+
+/** "#D85" -> 85, for listing quotes newest first by number. */
+const quoteNumber = (name) => Number(String(name || "").replace(/\D/g, "")) || 0;
+
+/**
+ * An expired quote from the archive, shaped like a live one. Its draft was
+ * deleted when it expired, so it has no page of its own to open.
+ */
+function expiredStaffQuote(quote) {
+  return {
+    id: quote.id,
+    name: quote.quoteNumber,
+    numericId: "",
+    reference: quote.reference,
+    status: QUOTE_STATUSES.EXPIRED,
+    draftStatus: "",
+    createdAt: quote.expiredAt,
+    companyName: "",
+    customer: quote.customerName ? { displayName: quote.customerName } : null,
+    customerEmail: quote.email,
+    totalPriceSet: quote.currencyCode
+      ? { presentmentMoney: { amount: quote.amount, currencyCode: quote.currencyCode } }
+      : null,
+    lineItems: { nodes: quote.lines.map((line) => ({ title: line.title, quantity: line.quantity })) },
+  };
+}
+
+/**
+ * Every quote as Hyve Custom lists it, for the dashboard and the Quotes page
+ * alike (HYV-165). They used to read different sets: the dashboard every draft,
+ * the Quotes page only cart quotes (so staff quotes were missing) with a status
+ * that never turned Accepted. Now both count the same drafts with the same
+ * rules the buyer's portal uses. Orders waiting on a credit review are drafts
+ * too, but they're orders, not quotes (HYV-99), so they're left out.
+ *
+ * Expired quotes come from the same archive the portal reads, since their
+ * drafts are deleted when they expire. Newest quote number first.
+ */
+export async function loadStaffQuotes(admin) {
+  const [drafts, expired] = await Promise.all([
+    allStaffDrafts(admin),
+    listAllExpiredQuotes(admin).catch((error) => {
+      console.warn("[quotes] expired quotes failed:", error?.message || error);
+      return [];
+    }),
+  ]);
+  const live = drafts
+    .filter((node) => !submittedForReview(node))
+    .map((node) => ({
+      ...node,
+      numericId: String(node.id).replace("gid://shopify/DraftOrder/", ""),
+      reference: quoteReference(node.name),
+      status: quoteStatus(node),
+      draftStatus: node.status,
+      companyName: node.purchasingEntity?.company?.name || "",
+      customerEmail: node.customer?.defaultEmailAddress?.emailAddress || "",
+    }));
+  // A live draft wins over an archive copy of the same number.
+  const liveNumbers = new Set(live.map((quote) => quoteNumber(quote.name)));
+  return [
+    ...live,
+    ...expired.filter((quote) => !liveNumbers.has(quoteNumber(quote.quoteNumber))).map(expiredStaffQuote),
+  ].sort((a, b) => quoteNumber(b.name) - quoteNumber(a.name));
+}

@@ -98,7 +98,7 @@ export function retrievedQuotePage(quote) {
     ${STYLES}
     <div class="hyve-rq">
       <h1 class="hyve-rq__title">Your quote</h1>
-      <p class="hyve-rq__sub">Review it below, download a copy, or place the order.</p>
+      <p class="hyve-rq__sub">${quote.invoiceUrl ? "Review it below, download a copy, or place the order." : "Review it below or download a copy."}</p>
 
       <div class="hyve-rq__card">
         <div class="hyve-rq__found-head">

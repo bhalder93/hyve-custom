@@ -71,11 +71,19 @@ export const loader = async ({ request }) => {
               color:#0f172a;
             "
           >
-            Apply for Distributor Portal
+            Become a Hyve distributor
           </h1>
 
+          <!-- A new applicant creates an account here (HYV-191). Shopify's
+               sign-in page creates one for a new email and signs an existing
+               one in, so both buttons go to the same place. -->
           <p style="color:#64748b;">
-            Please sign in to your account to apply for our distributor network.
+            Create your account to apply for exclusive tier pricing. Get up to
+            Net 30 day terms, subject to credit approval.
+          </p>
+          <p style="color:#64748b;">
+            Enter your email on the next screen and we'll send you a code. New
+            to Hyve? That sets up your account.
           </p>
 
           <a
@@ -91,8 +99,13 @@ export const loader = async ({ request }) => {
               border-radius:0.7rem;
             "
           >
-            Sign in
+            Create account
           </a>
+
+          <p style="margin-top:1rem; color:#64748b;">
+            Already a distributor?
+            <a href="${loginHref}" style="color:#0f766e; font-weight:600;">Sign in</a>
+          </p>
         </div>
       `);
     }
@@ -222,7 +235,7 @@ export const action = async ({ request }) => {
       .get("accept")
       ?.includes("application/json") ||
     request.headers.get("x-requested-with") ===
-    "XMLHttpRequest";
+      "XMLHttpRequest";
 
 
   /* ------------------------------------------------------------------------ */
@@ -305,7 +318,7 @@ export const action = async ({ request }) => {
 
       const countryBased = String(
         formData.get("countryBased") ||
-        "Singapore",
+          "Singapore",
       ).trim();
 
 
@@ -316,13 +329,13 @@ export const action = async ({ request }) => {
 
       const relationToBusiness = String(
         formData.get("relationToBusiness") ||
-        "",
+          "",
       ).trim();
 
 
       const preferredCurrency = String(
         formData.get("preferredCurrency") ||
-        "",
+          "",
       ).trim();
 
 
@@ -333,8 +346,8 @@ export const action = async ({ request }) => {
       const marketsSold =
         marketsArray.length
           ? marketsArray
-            .map(String)
-            .join(", ")
+              .map(String)
+              .join(", ")
           : "Singapore";
 
 
@@ -345,7 +358,7 @@ export const action = async ({ request }) => {
 
       const registrationNumber = String(
         formData.get("registrationNumber") ||
-        "",
+          "",
       ).trim();
 
 
@@ -458,7 +471,7 @@ export const action = async ({ request }) => {
         ? "Contact phone number is required."
         : validPhone(contactPhone, addressFormatFor(countryBased)?.code)
           ? null
-          : `Enter a valid phone number.`;
+          : `Enter a valid ${countryBased} phone number.`;
 
       if (phoneProblem) {
         addressValidation.valid = false;
@@ -590,7 +603,7 @@ export const action = async ({ request }) => {
         docFile &&
         typeof docFile === "object" &&
         typeof docFile.arrayBuffer ===
-        "function" &&
+          "function" &&
         docFile.size > 0
       ) {
         registrationDocName =
@@ -1022,12 +1035,12 @@ function respond(
 
   const param = error
     ? `error=${encodeURIComponent(
-      error,
-    )}`
+        error,
+      )}`
     : `notice=${encodeURIComponent(
-      notice ||
-      "Application received",
-    )}`;
+        notice ||
+          "Application received",
+      )}`;
 
 
   return new Response(null, {

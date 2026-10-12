@@ -1,7 +1,10 @@
 // app/routes/webhooks.orders.create.jsx
+/* global process */
 
 import { authenticate } from "../shopify.server";
 import { checkAndAddFobShippingIfStorefrontQuote } from "../lib/order-fob-shipping.server";
+import { removeCheckoutWorkingFields } from "../lib/order-internal-fields.server";
+import { CUSTOMER_ARRANGED_FREIGHT_TAG } from "../lib/production-statuses";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Constants                                 */
@@ -9,7 +12,27 @@ import { checkAndAddFobShippingIfStorefrontQuote } from "../lib/order-fob-shippi
 
 const ORDER_STATUS = "order-placed";
 
-const STATUS_TAG = `hyve-status:${ORDER_STATUS}`;
+function isFobShipping(payload, order) {
+  const titles = [];
+
+  if (order?.shippingLine?.title) {
+    titles.push(order.shippingLine.title);
+  }
+
+  if (Array.isArray(order?.shippingLines?.nodes)) {
+    for (const node of order.shippingLines.nodes) {
+      if (node?.title) titles.push(node.title);
+    }
+  }
+
+  if (Array.isArray(payload?.shipping_lines)) {
+    for (const line of payload.shipping_lines) {
+      if (line?.title) titles.push(line.title);
+    }
+  }
+
+  return titles.some((title) => /FOB/i.test(String(title || "").trim()));
+}
 
 /* -------------------------------------------------------------------------- */
 /*                              GraphQL helpers                               */
@@ -196,10 +219,16 @@ function determineArtworkRequired(lineItems) {
 /*                                 Rush rule                                  */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Rush when every line being produced (the ones with artwork) is rushed. An
+ * order ships in one go, so a mixed order is ready at the standard time: rush
+ * is still charged per rushed line, but the order's production due date
+ * follows its slowest line (HYV-82, option b, Oct 9). Charge lines and blank
+ * samples aren't produced, so they don't count.
+ */
 function determineRush(lineItems) {
-  return lineItems.some((lineItem) =>
-    hasTruthyAttribute(lineItem, "Rush Production"),
-  );
+  const produced = lineItems.filter((lineItem) => getAttribute(lineItem, "Artwork")?.value?.trim());
+  return produced.length > 0 && produced.every((lineItem) => hasTruthyAttribute(lineItem, "Rush Production"));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -848,6 +877,31 @@ export async function action({ request }) {
       order,
     });
 
+    /* -------------------------------------------------------------------- */
+    /* Customer-arranged freight (FOB) tagging                              */
+    /* -------------------------------------------------------------------- */
+    if (isFobShipping(payload, order)) {
+      const existingTags = Array.isArray(order.tags)
+        ? order.tags
+        : typeof order.tags === "string"
+          ? order.tags.split(",").map((t) => t.trim())
+          : [];
+
+      if (!existingTags.includes(CUSTOMER_ARRANGED_FREIGHT_TAG)) {
+        console.log(
+          `Order ${order.name} shipping method contains FOB. Adding tag "${CUSTOMER_ARRANGED_FREIGHT_TAG}".`,
+        );
+        await addTags(admin, order.id, [CUSTOMER_ARRANGED_FREIGHT_TAG]);
+        if (!Array.isArray(order.tags)) {
+          order.tags = [...existingTags];
+        }
+        order.tags.push(CUSTOMER_ARRANGED_FREIGHT_TAG);
+      }
+    }
+
+    // Checkout's `_hyve_*` working fields aren't for staff (HYV-176).
+    await removeCheckoutWorkingFields(admin, orderId, payload?.note_attributes);
+
     const lineItems = order.lineItems?.nodes ?? [];
 
     /* -------------------------------------------------------------------- */
@@ -933,7 +987,7 @@ export async function action({ request }) {
 
       if (hasStorefrontQuoteTag) {
         // Update the production_status metafield directly
-        const response = await admin.graphql(
+        await admin.graphql(
           `#graphql
           mutation SetReadyForCollection($id: ID!, $value: String!) {
             metafieldsSet(metafields: [{

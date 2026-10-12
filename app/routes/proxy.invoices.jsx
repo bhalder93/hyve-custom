@@ -24,7 +24,7 @@ export const loader = async ({ request }) => {
 
     const chrome = await portalChrome(admin, customerId);
     if (!chrome.isDistributor) {
-      return liquid(accountShell({ active: "invoices", main: distributorOnly("Invoices"), ...chrome }));
+      return liquid(accountShell({ active: "invoices", main: distributorOnly("Invoices", chrome), ...chrome }));
     }
 
     const { invoices, failed } = await loadInvoices(admin, chrome.terms?.locationIds || []);

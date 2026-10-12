@@ -53,7 +53,7 @@ export const loader = async ({ request }) => {
     const chrome = await portalChrome(admin, customerId);
     if (!chrome.isDistributor) {
       return liquid(
-        accountShell({ active: "team", main: distributorOnly("Team"), ...chrome }),
+        accountShell({ active: "team", main: distributorOnly("Team", chrome), ...chrome }),
       );
     }
     const notice = url.searchParams.get("notice");

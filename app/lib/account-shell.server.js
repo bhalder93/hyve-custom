@@ -47,6 +47,7 @@ const NAV_DISTRIBUTOR = [
  * @param {string} opts.main       main-content HTML
  * @param {{name?:string,email?:string,initials?:string,tier?:string}} [opts.customer]
  * @param {boolean} [opts.isDistributor]  show the Distributor group and terms panel
+ * @param {boolean} [opts.applicationPending]  a distributor application is under review
  * @param {Record<string,number>} [opts.counts]  badge counts keyed by nav id
  * @param {object} [opts.terms]    commercial terms for the M2 panel
  */
@@ -55,6 +56,7 @@ export function accountShell({
   main = "",
   customer = null,
   isDistributor = false,
+  applicationPending = false,
   counts = {},
   terms = null,
 } = {}) {
@@ -72,7 +74,7 @@ export function accountShell({
       <div class="hyve-acct__nav-group">
         <a class="hyve-acct__apply" href="/apps/account/distributor">
           ${icoBuilding()}
-          <span>Apply as Distributor</span>
+          <span>${applicationPending ? "Application under review" : "Apply as Distributor"}</span>
         </a>
       </div>`;
 

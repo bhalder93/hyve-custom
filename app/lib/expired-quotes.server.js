@@ -65,6 +65,8 @@ function toQuote(node) {
     expiredAt: fields.quote_date || "",
     date: formatDate(fields.quote_date),
     total: formatMoney(money.amount, money.currency_code),
+    amount: money.amount ?? "",
+    currencyCode: money.currency_code || "",
     lines: Array.isArray(lines) ? lines : [],
     items: (Array.isArray(lines) ? lines : [])
       .map((line) => `${line.title}${line.quantity > 1 ? ` x${line.quantity}` : ""}`)
@@ -92,6 +94,12 @@ async function readAll(admin) {
   }
 
   return found;
+}
+
+/** Every expired quote, for Hyve Custom's quote lists (HYV-165). */
+export async function listAllExpiredQuotes(admin) {
+  if (!admin) return [];
+  return readAll(admin);
 }
 
 /**
