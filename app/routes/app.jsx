@@ -20,6 +20,7 @@ export default function App() {
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
         <s-link href="/app/quotes">Quotes</s-link>
+        <s-link href="/app/credit-review">Credit Review</s-link>
         <s-link href="/app/production-orders">Production Orders</s-link>
         <s-link href="/app/order-statuses">Order Statuses</s-link>
         <s-link href="/app/distributors">Distributor Applications</s-link>
@@ -28,7 +29,10 @@ export default function App() {
         <s-link href="/app/commercial-settings">Commercial Settings</s-link>
         <s-link href="/app/tier-prices">Tier Prices</s-link>
         <s-link href="/app/sla-engine">Manual SLA</s-link>
-        <s-link href="/app/pickup-config">Pickup Configuration</s-link>      </s-app-nav>
+        <s-link href="/app/pickup-config">Pickup Configuration</s-link>
+        <s-link href="/app/bank-details">Bank Details</s-link>
+        <s-link href="/app/pending-payments">Pending Payments</s-link>
+      </s-app-nav>
       <Outlet />
     </AppProvider>
   );

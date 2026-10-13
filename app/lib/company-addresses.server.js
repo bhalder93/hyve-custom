@@ -46,6 +46,9 @@ const BOOK_QUERY = `#graphql
               taxSettings { taxRegistrationId taxExempt taxExemptions }
               buyerExperienceConfiguration { checkoutToDraft editableShippingAddress paymentTermsTemplate { id } }
               catalogs(first: 10) { nodes { id } }
+              salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
+              salesRepEmail: metafield(namespace: "hyve", key: "sales_rep_email") { value }
+              salesRepPhone: metafield(namespace: "hyve", key: "sales_rep_phone") { value }
               roleAssignments(first: 50) { nodes { companyContact { id } role { id } } }
             }
           }
@@ -72,6 +75,13 @@ const CATALOG_ADD = `#graphql
 const ROLES_ASSIGN = `#graphql
   mutation CompanyLocationRolesAssign($locationId: ID!, $roles: [CompanyLocationRoleAssign!]!) {
     companyLocationAssignRoles(companyLocationId: $locationId, rolesToAssign: $roles) {
+      userErrors { field message }
+    }
+  }`;
+
+const REP_SET = `#graphql
+  mutation CompanyLocationRepSet($metafields: [MetafieldsSetInput!]!) {
+    metafieldsSet(metafields: $metafields) {
       userErrors { field message }
     }
   }`;
@@ -300,6 +310,21 @@ export async function addCompanyLocation(admin, numericCustomerId, input) {
     if (roles.length) {
       const assigned = await gql(admin, ROLES_ASSIGN, { locationId, roles });
       const error = userError(assigned, "companyLocationAssignRoles");
+      if (error) throw new Error(error);
+    }
+
+    // The sales rep too: the portal, the credit review alert and the proforma
+    // read it from the address an order is placed for.
+    const rep = [
+      ["sales_rep", main.salesRep?.value],
+      ["sales_rep_email", main.salesRepEmail?.value],
+      ["sales_rep_phone", main.salesRepPhone?.value],
+    ].filter(([, value]) => String(value || "").trim());
+    if (rep.length) {
+      const set = await gql(admin, REP_SET, {
+        metafields: rep.map(([key, value]) => ({ ownerId: locationId, namespace: "hyve", key, type: "single_line_text_field", value })),
+      });
+      const error = userError(set, "metafieldsSet");
       if (error) throw new Error(error);
     }
   } catch (error) {

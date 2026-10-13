@@ -30,6 +30,12 @@ const ROLE_OPTIONS = [
     description: "Receives production, shipping and delivery SLA alerts.",
   },
   {
+    value: "CREDIT_REVIEW",
+    label: "Credit Review",
+    description:
+      "Receives an alert when a terms order is submitted for credit review. The company's sales rep is told too.",
+  },
+  {
     value: "MANAGEMENT",
     label: "Management",
     description: "Optional management visibility. Not used by default.",

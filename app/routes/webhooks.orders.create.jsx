@@ -5,6 +5,8 @@ import { authenticate } from "../shopify.server";
 import { checkAndAddFobShippingIfStorefrontQuote } from "../lib/order-fob-shipping.server";
 import { removeCheckoutWorkingFields } from "../lib/order-internal-fields.server";
 import { CUSTOMER_ARRANGED_FREIGHT_TAG } from "../lib/production-statuses";
+import { holdOrderForCreditReview } from "../lib/credit-review.server";
+import { productionCalendar, productionDueDate } from "../lib/order-status.server";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Constants                                 */
@@ -330,6 +332,13 @@ async function getOrder(admin, orderId) {
               value
             }
 
+            productionDueAt: metafield(
+              namespace: "$app"
+              key: "production_due_at"
+            ) {
+              value
+            }
+
             customer {
               displayName
 
@@ -497,6 +506,7 @@ async function initializeMetafields(
     setArtworkRequired,
     setRush,
     physicalSampleRequired,
+    productionDueAt,
   },
 ) {
   const metafields = [];
@@ -535,23 +545,28 @@ async function initializeMetafields(
     );
 
     if (physicalSampleRequired) {
-      metafields.push(
-        {
-          ownerId: orderId,
-          namespace: "$app",
-          key: "on_hold_reason",
-          type: "single_line_text_field",
-          value: "Physical Sample Required",
-        },
-        {
-          ownerId: orderId,
-          namespace: "$app",
-          key: "physical_sample_required",
-          type: "boolean",
-          value: "true",
-        }
-      );
+      metafields.push({
+        ownerId: orderId,
+        namespace: "$app",
+        key: "physical_sample_required",
+        type: "boolean",
+        value: "true",
+      });
     }
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* Production due date                                                    */
+  /* ---------------------------------------------------------------------- */
+
+  if (productionDueAt) {
+    metafields.push({
+      ownerId: orderId,
+      namespace: "$app",
+      key: "production_due_at",
+      type: "date_time",
+      value: productionDueAt,
+    });
   }
 
   /* ---------------------------------------------------------------------- */
@@ -1108,6 +1123,23 @@ export async function action({ request }) {
     }
 
     /* -------------------------------------------------------------------- */
+    /* Production due date                                                  */
+    /* -------------------------------------------------------------------- */
+
+    let productionDueAt = order.productionDueAt?.value || null;
+    if (!productionDueAt) {
+      try {
+        const calendar = await productionCalendar(admin);
+        productionDueAt = productionDueDate(calendar, changedAt, rush);
+      } catch (err) {
+        console.error(
+          `Failed to calculate initial production due date for ${order.name}:`,
+          err,
+        );
+      }
+    }
+
+    /* -------------------------------------------------------------------- */
     /* Initialize metafields                                                */
     /* -------------------------------------------------------------------- */
 
@@ -1127,6 +1159,8 @@ export async function action({ request }) {
       setRush,
 
       physicalSampleRequired,
+
+      productionDueAt,
     });
 
     /* -------------------------------------------------------------------- */
@@ -1143,6 +1177,16 @@ export async function action({ request }) {
 
         initialStatus: initialStatusString,
       });
+
+      // HYV-162: an order from a cart quote's link, for a company whose orders
+      // are reviewed, waits On Hold in Credit Review. Logged, not retried: the
+      // order is set up either way, and a retry would redo all of the above.
+      try {
+        const held = await holdOrderForCreditReview(admin, order.id);
+        if (held.held) console.log(`Order ${order.name} held for credit review`);
+      } catch (holdError) {
+        console.error(`Credit review hold failed for ${order.name}:`, holdError?.message || holdError);
+      }
     }
 
     /* -------------------------------------------------------------------- */

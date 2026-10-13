@@ -2,6 +2,7 @@ import { authenticate } from "../shopify.server";
 import { esc, PORTAL_TOKENS } from "../lib/account-shell.server";
 import { SUPPORT_EMAIL, WHATSAPP_URL } from "../lib/customer-service.server";
 import { loadProofFromLink, readProofLink, recordEmailProofDecision } from "../lib/proof.server";
+import { orderRequiresPhysicalSample } from "../lib/portal.server";
 
 /**
  * Approve proof / Request changes from the proof email (ART-03).
@@ -52,7 +53,9 @@ export const action = async ({ request }) => {
       page(
         done(
           decision === "approve"
-            ? `Thank you — the Artwork Proof for ${result.orderName} is approved. We'll start production and email you when it's complete.`
+            ? (result.isSampleOrder
+                ? `Thank you — the Artwork Proof for ${result.orderName} is approved. Approved — Sample Preparation. The physical sample is being prepared before production begins.`
+                : `Thank you — the Artwork Proof for ${result.orderName} is approved. We'll start production and email you when it's complete.`)
             : `Thanks — we've passed your changes for ${result.orderName} to the team. We'll email you the next Artwork Proof.`,
         ),
       ),
@@ -75,6 +78,7 @@ function decisionForm(order, params) {
   const version = order.proofVersion?.value;
   const proofUrl = order.proofUrl?.value;
   const isImage = proofUrl ? /[.](jpg|jpeg|png|webp|gif|bmp)$/i.test(proofUrl.split("?")[0].split("#")[0].trim()) : false;
+  const isSampleOrder = orderRequiresPhysicalSample(order);
 
   return `
     <h1 class="hyve-proof__title">Artwork Proof Decision</h1>
@@ -96,7 +100,11 @@ function decisionForm(order, params) {
       <input type="hidden" name="decision" value="approve">
       <input type="hidden" name="client_user_agent" value="" class="js-user-agent">
       <h2 style="font-size: 18px; margin: 0 0 8px 0; font-weight: 700;">Happy with the proof?</h2>
-      <p class="hyve-proof__text" style="margin-bottom: 16px;">Approving starts production, and your order is made exactly as the Artwork Proof shows.</p>
+      <p class="hyve-proof__text" style="margin-bottom: 16px;">
+        ${isSampleOrder
+          ? "We’ll prepare your sample before production begins. Your physical sample is made exactly as the Artwork Proof shows."
+          : "Approving starts production, and your order is made exactly as the Artwork Proof shows."}
+      </p>
       <button type="submit" class="hyve-proof__btn">Approve Artwork Proof</button>
     </form>
 

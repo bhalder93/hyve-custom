@@ -10,7 +10,7 @@ import { errorState } from "../lib/account-error.server";
  * Storefront: /apps/account/settings -> <app>/proxy/settings
  *
  * Implements:
- *   - Profile Information editing (Full Name, Company, Phone)
+ *   - Profile Information editing (First Name, Last Name, Company, Phone)
  *   - Notifications preferences:
  *       * WhatsApp Updates persisted to customer metafield (custom.whatsapp_updates)
  *       * Email Notifications (custom.email_notifications)
@@ -159,17 +159,25 @@ export const action = async ({ request }) => {
 
     // 2. Full Save Changes form submission
     if (intent === "saveSettings") {
-      const fullName = String(formData.get("fullName") || "").trim();
+      const formFirstName = String(formData.get("firstName") || "").trim();
+      const formLastName = String(formData.get("lastName") || "").trim();
+      const formFullName = String(formData.get("fullName") || "").trim();
+
+      let firstName = formFirstName;
+      let lastName = formLastName;
+
+      // Backward-compatible fallback if submitted via legacy fullName
+      if (!firstName && !lastName && formFullName) {
+        const nameParts = formFullName.split(/\s+/).filter(Boolean);
+        firstName = nameParts[0] || "";
+        lastName = nameParts.slice(1).join(" ") || "";
+      }
+
       const company = String(formData.get("company") || "").trim();
       const phone = String(formData.get("phone") || "").trim();
       const whatsappUpdates = formData.get("whatsappUpdates") === "true" ? "true" : "false";
       const emailNotifications = formData.get("emailNotifications") === "true" ? "true" : "false";
       const marketingEmails = formData.get("marketingEmails") === "true" ? "true" : "false";
-
-      // Split full name into first and last
-      const nameParts = fullName.split(/\s+/).filter(Boolean);
-      const firstName = nameParts[0] || "";
-      const lastName = nameParts.slice(1).join(" ") || "";
 
       // Update customer basic profile (firstName, lastName, phone)
       await updateCustomerProfile(admin, gidCustomerId, { firstName, lastName, phone });
@@ -310,8 +318,8 @@ async function fetchCustomerSettings(admin, customerId) {
 async function updateCustomerProfile(admin, customerId, { firstName, lastName, phone }) {
   try {
     const input = { id: customerId };
-    if (firstName) input.firstName = firstName;
-    if (lastName) input.lastName = lastName;
+    if (firstName !== undefined) input.firstName = firstName;
+    if (lastName !== undefined) input.lastName = lastName;
     // Clean phone number (Shopify requires E.164 e.g. +6591234567)
     if (phone) {
       const cleaned = phone.replace(/[\s\-()]/g, "");

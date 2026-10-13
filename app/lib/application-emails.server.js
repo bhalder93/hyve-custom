@@ -158,6 +158,8 @@ export async function sendApplicationDecisionEmail(admin, application, outcome) 
           `${company} is now set up as a ${shopName} distributor.`,
           `${signIn}:`,
           accountUrl,
+          outcome.tierName ? `\nPricing tier: ${outcome.tierName}` : "",
+          `Payment terms: ${outcome.paymentTermsName || "paid at checkout"}`,
           outcome.salesRep ? `\nYour sales representative is ${outcome.salesRep}${outcome.salesRepEmail ? ` (${outcome.salesRepEmail})` : ""}.` : "",
         ].join("\n"),
         html: brandedEmail({
@@ -174,7 +176,15 @@ export async function sendApplicationDecisionEmail(admin, application, outcome) 
                 Go to your account
               </a>
             </div>`,
-          details: [["Company", escapeHtml(company)]],
+          // What the approval set (HYV-192): their tier, terms and sales rep.
+          details: [
+            ["Company", escapeHtml(company)],
+            ...(outcome.tierName ? [["Pricing tier", escapeHtml(outcome.tierName)]] : []),
+            ["Payment terms", escapeHtml(outcome.paymentTermsName || "Paid at checkout")],
+            ...(outcome.salesRep
+              ? [["Sales representative", escapeHtml([outcome.salesRep, outcome.salesRepEmail].filter(Boolean).join(" · "))]]
+              : []),
+          ],
         }),
       });
       return true;

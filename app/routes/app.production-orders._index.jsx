@@ -6,6 +6,7 @@ import { useLoaderData, useNavigate } from "react-router";
 
 import { authenticate } from "../shopify.server";
 import { STATUS_OPTIONS } from "../lib/production-statuses";
+import { productionCalendar, productionDueDate } from "../lib/order-status.server";
 
 const DEFAULT_PAGE_SIZE = 25;
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
@@ -105,11 +106,36 @@ function formatDate(value) {
 function formatDay(value) {
   if (!value) return "—";
 
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    const [, year, month, day] = match;
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const mIdx = parseInt(month, 10) - 1;
+    if (mIdx >= 0 && mIdx < 12) {
+      return `${parseInt(day, 10)} ${months[mIdx]} ${year}`;
+    }
+  }
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
 
-  return new Intl.DateTimeFormat("en-SG", {
-    dateStyle: "medium",
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
     timeZone: "Asia/Singapore",
   }).format(date);
 }
@@ -275,7 +301,7 @@ export async function loader({ request }) {
       : baseTabQuery;
 
     // Fetch tab counts and order listing
-    const [countsResponse, ordersResponse] = await Promise.all([
+    const [countsResponse, ordersResponse, calendar] = await Promise.all([
       admin
         .graphql(
           `#graphql
@@ -439,6 +465,7 @@ export async function loader({ request }) {
           },
         },
       ),
+      productionCalendar(admin).catch(() => null),
     ]);
 
     const ordersData = await ordersResponse.json();
@@ -457,6 +484,19 @@ export async function loader({ request }) {
           ?.find((tag) => tag.startsWith("hyve-status:"))
           ?.replace("hyve-status:", "") || "";
 
+      let productionDueAt = order.productionDueAt?.value || "";
+      if (!productionDueAt && calendar && order.createdAt) {
+        try {
+          productionDueAt = productionDueDate(
+            calendar,
+            order.createdAt,
+            order.rush?.value === "true",
+          );
+        } catch {
+          // ignore
+        }
+      }
+
       return {
         id: order.id,
         numericId: extractOrderNumericId(order.id),
@@ -473,7 +513,7 @@ export async function loader({ request }) {
         lineItems: order.lineItems?.nodes || [],
         productionStatus: order.productionStatus?.value || statusFromTag || "",
         statusChangedAt: order.statusChangedAt?.value || "",
-        productionDueAt: order.productionDueAt?.value || "",
+        productionDueAt,
         artworkRequired: order.artworkRequired?.value === "true",
         rush: order.rush?.value === "true",
         onHoldReason: order.onHoldReason?.value || "",
@@ -1027,8 +1067,8 @@ export default function ProductionOrdersPage() {
                   onChange={(event) =>
                     handlePageSizeChange(
                       event?.currentTarget?.value ??
-                        event?.target?.value ??
-                        DEFAULT_PAGE_SIZE,
+                      event?.target?.value ??
+                      DEFAULT_PAGE_SIZE,
                     )
                   }
                 >

@@ -24,11 +24,14 @@ import { artworkSupplied, zonesFromAttributes } from "./artwork-zones.server";
 import { orderModal, MODAL_STYLES, MODAL_SCRIPT } from "./account-order-modal.server";
 import { customerArrangesFreight } from "./production-statuses";
 import { incotermFromShipping } from "./incoterm";
+import { CREDIT_DECLINED_TAG, CREDIT_HOLD_TAG } from "./credit-review.server";
+import { currentOrderLines } from "./quote-document.server";
 import {
   ARTWORK_PENDING,
   VISIBLE_STATUSES,
   COLLECTION_STATUS,
   AWAITING_DISTRIBUTOR,
+  artworkPending,
   orderStatusKey,
   statusByKey,
   formatMoney,
@@ -39,13 +42,28 @@ import {
  * Map Admin API order nodes into the shape the row renderer wants.
  * @param {Array<object>} nodes `customer.orders.nodes`
  */
+function proformaIssued(node) {
+  try {
+    return Boolean(JSON.parse(node?.proforma?.value || "{}")?.number);
+  } catch {
+    return false;
+  }
+}
+
 export function mapOrders(nodes = []) {
   return nodes.map((node) => {
-    const lineItems = node?.lineItems?.nodes || [];
+    // As the order stands after any edit; a review draft has no edits.
+    const lineItems = currentOrderLines(node);
     const fulfillment = (node?.fulfillments || [])[0] || null;
     const tracking = (fulfillment?.trackingInfo || [])[0] || null;
-    const statusKey = orderStatusKey(node);
-    const money = node?.totalPriceSet?.presentmentMoney || {};
+    // An order from a cart quote held for credit review reads as one in review
+    // (HYV-162), and one declined there as Credit Declined, not On Hold.
+    const creditTags = node?.tags || [];
+    const creditDeclined = creditTags.includes(CREDIT_DECLINED_TAG);
+    const creditHeld = !creditDeclined && creditTags.includes(CREDIT_HOLD_TAG);
+    const statusKey = creditDeclined ? "credit-declined" : creditHeld ? "credit-review" : orderStatusKey(node);
+    const money = (node?.currentTotalPriceSet || node?.totalPriceSet)?.presentmentMoney || {};
+    const freight = (node?.currentShippingPriceSet || node?.totalShippingPriceSet)?.presentmentMoney || {};
     
     let latestSample = {};
     try {
@@ -71,6 +89,11 @@ export function mapOrders(nodes = []) {
       // that quote's PDF alongside the invoice.
       quoteHref: node?.quoteDraftId
         ? `/apps/account/quotes/pdf?draft=${encodeURIComponent(node.quoteDraftId)}`
+        : "",
+      // Once staff have issued the proforma invoice (HYV-118), the buyer can
+      // download it too; before that its terms of sale aren't set.
+      proformaHref: proformaIssued(node) && node?.id
+        ? `/apps/account/orders/proforma?order=${encodeURIComponent(node.id)}`
         : "",
       statusKey,
       // The buyer arranges the freight (FOB): the order ends at Ready For
@@ -99,9 +122,13 @@ export function mapOrders(nodes = []) {
           : "",
       proofUrl: node?.proofUrl?.value || "",
       onHoldReason: node?.onHoldReason?.value || "",
+      ...(creditDeclined
+        ? { declineReason: String(node?.onHoldReason?.value || "").replace(/^Not approved on payment terms:\s*/, "") }
+        : {}),
+      ...(creditHeld ? { artworkToFollow: artworkPending(node) } : {}),
       physicalSampleStatus: latestSample.status || "",
       physicalSampleVersion: latestSample.sampleVersion || "0",
-      hasPhysicalSample: node?.physicalSampleRequired?.value === "true" || lineItems.some((li) => li.sku === "HYVE-PHYSICAL-SAMPLE"),
+      hasPhysicalSample: node?.physicalSampleRequired?.value === "true" || lineItems.some((li) => li.sku === "HYVE-PHYSICAL-SAMPLE" || (li.customAttributes || []).some((attr) => (attr?.key === "_hyve_sample" && String(attr.value) === "true") || (attr?.key === "Physical Sample" && String(attr.value).toLowerCase() === "yes"))),
 
       // Order detail modal (J2)
       // The modal lists payment terms as a header fact. It read a field nobody
@@ -120,12 +147,7 @@ export function mapOrders(nodes = []) {
       incoterm: incotermFromShipping(node?.shippingLine?.title),
       // The freight charged, shown above the total next to its rate's name
       // (HYV-140). An FOB order has none and shows no row.
-      shippingLabel: Number(node?.totalShippingPriceSet?.presentmentMoney?.amount) > 0
-        ? formatMoney(
-            node.totalShippingPriceSet.presentmentMoney.amount,
-            node.totalShippingPriceSet.presentmentMoney.currencyCode,
-          )
-        : "",
+      shippingLabel: Number(freight.amount) > 0 ? formatMoney(freight.amount, freight.currencyCode) : "",
       lines: lineItems.map((li) => ({
         title: li.title,
         quantity: li.quantity,
@@ -182,6 +204,8 @@ const REVIEW_ORDERS_QUERY = `#graphql
         createdAt
         tags
         poNumber
+        # Set when Hyve declines it in the Credit review queue (HYV-162).
+        declineReason: metafield(namespace: "$app", key: "credit_decline_reason") { value }
         totalPriceSet { presentmentMoney { amount currencyCode } }
         totalShippingPriceSet { presentmentMoney { amount currencyCode } }
         paymentTerms { paymentTermsName }
@@ -219,9 +243,19 @@ export async function loadReviewOrders(admin, ids = []) {
       return [];
     }
     const drafts = (body?.data?.nodes || []).filter(Boolean);
-    return mapOrders(drafts).map((row) => ({
+    return mapOrders(drafts).map((row, index) => ({
       ...row,
-      statusKey: "credit-review",
+      // One reference style for the buyer (HYV-173): a draft's #D number is
+      // Shopify's, not an order number, so an order in review goes by its PO
+      // until it's confirmed and gets its #10xx.
+      reference: row.poNumber ? `PO ${row.poNumber}` : "Order in review",
+      // Lines ordered with artwork to follow and no file yet: the buyer
+      // uploads once the order is confirmed, and the dashboard counts it.
+      artworkToFollow: artworkPending(drafts[index]),
+      // Declined in the Credit review queue: it stays listed, with the reason.
+      ...((drafts[index]?.tags || []).includes(CREDIT_DECLINED_TAG)
+        ? { statusKey: "credit-declined", declineReason: drafts[index]?.declineReason?.value || "" }
+        : { statusKey: "credit-review" }),
       // Not an order yet: nothing to reorder, invoice, track or send artwork
       // against until sales releases it, and those all key off the id.
       id: "",
@@ -254,10 +288,28 @@ export async function withArtworkDeadlines(admin, orders = []) {
 }
 
 /** Orders waiting on the distributor — the H9 badge: Proof Sent or Awaiting Artwork. */
+/**
+ * The dashboard's two "waiting on you" tiles (HYV-173): orders still needing
+ * artwork, an order in review included, and approvals waiting on the buyer
+ * (artwork proof, production photo, physical sample).
+ */
+export function dashboardCounts(orders = []) {
+  const awaitingArtwork = orders.filter(
+    (o) => o.statusKey === "awaiting-artwork" || (o.statusKey === "credit-review" && o.artworkToFollow),
+  ).length;
+  const approvals = orders.filter(
+    (o) =>
+      o.statusKey === "proof-sent" ||
+      (o.statusKey === "production-completed" && o.productionApprovalStatus !== "approved") ||
+      (o.hasPhysicalSample && (o.physicalSampleStatus === "sent" || o.statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(o.statusKey)),
+  ).length;
+  return { awaitingArtwork, approvals };
+}
+
 export function awaitingActionCount(orders = []) {
   return orders.filter((o) => {
     if (o.statusKey === "production-completed" && o.productionApprovalStatus !== "approved") return true;
-    if (o.hasPhysicalSample && o.physicalSampleStatus === "sent" && ["proof-approved", "on-hold"].includes(o.statusKey)) return true;
+    if (o.hasPhysicalSample && (o.physicalSampleStatus === "sent" || o.statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(o.statusKey)) return true;
     if (AWAITING_DISTRIBUTOR.includes(o.statusKey) && o.statusKey !== "production-completed") return true;
     return false;
   }).length;
@@ -331,11 +383,11 @@ export function ordersPage({
  */
 export function orderRow(order) {
   const status = statusByKey(order.statusKey) || VISIBLE_STATUSES[0];
-  const haystack = [order.name, order.poNumber, order.items, status.label].join(" ").toLowerCase();
+  const haystack = [order.reference, order.name, order.poNumber, order.items, status.label].join(" ").toLowerCase();
   const meta = metaLine(order, status.key);
 
   const needsProductionApproval = order.statusKey === "production-completed" && order.productionApprovalStatus !== "approved";
-  const needsPhysicalSampleApproval = order.hasPhysicalSample && order.physicalSampleStatus === "sent" && ["proof-approved", "on-hold"].includes(order.statusKey);
+  const needsPhysicalSampleApproval = order.hasPhysicalSample && (order.physicalSampleStatus === "sent" || order.statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(order.statusKey);
 
   return `
     <article class="hyve-ord__row" data-modal-row="order-${esc(order.name)}" data-status="${esc(order.statusKey)}" data-search="${esc(haystack)}">
@@ -343,14 +395,14 @@ export function orderRow(order) {
 
       <div class="hyve-ord__body">
         <div class="hyve-ord__head">
-          <span class="hyve-ord__name">${esc(order.name)}</span>
+          <span class="hyve-ord__name">${esc(order.reference || order.name)}</span>
           <span class="hyve-ord__badge hyve-ord__badge--${status.tone}">${esc(status.label)}</span>
-          ${status.key === "proof-sent" || needsProductionApproval || needsPhysicalSampleApproval ? `<span class="hyve-ord__badge hyve-ord__badge--action">Approval required</span>` : ""}
+          ${status.key === "proof-sent" || status.key === "sample-review" || needsProductionApproval || needsPhysicalSampleApproval ? `<span class="hyve-ord__badge hyve-ord__badge--action">Approval required</span>` : ""}
         </div>
         <p class="hyve-ord__items">${esc(order.items)}</p>
         <p class="hyve-ord__date">
           ${esc(order.date)}
-          ${order.poNumber ? `<span class="hyve-ord__po">PO ${esc(order.poNumber)}</span>` : ""}
+          ${order.poNumber && !order.reference ? `<span class="hyve-ord__po">PO ${esc(order.poNumber)}</span>` : ""}
         </p>
         ${meta}
       </div>
@@ -374,7 +426,7 @@ function rowActions(order, statusKey) {
   const actions = [];
 
   const needsProductionApproval = statusKey === "production-completed" && order.productionApprovalStatus !== "approved";
-  const needsPhysicalSampleApproval = order.hasPhysicalSample && order.physicalSampleStatus !== "approved" && ["proof-approved", "on-hold"].includes(statusKey);
+  const needsPhysicalSampleApproval = (order.hasPhysicalSample && (order.physicalSampleStatus === "sent" || statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(statusKey)) || statusKey === "sample-review";
 
   if (statusKey === "proof-sent") {
     actions.push(openDetail(icoProof(), "Review Artwork Proof", "primary"));
@@ -419,7 +471,7 @@ function rowActions(order, statusKey) {
 /** J12 action-required line, plus the status-specific detail lines. */
 function metaLine(order, statusKey) {
   const needsProductionApproval = statusKey === "production-completed" && order.productionApprovalStatus !== "approved";
-  const needsPhysicalSampleApproval = order.hasPhysicalSample && order.physicalSampleStatus !== "approved" && ["proof-approved", "on-hold"].includes(statusKey);
+  const needsPhysicalSampleApproval = (order.hasPhysicalSample && (order.physicalSampleStatus === "sent" || statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(statusKey)) || statusKey === "sample-review";
 
   if (statusKey === "proof-sent") {
     const by = order.proofDueBy ? ` by <strong>${esc(order.proofDueBy)}</strong>` : "";
@@ -432,11 +484,19 @@ function metaLine(order, statusKey) {
   if (needsProductionApproval) {
     return `<p class="hyve-ord__meta is-action">${icoClock()}<span>Action Required: Approve your Production Photo or request changes to release for shipping</span></p>`;
   }
+  if (statusKey === "sample-preparation") {
+    return `<p class="hyve-ord__meta">${icoClock()}<span>Your physical sample is being prepared before production begins</span></p>`;
+  }
   if (needsPhysicalSampleApproval) {
     return `<p class="hyve-ord__meta is-action">${icoClock()}<span>Action Required: Approve your Physical Sample or request changes so production can start</span></p>`;
   }
   if (statusKey === "credit-review") {
-    return `<p class="hyve-ord__meta">${icoClock()}<span>Submitted for review: Hyve checks your credit terms, then confirms the order</span></p>`;
+    const artwork = order.artworkToFollow ? ". Artwork still needed: upload it once the order is confirmed" : "";
+    return `<p class="hyve-ord__meta">${icoClock()}<span>Submitted for review: Hyve checks your credit terms, then confirms the order${artwork}</span></p>`;
+  }
+  if (statusKey === "credit-declined") {
+    const why = order.declineReason ? `: ${esc(order.declineReason)}` : "";
+    return `<p class="hyve-ord__meta is-action">${icoClock()}<span>Not approved on payment terms${why}. Contact your account manager to arrange another way to pay.</span></p>`;
   }
   if (statusKey === "on-hold" && order.onHoldReason) {
     return `<p class="hyve-ord__meta is-action">${icoClock()}<span>On Hold: ${esc(order.onHoldReason)}</span></p>`;

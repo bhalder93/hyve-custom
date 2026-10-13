@@ -1,5 +1,5 @@
 import { addressFormatFor } from "../lib/address-formats.server";
-import { validPhone } from "../lib/phone";
+import { validPhone, phoneE164, refinePhone } from "../lib/phone";
 import { authenticate } from "../shopify.server";
 import { accountShell } from "../lib/account-shell.server";
 import { portalChrome } from "../lib/account-data.server";
@@ -90,9 +90,9 @@ export const loader = async ({ request }) => {
             retryHref: "/apps/account/addresses",
           }),
           customer,
-        
-        ...(await portalChrome(admin, new URL(request.url).searchParams.get("logged_in_customer_id"))),
-      }),
+
+          ...(await portalChrome(admin, new URL(request.url).searchParams.get("logged_in_customer_id"))),
+        }),
       );
     }
 
@@ -108,7 +108,7 @@ export const loader = async ({ request }) => {
           error: errorParam,
         }),
         customer,
-      
+
         ...(await portalChrome(admin, new URL(request.url).searchParams.get("logged_in_customer_id"))),
       }),
     );
@@ -122,7 +122,7 @@ export const loader = async ({ request }) => {
           heading: "We couldn't load your addresses",
           retryHref: "/apps/account/addresses",
         }),
-      
+
         ...(await portalChrome(admin, new URL(request.url).searchParams.get("logged_in_customer_id"))),
       }),
     );
@@ -161,6 +161,25 @@ export const action = async ({ request }) => {
     const intent = String(formData.get("intent") || "").trim();
     const addressId = formData.get("addressId");
 
+    // Validate phone number whenever creating or updating an address (both company and personal).
+    // Phone is optional: if empty, it is allowed. If entered, country code is optional (auto-resolved)
+    // and invalid phone numbers show an error.
+    if (intent === "create" || intent === "update") {
+      const countryCode = String(formData.get("countryCode") || "SG").trim();
+      const country = addressFormatFor(countryCode);
+      const rawPhone = String(formData.get("phone") || "").trim();
+
+      if (rawPhone) {
+        const refined = refinePhone(rawPhone);
+        const resolvedCountryCode = country?.code || countryCode;
+        if (!validPhone(refined, resolvedCountryCode)) {
+          return respond(isAjax, {
+            error: `Enter a valid phone number, e.g. +${country?.phonePrefix || "65"} followed by the number.`.replace("  ", " "),
+          });
+        }
+      }
+    }
+
     // Company addresses. Each action re-checks that the caller is the
     // company's admin and that the location is the company's own.
     if (String(formData.get("scope") || "") === "company") {
@@ -168,17 +187,6 @@ export const action = async ({ request }) => {
       const type = String(formData.get("addressType") || cardType || "shipping");
       const setAsDefault = formData.get("setAsDefault") === "true";
       const name = String(formData.get("label") || "").trim();
-
-      // Checked as Shopify checks it, so the form says which field is wrong
-      // instead of Shopify's bare "Phone is invalid" (HYV-143).
-      if (intent === "create" || intent === "update") {
-        const country = addressFormatFor(String(formData.get("countryCode") || ""));
-        if (!validPhone(formData.get("phone"), country?.code || formData.get("countryCode"))) {
-          return respond(isAjax, {
-            error: `Enter a valid ${country?.name || ""} phone number, e.g. +${country?.phonePrefix || "65"} followed by the number.`.replace("  ", " "),
-          });
-        }
-      }
       const results = {
         create: () => addCompanyLocation(admin, customerId, { name, address: addressInputFrom(formData), setAsDefault }),
         update: () =>
@@ -327,7 +335,7 @@ function extractAddressInput(formData) {
   const countryCode = String(formData.get("countryCode") || "SG").trim();
   const province = String(formData.get("province") || "").trim();
   const zip = String(formData.get("zip") || "").trim();
-  const phone = String(formData.get("phone") || "").trim();
+  const rawPhone = String(formData.get("phone") || "").trim();
 
   // Combine company and department/label if provided
   let formattedCompany = company;
@@ -351,7 +359,14 @@ function extractAddressInput(formData) {
   const zone = addressFormatFor(countryCode)?.zones.find((z) => z.code === province || z.name === province);
   if (zone) input.provinceCode = zone.code;
   else if (province) input.province = province;
-  if (phone) input.phone = phone;
+
+  if (rawPhone) {
+    const refined = refinePhone(rawPhone);
+    const country = addressFormatFor(countryCode);
+    const resolvedCode = country?.code || countryCode;
+    const formattedPhone = phoneE164(refined, resolvedCode);
+    input.phone = formattedPhone || (refined.startsWith("+") ? refined : rawPhone);
+  }
 
   return input;
 }

@@ -26,6 +26,7 @@
  * products only (Michael and Bruce, Oct 4). A product with no ladder has its
  * fixed prices removed, so the catalog percentage applies to it.
  */
+import { syncAllCompanyTiers } from "./company-tier.server";
 
 export const LADDER_NAMESPACE = "hyve";
 export const LADDER_KEY = "blank_pricing";
@@ -707,8 +708,15 @@ async function saveLastRun(admin, record) {
 export async function runAndRecord(admin, { catalogIds, trigger }) {
   const startedAt = new Date().toISOString();
   try {
-    const ids = catalogIds?.length ? catalogIds : (await listCompanyCatalogs(admin)).filter(isTierCatalog).map((c) => c.id);
+    const tierCatalogs = (await listCompanyCatalogs(admin)).filter(isTierCatalog);
+    const ids = catalogIds?.length ? catalogIds : tierCatalogs.map((c) => c.id);
     const outcome = await updateTierPrices(admin, ids);
+    // Every company's tier label, for the product page badge (HYV-192).
+    const tierLabels = await syncAllCompanyTiers(admin, tierCatalogs.map((c) => c.title)).catch((error) => {
+      console.warn("[tier-prices] tier labels not synced", error?.message || error);
+      return null;
+    });
+    if (tierLabels) console.log("[tier-prices] tier labels", JSON.stringify(tierLabels));
     await saveLastRun(admin, {
       trigger,
       startedAt,

@@ -46,7 +46,9 @@ export const action = async ({ request }) => {
     return backToOrders({
       notice:
         decision === "approve"
-          ? `Thank you — Artwork Proof approved for ${result.orderName}. We'll start production.`
+          ? (result.isSampleOrder
+              ? `Thank you — Artwork Proof approved for ${result.orderName}. Approved — Sample Preparation. We'll prepare your sample before production begins.`
+              : `Thank you — Artwork Proof approved for ${result.orderName}. We'll start production.`)
           : `Thanks — we've passed your change request for ${result.orderName} to the team.`,
     });
   } catch (error) {

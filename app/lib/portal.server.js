@@ -72,6 +72,10 @@ export const BRANCH_STATUSES = [
   // A terms order submitted for review at checkout, until sales releases it
   // (G6, HYV-99). Shopify holds it as a draft, so it has no production status.
   { key: "credit-review", label: "Credit Under Review", tone: "warn" },
+  // Declined in the Credit review queue, with the reason (HYV-162).
+  { key: "credit-declined", label: "Credit Declined", tone: "error" },
+  { key: "sample-preparation", label: "Approved — Sample Preparation", tone: "indigo" },
+  { key: "sample-review", label: "Sample Review", tone: "warn" },
 ];
 
 const ALL_STATUSES = [...VISIBLE_STATUSES, COLLECTION_STATUS, ...BRANCH_STATUSES];
@@ -83,6 +87,8 @@ const STORED_TO_DISPLAY = {
   "artwork-received": "artwork-received",
   "proof-sent": "proof-sent",
   "proof-approved": "in-production",
+  "sample-preparation": "sample-preparation",
+  "sample-review": "sample-review",
   "in-production": "in-production",
   "production-complete": "production-completed",
   "ready-for-collection": "ready-for-collection",
@@ -100,8 +106,40 @@ const STORED_TO_DISPLAY = {
  */
 export const ARTWORK_PENDING = "Artwork Pending";
 
+/**
+ * Check whether an order requires a physical pre-production sample.
+ */
+export function orderRequiresPhysicalSample(order) {
+  if (!order) return false;
+  if (order.physicalSampleRequired?.value === "true" || order.physicalSampleRequired === true) return true;
+  if (order.hasPhysicalSample === true) return true;
+  if (Array.isArray(order.lineItems?.nodes)) {
+    return order.lineItems.nodes.some(
+      (line) =>
+        line?.sku === "HYVE-PHYSICAL-SAMPLE" ||
+        (line?.customAttributes || []).some(
+          (attr) =>
+            (attr?.key === "_hyve_sample" && String(attr.value) === "true") ||
+            (attr?.key === "Physical Sample" && String(attr.value).toLowerCase() === "yes"),
+        ),
+    );
+  }
+  if (Array.isArray(order.lineItems)) {
+    return order.lineItems.some(
+      (line) =>
+        line?.sku === "HYVE-PHYSICAL-SAMPLE" ||
+        (line?.customAttributes || line?.properties || []).some(
+          (attr) =>
+            ((attr?.key || attr?.name) === "_hyve_sample" && String(attr.value) === "true") ||
+            ((attr?.key || attr?.name) === "Physical Sample" && String(attr.value).toLowerCase() === "yes"),
+        ),
+    );
+  }
+  return false;
+}
+
 /** Statuses that are waiting on the distributor — drives the Orders badge (H9). */
-export const AWAITING_DISTRIBUTOR = ["proof-sent", "awaiting-artwork", "production-completed"];
+export const AWAITING_DISTRIBUTOR = ["proof-sent", "sample-review", "awaiting-artwork", "production-completed"];
 
 /** @param {object} customer Admin API customer with companyContactProfiles */
 export function isDistributor(customer) {
@@ -153,6 +191,11 @@ export function orderStatusKey(order) {
   }
 
   if (stored === "order-placed" && artworkPending(order)) return "awaiting-artwork";
+
+  // After proof approval on a sample order, show "Approved — Sample Preparation"
+  if ((stored === "proof-approved" || stored === "sample-preparation") && orderRequiresPhysicalSample(order)) {
+    return "sample-preparation";
+  }
   if (STORED_TO_DISPLAY[stored]) return STORED_TO_DISPLAY[stored];
 
   // Outside the production chain: Shopify's fulfillment state is the only signal.

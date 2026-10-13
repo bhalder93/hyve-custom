@@ -66,14 +66,42 @@ function linkQuery(params, decision) {
   return `/apps/account/production-decision?${query.toString()}`;
 }
 
+function isImageUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  const clean = url.split("?")[0].split("#")[0].toLowerCase().trim();
+  if (/\.(png|jpe?g|webp|gif|svg|avif|bmp)$/i.test(clean)) return true;
+  if (/cdn\.shopify\.com\/(s\/files|shopifycloud)/i.test(url)) {
+    if (/\.pdf$/i.test(clean)) return false;
+    return true;
+  }
+  return !/\.(pdf|docx?|zip|rar)$/i.test(clean);
+}
+
 function decisionForm(order, params) {
   const version = order.productionPhotoVersion?.value || "1";
   const photoUrl = order.productionPhotoUrl?.value;
+  const isImage = photoUrl ? isImageUrl(photoUrl) : false;
 
   return `
     <h1 class="hyve-proof__title">Production Photo Decision</h1>
     <p class="hyve-proof__meta">Order ${esc(order.name)}${version ? ` · Photo version ${esc(version)}` : ""}</p>
-    ${photoUrl ? `<a class="hyve-proof__view" href="${esc(photoUrl)}" target="_blank" rel="noopener">View production photo</a>` : ""}
+    
+    ${isImage ? `
+      <div style="margin-top: 16px; margin-bottom: 8px;">
+        <a href="${esc(photoUrl)}" target="_blank" rel="noopener" style="display: block;" title="Click to view full size">
+          <img
+            src="${esc(photoUrl)}"
+            alt="Production Photo for ${esc(order.name)}"
+            style="max-width: 100%; max-height: 500px; border-radius: 8px; border: 1px solid var(--hyve-border-strong); display: block; margin: 0 auto; object-fit: contain; background: #f9fafb;"
+          />
+        </a>
+      </div>
+      <a class="hyve-proof__view" style="display: inline-block; margin-top: 4px; margin-bottom: 4px;" href="${esc(photoUrl)}" target="_blank" rel="noopener">View full size photo ↗</a>
+    ` : photoUrl ? `
+      <div style="margin-top: 12px; margin-bottom: 8px;">
+        <a class="hyve-proof__view" href="${esc(photoUrl)}" target="_blank" rel="noopener">View production photo ↗</a>
+      </div>
+    ` : ""}
 
     <p class="hyve-proof__text" style="margin-top: 12px; margin-bottom: 24px;">Please review the production photo carefully before deciding.</p>
 

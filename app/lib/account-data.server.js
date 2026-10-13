@@ -32,6 +32,8 @@ const ADMIN_TIMEOUT_MS = 4000;
 const PORTAL_ORDER_FIELDS = `#graphql
   fragment PortalOrder on Order {
           id
+          # Set once staff issue its proforma invoice (HYV-118).
+          proforma: metafield(namespace: "$app", key: "proforma") { value }
           name
           createdAt
           tags
@@ -43,6 +45,9 @@ const PORTAL_ORDER_FIELDS = `#graphql
           totalPriceSet { presentmentMoney { amount currencyCode } }
           # The freight, shown above the total on the order window (HYV-140).
           totalShippingPriceSet { presentmentMoney { amount currencyCode } }
+          # The same after an order edit (currentOrderLines).
+          currentTotalPriceSet { presentmentMoney { amount currencyCode } }
+          currentShippingPriceSet { presentmentMoney { amount currencyCode } }
           paymentTerms { paymentTermsName }
           productionStatus: metafield(namespace: "$app", key: "production_status") { value }
           productionDueAt: metafield(namespace: "$app", key: "production_due_at") { value }
@@ -73,6 +78,8 @@ const PORTAL_ORDER_FIELDS = `#graphql
               variant { id }
               originalUnitPriceSet { presentmentMoney { amount currencyCode } }
               discountedTotalSet { presentmentMoney { amount currencyCode } }
+              currentQuantity
+              discountedUnitPriceSet { presentmentMoney { amount currencyCode } }
             }
           }
           fulfillments(first: 1) {

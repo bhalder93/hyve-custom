@@ -1,5 +1,10 @@
 query CartDeliveryOptionsTransformRunInput {
   cart {
+    # "Cart quote" on a checkout opened from a quote link (HYV-140): those are
+    # draft order checkouts, where the duty line can't be added.
+    source: attribute(key: "Source") {
+      value
+    }
     buyerIdentity {
       purchasingCompany{
         company{

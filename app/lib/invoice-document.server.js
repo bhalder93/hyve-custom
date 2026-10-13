@@ -24,6 +24,7 @@ import {
   MAILING_ADDRESS,
   chargeLabel,
   companyBlock,
+  currentOrderLines,
   isChargeLine,
   isDutyLine,
   itemRow,
@@ -34,6 +35,7 @@ const DOCUMENT_QUERY = `#graphql
   query InvoiceDocument($id: ID!) {
     shop {
       contactEmail
+      bankMetafield: metafield(namespace: "hyve", key: "bank_details") { value }
     }
     order(id: $id) {
       id
@@ -75,13 +77,18 @@ const DOCUMENT_QUERY = `#graphql
           customAttributes { key value }
           variant { selectedOptions { name value } }
           originalUnitPriceSet { presentmentMoney { amount currencyCode } }
+          # The order as edited: currentQuantity, priced per unit.
+          currentQuantity
+          discountedUnitPriceSet { presentmentMoney { amount currencyCode } }
           discountedTotalSet { presentmentMoney { amount currencyCode } }
         }
       }
       shippingLine { title }
-      subtotalPriceSet { presentmentMoney { amount currencyCode } }
-      totalShippingPriceSet { presentmentMoney { amount currencyCode } }
       totalPriceSet { presentmentMoney { amount currencyCode } }
+      # The totals after any order edit.
+      currentSubtotalPriceSet { presentmentMoney { amount currencyCode } }
+      currentShippingPriceSet { presentmentMoney { amount currencyCode } }
+      currentTotalPriceSet { presentmentMoney { amount currencyCode } }
       totalReceivedSet { presentmentMoney { amount currencyCode } }
       totalOutstandingSet { presentmentMoney { amount currencyCode } }
       paymentTerms {
@@ -162,7 +169,7 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
     CURRENCY_COUNTRY[currency] ||
     "";
 
-  const lines = order.lineItems?.nodes || [];
+  const lines = currentOrderLines(order);
   const rows = [
     ...lines.filter((li) => !isChargeLine(li) && !isDutyLine(li)).map((li) => itemRow(li, cents, { artwork: false })),
     ...lines.filter(isChargeLine).map((li) => ({
@@ -203,16 +210,24 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
     billToTaxNumber: company?.taxRegistrationNumber?.value || "",
 
     rows,
-    subtotal: cents(order.subtotalPriceSet),
+    subtotal: cents(order.currentSubtotalPriceSet),
     // G9: name the rate rather than just "Shipping", so the buyer sees which
     // delivery they chose (FOB or a UPS rate), not a generic total.
     shippingName: order.shippingLine?.title || "",
-    shippingTotal: cents(order.totalShippingPriceSet),
-    total: cents(order.totalPriceSet),
+    shippingTotal: cents(order.currentShippingPriceSet),
+    total: cents(order.currentTotalPriceSet),
     amountPaid: cents(order.totalReceivedSet),
     outstanding,
 
-    // Where to pay, for an invoice still owed (HYV-151).
-    bank: paid ? null : bankAccountFor(country),
+    // Bank details to pay into, matching quotation and portal; only while
+    // something is still owed (HYV-151).
+    bank: paid ? null : (() => {
+      let customAccounts = null;
+      try {
+        const rawJson = body.data.shop?.bankMetafield?.value;
+        if (rawJson) customAccounts = JSON.parse(rawJson);
+      } catch {}
+      return bankAccountFor(country, customAccounts);
+    })(),
   };
 }

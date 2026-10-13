@@ -16,6 +16,8 @@ export const STATUS_OPTIONS = [
   { label: "Artwork Received", value: "artwork-received" },
   { label: "Proof Sent", value: "proof-sent" },
   { label: "Proof Approved", value: "proof-approved" },
+  { label: "Sample Preparation", value: "sample-preparation" },
+  { label: "Sample Review", value: "sample-review" },
   { label: "In Production", value: "in-production" },
   { label: "Production Complete", value: "production-complete" },
   // In place of Shipped for a customer-arranged freight (FOB) order, once its
@@ -34,9 +36,13 @@ export const STATUS_TRANSITIONS = {
 
   "artwork-received": ["proof-sent", "on-hold"],
 
-  "proof-sent": ["proof-approved", "on-hold"],
+  "proof-sent": ["proof-approved", "sample-preparation", "on-hold"],
 
-  "proof-approved": ["in-production", "on-hold"],
+  "proof-approved": ["sample-preparation", "sample-review", "in-production", "on-hold"],
+
+  "sample-preparation": ["sample-review", "in-production", "on-hold"],
+
+  "sample-review": ["in-production", "sample-preparation", "on-hold"],
 
   "in-production": ["production-complete", "on-hold"],
 
@@ -85,6 +91,8 @@ export const CUSTOMER_EMAIL_STATUSES = new Set([
   "artwork-received",
   "proof-sent",
   "proof-approved",
+  "sample-preparation",
+  "sample-review",
   "production-complete",
   "ready-for-collection",
 ]);

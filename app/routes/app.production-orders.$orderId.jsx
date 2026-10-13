@@ -1,7 +1,7 @@
 // app/routes/app.production-orders.$orderId.jsx
 /* eslint-disable react/prop-types */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   useActionData,
@@ -28,6 +28,7 @@ import {
   productionDueDate,
 } from "../lib/order-status.server";
 import { productionDecisionLinks } from "../lib/production-approval.server";
+import { sampleDecisionLinks } from "../lib/sample-approval.server";
 import {
   syncLineItemArtworkReceived,
   updateLineItemArtworkAttributesInPayload,
@@ -80,9 +81,11 @@ function statusTone(status) {
 
     case "proof-sent":
     case "proof-approved":
+    case "sample-preparation":
     case "in-production":
       return "info";
 
+    case "sample-review":
     case "artwork-received":
       return "warning";
 
@@ -282,47 +285,48 @@ export function getNextStepInfo(order, history = []) {
     return {
       nextStatus: "proof-approved",
       nextLabel: "Proof Approved",
-      actionVerb: "Proof Approved",
-      isWaitingCustomer: true,
-      waitingReason: `Artwork Proof v${order.proofVersion || 1} was sent to ${recipient}. Production cannot proceed until the customer reviews and approves the proof via email or customer portal.`,
-      currentAction: `Awaiting customer approval on Artwork Proof v${order.proofVersion || 1} (Sent to ${recipient}).`,
+      actionVerb: "Approve Artwork Proof",
+      isWaitingCustomer: false,
+      waitingReason: null,
+      currentAction: `Artwork Proof v${order.proofVersion || 1} sent to ${recipient}. Ready for customer sign-off or admin decision.`,
       stageTitle: "3. Artwork Proof Sent",
-      description: "The digital proof is awaiting customer review. The admin cannot advance to Proof Approved until the customer signs off.",
+      description: "Review the Artwork Proof. You can approve the proof to start production, or request changes to revise the artwork.",
+      canProceed: true,
+    };
+  }
+
+  const isSampleOrder = Boolean(order.physicalSampleRequired || order.hasPhysicalSample);
+
+  if (currentStatus === "sample-review" || (isSampleOrder && (order.physicalSampleStatus === "sent" || currentStatus === "on-hold" && order.physicalSampleStatus === "sent"))) {
+    const version = order.physicalSampleVersion || 1;
+    return {
+      nextStatus: "in-production",
+      nextLabel: "In Production",
+      actionVerb: "Start Production",
+      isWaitingCustomer: true,
+      waitingReason: `Physical sample v${version} has been sent to the customer. Bulk production cannot start until the customer inspects and approves the sample.`,
+      currentAction: `Awaiting customer approval on Physical Sample v${version}.`,
+      stageTitle: "Sample Review",
+      description: "Bulk production cannot begin until the pre-production sample is approved by the customer.",
+      canProceed: false,
+    };
+  }
+
+  if (currentStatus === "sample-preparation" || (isSampleOrder && currentStatus === "proof-approved" && order.physicalSampleStatus !== "approved" && !order.sampleApproved)) {
+    return {
+      nextStatus: "sample-review",
+      nextLabel: "Sample Review",
+      actionVerb: "Dispatch Sample",
+      isWaitingCustomer: false,
+      waitingReason: "This order requires a physical pre-production sample to be manufactured, sent, and approved by the customer before mass manufacturing can begin.",
+      currentAction: "Physical sample required prior to mass production.",
+      stageTitle: "Sample Preparation",
+      description: "Prepare the physical sample. Production has not started.",
       canProceed: false,
     };
   }
 
   if (currentStatus === "proof-approved") {
-    const sampleSentWaiting = order.physicalSampleStatus === "sent";
-    const sampleNotApproved = (order.physicalSampleRequired || order.hasPhysicalSample) && order.physicalSampleStatus !== "approved" && !order.sampleApproved;
-
-    if (sampleSentWaiting) {
-      return {
-        nextStatus: "in-production",
-        nextLabel: "In Production",
-        actionVerb: "Start Production",
-        isWaitingCustomer: true,
-        waitingReason: `Physical sample v${order.physicalSampleVersion || 1} has been sent to the customer. Bulk production cannot start until the customer inspects and approves the sample.`,
-        currentAction: `Awaiting customer approval on Physical Sample v${order.physicalSampleVersion || 1}.`,
-        stageTitle: "4. Proof Approved (Physical Sample Pending)",
-        description: "Bulk production cannot begin until the pre-production sample is approved by the customer.",
-        canProceed: false,
-      };
-    }
-
-    if (sampleNotApproved) {
-      return {
-        nextStatus: "in-production",
-        nextLabel: "In Production",
-        actionVerb: "Start Production",
-        isWaitingCustomer: true,
-        waitingReason: "This order requires a physical pre-production sample to be manufactured, sent, and approved by the customer before mass manufacturing can begin.",
-        currentAction: "Physical sample required prior to mass production.",
-        stageTitle: "4. Proof Approved (Physical Sample Required)",
-        description: "Please record and send the physical sample in the Physical Sample section before moving to In Production.",
-        canProceed: false,
-      };
-    }
 
     return {
       nextStatus: "in-production",
@@ -447,6 +451,7 @@ function getCustomerNotificationTag(
   status,
   proofVersion,
   productionPhotoVersion,
+  sampleVersion,
 ) {
   if (status === "proof-sent") {
     return `hyve-notified:proof-sent-v${proofVersion}`;
@@ -454,6 +459,10 @@ function getCustomerNotificationTag(
 
   if (status === "production-complete") {
     return `hyve-notified:production-complete-v${productionPhotoVersion || 1}`;
+  }
+
+  if (status === "sample-review") {
+    return `hyve-notified:sample-review-v${sampleVersion || 1}`;
   }
 
   return `hyve-notified:${status}`;
@@ -1524,18 +1533,44 @@ async function sendCustomerStatusEmail({
         ...(await proofDecisionLinks(admin, orderId, proofVersion)),
       });
 
-    case "proof-approved": {
+    case "proof-approved":
+    case "sample-preparation": {
       let estimatedShipDate = order.estimatedShipDate?.value;
       if (!estimatedShipDate && productionDueAt) {
         const d = new Date(productionDueAt);
         d.setDate(d.getDate() + 5);
         estimatedShipDate = d.toISOString();
       }
+      const isSample = Boolean(order.physicalSampleRequired || order.hasPhysicalSample || status === "sample-preparation");
       return sendProofApprovedEmail({
         ...common,
 
         productionDueAt,
         estimatedShipDate,
+        isSampleOrder: isSample,
+      });
+    }
+
+    case "sample-review": {
+      let sampleHistory = [];
+      try {
+        if (order.physicalSampleHistory?.value) {
+          sampleHistory = JSON.parse(order.physicalSampleHistory.value) || [];
+        }
+      } catch (e) {
+        // ignore
+      }
+      const latestSample = sampleHistory[0] || {};
+      const currentVersion = Number(latestSample.sampleVersion || order.physicalSampleVersion || 1);
+      const links = await sampleDecisionLinks(admin, orderId, currentVersion);
+      return sendPhysicalSampleEmail({
+        ...common,
+        sampleVersion: currentVersion,
+        fileUrl: latestSample.fileUrl || "",
+        note: latestSample.response || "",
+        approveUrl: links.approveUrl,
+        changesUrl: links.changesUrl,
+        reviewUrl: links.reviewUrl,
       });
     }
 
@@ -1587,10 +1622,24 @@ async function sendCurrentCustomerStatusEmail({
     };
   }
 
+  let sampleVersion = null;
+  if (status === "sample-review") {
+    let sampleHistory = [];
+    try {
+      if (order.physicalSampleHistory?.value) {
+        sampleHistory = JSON.parse(order.physicalSampleHistory.value) || [];
+      }
+    } catch (e) {
+      // ignore
+    }
+    sampleVersion = Number(sampleHistory[0]?.sampleVersion || order.physicalSampleVersion || 1);
+  }
+
   const notificationTag = getCustomerNotificationTag(
     status,
     proofVersion,
     productionPhotoVersion,
+    sampleVersion,
   );
 
   const alreadySent = await hasOrderTag(admin, orderId, notificationTag);
@@ -1660,9 +1709,10 @@ export async function loader({ request, params }) {
 
     const orderId = `gid://shopify/Order/${params.orderId}`;
 
-    const [order, history] = await Promise.all([
+    const [order, history, pickupConfigData] = await Promise.all([
       getOrder(admin, orderId),
       getStatusHistory(admin, orderId),
+      loadPickupConfig(admin),
     ]);
 
     const statusTag = (order.tags ?? []).find((tag) =>
@@ -1696,6 +1746,42 @@ export async function loader({ request, params }) {
 
     const latestSample = physicalSampleHistory[0] || {};
 
+    let productionDueAt = order.productionDueAt?.value || "";
+    if (!productionDueAt && order.createdAt) {
+      try {
+        const calendar = await productionCalendar(admin);
+        productionDueAt = productionDueDate(
+          calendar,
+          order.createdAt,
+          order.rush?.value === "true",
+        );
+        // Persist so the metafield is saved for this order
+        await admin.graphql(
+          `#graphql
+          mutation SaveOrderProductionDue($metafields: [MetafieldsSetInput!]!) {
+            metafieldsSet(metafields: $metafields) {
+              userErrors { field message }
+            }
+          }`,
+          {
+            variables: {
+              metafields: [
+                {
+                  ownerId: order.id,
+                  namespace: "$app",
+                  key: "production_due_at",
+                  type: "date_time",
+                  value: productionDueAt,
+                },
+              ],
+            },
+          },
+        );
+      } catch (e) {
+        console.error("Failed to auto-generate productionDueAt in loader:", e);
+      }
+    }
+
     return {
       order: {
         ...order,
@@ -1704,7 +1790,7 @@ export async function loader({ request, params }) {
 
         statusChangedAt: order.statusChangedAt?.value || "",
 
-        productionDueAt: order.productionDueAt?.value || "",
+        productionDueAt,
 
         artworkRequired: order.artworkRequired?.value === "true",
 
@@ -1765,6 +1851,8 @@ export async function loader({ request, params }) {
 
       physicalSampleHistory,
 
+      pickupConfig: pickupConfigData?.values || {},
+
       loaderError: null,
     };
   } catch (error) {
@@ -1772,6 +1860,8 @@ export async function loader({ request, params }) {
 
     return {
       order: null,
+
+      pickupConfig: {},
 
       history: [],
 
@@ -1846,6 +1936,52 @@ export async function action({ request, params }) {
       return {
         success: true,
         message: "Estimated ship date email sent to the customer.",
+      };
+    }
+
+    if (intent === "set_production_due_date") {
+      const value = String(formData.get("productionDueAt") || "").trim();
+      if (value && !/^\d{4}-\d{2}-\d{2}/.test(value)) {
+        return { success: false, formError: "Enter the production due date as a date." };
+      }
+      const isoValue = value
+        ? (value.includes("T") ? new Date(value).toISOString() : new Date(`${value}T12:00:00.000Z`).toISOString())
+        : null;
+      const identifier = {
+        ownerId: orderId,
+        namespace: "$app",
+        key: "production_due_at",
+      };
+      const response = await admin.graphql(
+        isoValue
+          ? `#graphql
+            mutation ProductionDueSet($metafields: [MetafieldsSetInput!]!) {
+              metafieldsSet(metafields: $metafields) { userErrors { field message } }
+            }`
+          : `#graphql
+            mutation ProductionDueClear($metafields: [MetafieldIdentifierInput!]!) {
+              metafieldsDelete(metafields: $metafields) { userErrors { field message } }
+            }`,
+        {
+          variables: {
+            metafields: [
+              isoValue ? { ...identifier, type: "date_time", value: isoValue } : identifier,
+            ],
+          },
+        },
+      );
+      const body = await response.json();
+      const error =
+        body?.errors?.[0]?.message ||
+        body?.data?.metafieldsSet?.userErrors?.[0]?.message ||
+        body?.data?.metafieldsDelete?.userErrors?.[0]?.message;
+      if (error) return { success: false, formError: error };
+      return {
+        success: true,
+        message: isoValue
+          ? `Production due date updated to ${formatDate(isoValue)}.`
+          : "Production due date cleared.",
+        productionDueAt: isoValue,
       };
     }
 
@@ -1928,6 +2064,182 @@ export async function action({ request, params }) {
       return {
         success: true,
         message: "Sample approved. The order can now move into production.",
+      };
+    }
+
+    if (intent === "approve_proof") {
+      const order = await getOrder(admin, orderId);
+      const currentStatus = order.productionStatus?.value || "";
+
+      if (currentStatus !== "proof-sent") {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError:
+            "Artwork Proof can only be approved while the order is Proof Sent.",
+        };
+      }
+
+      if (!order.proofUrl?.value) {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError: "A proof URL is required before approving the artwork proof.",
+        };
+      }
+
+      const changedAt = new Date().toISOString();
+      const productionDueAt = productionDueDate(
+        await productionCalendar(admin),
+        changedAt,
+        order.rush?.value === "true",
+      );
+
+      const changedBy =
+        (await staffMemberLabel(request, sessionToken)) || "Shopify Admin";
+
+      await setOrderMetafields(admin, {
+        orderId,
+        status: "proof-approved",
+        changedAt,
+        productionDueAt,
+      });
+
+      const productionTags = (order.tags ?? []).filter((tag) =>
+        tag.startsWith("hyve-status:"),
+      );
+      await removeTags(admin, orderId, productionTags);
+      await addTags(admin, orderId, ["hyve-status:proof-approved"]);
+
+      const proofVersion = order.proofVersion?.value || "1";
+      const proofNote = String(formData.get("proofNote") || "").trim();
+      const auditNote = [
+        `Artwork Proof v${proofVersion} approved by ${changedBy}`,
+        proofNote ? `Note: "${proofNote}"` : "",
+        order.proofUrl?.value ? `IMAGE: ${order.proofUrl.value}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      await createHistory(admin, {
+        orderId,
+        orderName: order.name,
+        fromStatus: "proof-sent",
+        toStatus: "proof-approved",
+        changedAt,
+        changedBy,
+        note: auditNote,
+        ipAddress,
+        userAgent,
+      });
+
+      let emailSent = false;
+      let emailWarning = null;
+
+      try {
+        const result = await sendCurrentCustomerStatusEmail({
+          admin,
+          order,
+          orderId,
+          status: "proof-approved",
+          productionDueAt,
+        });
+        emailSent = result.sent;
+      } catch (emailError) {
+        console.error("Proof approved customer email failed:", emailError);
+        emailWarning =
+          emailError instanceof Error
+            ? `The proof was approved, but the customer email could not be sent: ${emailError.message}`
+            : "The proof was approved, but the customer email could not be sent.";
+      }
+
+      return {
+        success: true,
+        message: `Artwork Proof v${proofVersion} approved. Production due ${formatDate(productionDueAt)}.${emailSent ? " Customer email sent." : ""}`,
+        emailWarning,
+      };
+    }
+
+    if (intent === "request_proof_changes") {
+      const order = await getOrder(admin, orderId);
+      const currentStatus = order.productionStatus?.value || "";
+      const proofNote = String(formData.get("proofNote") || "").trim();
+
+      if (currentStatus !== "proof-sent") {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError:
+            "Artwork Proof changes can only be requested while the order is Proof Sent.",
+        };
+      }
+
+      if (!proofNote) {
+        return {
+          success: false,
+          fieldErrors: {
+            proofNote: "Enter the requested artwork changes.",
+          },
+          formError: "Please enter details for the requested artwork changes.",
+        };
+      }
+
+      const changedAt = new Date().toISOString();
+      const changedBy =
+        (await staffMemberLabel(request, sessionToken)) || "Shopify Admin";
+      const proofVersion = order.proofVersion?.value || "1";
+      const onHoldReason = `Changes requested to Artwork Proof v${proofVersion}: ${proofNote}`;
+
+      await setOrderMetafields(admin, {
+        orderId,
+        status: "on-hold",
+        changedAt,
+        onHoldReason,
+      });
+
+      const productionTags = (order.tags ?? []).filter((tag) =>
+        tag.startsWith("hyve-status:"),
+      );
+      await removeTags(admin, orderId, productionTags);
+      await addTags(admin, orderId, ["hyve-status:on-hold"]);
+
+      const auditNote = [
+        `Changes requested to Artwork Proof v${proofVersion} by ${changedBy}:`,
+        `"${proofNote}"`,
+        order.proofUrl?.value ? `IMAGE: ${order.proofUrl.value}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      await createHistory(admin, {
+        orderId,
+        orderName: order.name,
+        fromStatus: "proof-sent",
+        toStatus: "on-hold",
+        changedAt,
+        changedBy,
+        note: auditNote,
+        ipAddress,
+        userAgent,
+      });
+
+      try {
+        await notifyCustomerServiceOrderOnHold(admin, {
+          order,
+          onHoldReason,
+          changedBy,
+          note: auditNote,
+        });
+      } catch (csError) {
+        console.error(
+          `[proof-changes] on-hold Customer Service notification failed for ${order.name}:`,
+          csError,
+        );
+      }
+
+      return {
+        success: true,
+        message: `Changes requested for Artwork Proof v${proofVersion}. The order has been placed On Hold for revisions.`,
       };
     }
 
@@ -2258,8 +2570,6 @@ export async function action({ request, params }) {
 
       currentHistory.unshift(newHistoryEntry);
 
-      const onHoldReason = "Waiting for physical sample approval";
-
       // 1. Update order metafield and set on-hold status
       const metafields = [
         {
@@ -2284,63 +2594,80 @@ export async function action({ request, params }) {
       const data = await parseGraphQL(response, "SendPhysicalSample");
       throwUserErrors(data.data?.metafieldsSet?.userErrors, "SendPhysicalSample");
 
-      // 2. Put order on hold
+      // 2. Put order in sample-review (NOT on-hold)
       const productionTags = (order.tags ?? []).filter((tag) =>
-        tag.startsWith("hyve-status:"),
+        tag.startsWith("hyve-status:") || tag === "hyve-status:on-hold" || tag === "hyve-status:sample-review",
       );
       const currentStatus =
         order.productionStatus?.value ||
         productionTags[0]?.replace("hyve-status:", "") ||
-        "";
+        "sample-preparation";
 
       await setOrderMetafields(admin, {
         orderId,
-        status: "on-hold",
+        status: "sample-review",
         changedAt: sentAt,
-        onHoldReason,
       });
 
+      // Clear any prior on_hold_reason
+      await deleteOnHoldReason(admin, orderId);
+
       await removeTags(admin, orderId, productionTags);
-      await addTags(admin, orderId, [`hyve-status:on-hold`]);
+      await addTags(admin, orderId, [`hyve-status:sample-review`]);
 
       await createHistory(admin, {
         orderId,
         orderName: order.name,
         fromStatus: currentStatus,
-        toStatus: "on-hold",
+        toStatus: "sample-review",
         changedAt: sentAt,
         changedBy: sentBy,
         ipAddress,
         userAgent,
-        note: `Physical Sample Version ${nextVersion} sent.\nReason: ${onHoldReason}\nNote: ${note}${fileUrl ? `\nFile: ${fileUrl}` : ''}`,
+        note: `Physical Sample Version ${nextVersion} dispatched.\nNote: ${note}${fileUrl ? `\nFile: ${fileUrl}` : ''}`,
       });
 
-      // 3. Send email to customer (stubbed, assuming we'll add it to email.server.js)
+      // 3. Send email to customer with secure, sign-in-free approval link
       let emailWarning = null;
-      try {
-        const customerEmail = getCustomerEmail(order);
-        if (customerEmail) {
-          if (typeof sendPhysicalSampleEmail === "function") {
-            await sendPhysicalSampleEmail({
-              customerEmail,
-              customerName: order.customer?.displayName || order.shippingAddress?.name || "Customer",
-              orderName: order.name,
-              orderDate: order.createdAt,
-              sampleVersion: nextVersion,
-              orderId,
-            });
-          }
+      let emailSent = false;
+      const customerEmail = getCustomerEmail(order);
+      if (!customerEmail) {
+        emailWarning = "Physical sample marked as dispatched, but customer email address is missing so notification email was not sent.";
+      } else {
+        try {
+          const links = await sampleDecisionLinks(admin, orderId, nextVersion);
+          await sendPhysicalSampleEmail({
+            customerEmail,
+            customerName: order.customer?.displayName || order.shippingAddress?.name || "Customer",
+            orderName: order.name,
+            orderDate: order.createdAt,
+            sampleVersion: nextVersion,
+            fileUrl,
+            note,
+            orderId,
+            approveUrl: links.approveUrl,
+            changesUrl: links.changesUrl,
+            reviewUrl: links.reviewUrl,
+          });
+          emailSent = true;
+          await addTags(admin, orderId, [
+            "hyve-notified:sample-review",
+            `hyve-notified:sample-review-v${nextVersion}`,
+          ]);
+        } catch (error) {
+          console.error("Failed to send physical sample email:", error);
+          emailWarning =
+            error instanceof Error
+              ? `Physical sample dispatched, but email could not be sent: ${error.message}`
+              : "Physical sample dispatched, but email could not be sent.";
         }
-      } catch (error) {
-        emailWarning =
-          error instanceof Error
-            ? `Sample marked as sent, but email could not be sent: ${error.message}`
-            : "Sample marked as sent, but email could not be sent.";
       }
 
       return {
         success: true,
-        message: `Physical Sample Version ${nextVersion} marked as sent.`,
+        message: emailSent
+          ? `Physical Sample Version ${nextVersion} dispatched and "Physical Sample Ready For Review" email sent to ${customerEmail}.`
+          : `Physical Sample Version ${nextVersion} dispatched.`,
         emailWarning,
       };
     }
@@ -2401,26 +2728,33 @@ export async function action({ request, params }) {
 
       // 2. Put order in-production
       const productionTags = (order.tags ?? []).filter((tag) =>
-        tag.startsWith("hyve-status:"),
+        tag.startsWith("hyve-status:") || tag === "hyve-status:on-hold" || tag === "hyve-status:sample-review",
       );
       const currentStatus =
         order.productionStatus?.value ||
         productionTags[0]?.replace("hyve-status:", "") ||
-        "on-hold";
+        "sample-review";
+
+      let inProductionDueAt = null;
+      try {
+        const calendar = await productionCalendar(admin);
+        inProductionDueAt = productionDueDate(calendar, approvedAt, order.rush?.value === "true");
+      } catch (err) {
+        console.error("Failed to calculate production due date on sample approval:", err);
+      }
 
       await setOrderMetafields(admin, {
         orderId,
         status: "in-production",
         changedAt: approvedAt,
+        productionDueAt: inProductionDueAt,
       });
 
-      // Clear the on hold reason metafield if we are moving from on-hold
-      if (currentStatus === "on-hold") {
-        await deleteOnHoldReason(admin, orderId);
-      }
+      // Clear the on hold reason metafield
+      await deleteOnHoldReason(admin, orderId);
 
       await removeTags(admin, orderId, productionTags);
-      await addTags(admin, orderId, [`hyve-status:in-production`]);
+      await addTags(admin, orderId, [`hyve-status:in-production`, `hyve-sample-approved`]);
 
       await createHistory(admin, {
         orderId,
@@ -2584,15 +2918,6 @@ export async function action({ request, params }) {
       };
     }
 
-    if (currentStatus === "proof-sent" && nextStatus === "proof-approved") {
-      return {
-        success: false,
-        fieldErrors: {
-          nextStatus: "The Artwork Proof must be approved by the customer before moving to Proof Approved.",
-        },
-        formError: "Waiting for customer response: The customer must review and approve the Artwork Proof before proceeding. If changes or delays occur, put the order On Hold with a reason.",
-      };
-    }
 
     if (
       nextStatus === "in-production" &&
@@ -2705,7 +3030,15 @@ export async function action({ request, params }) {
 
     await removeTags(admin, orderId, productionTags);
 
-    await addTags(admin, orderId, [`hyve-status:${nextStatus}`]);
+    const tagsToAdd = [`hyve-status:${nextStatus}`];
+    if (nextStatus === "in-production" && (order.physicalSampleRequired || hasPhysicalSample(order)) && order.physicalSampleStatus === "approved") {
+      tagsToAdd.push("hyve-sample-approved");
+    }
+    await addTags(admin, orderId, tagsToAdd);
+
+    if (nextStatus !== "on-hold") {
+      await deleteOnHoldReason(admin, orderId);
+    }
 
     // The staff member making the move (HYV-100). "Shopify Admin" only when
     // Shopify can't say who.
@@ -2733,7 +3066,9 @@ export async function action({ request, params }) {
     }
 
     if (nextStatus === "proof-approved") {
-      historyNote = historyNote ? `${historyNote}\nProof Image Approved` : "Proof Image Approved";
+      const proofVersion = order.proofVersion?.value || "1";
+      const approvalAudit = `Artwork Proof v${proofVersion} approved by ${changedBy}${order.proofUrl?.value ? `\nIMAGE: ${order.proofUrl.value}` : ""}`;
+      historyNote = historyNote ? `${historyNote}\n${approvalAudit}` : approvalAudit;
     }
 
     if (nextStatus === READY_FOR_COLLECTION_STATUS) {
@@ -3330,6 +3665,763 @@ function ProductionStepper({ order, history = [] }) {
   );
 }
 
+function formatInputDatePreview(val) {
+  if (!val) return null;
+  const parts = String(val).trim().split("-");
+  if (parts.length === 3 && parts[0].length === 4) {
+    const y = Number(parts[0]);
+    const m = Number(parts[1]) - 1;
+    const d = Number(parts[2]);
+    const dt = new Date(y, m, d);
+    if (!Number.isNaN(dt.getTime())) {
+      return new Intl.DateTimeFormat("en-SG", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }).format(dt);
+    }
+  }
+  return val;
+}
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
+const DAY_HEADERS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+
+function DatePickerInput({
+  label = "Date",
+  details,
+  value = "",
+  error,
+  onChange,
+  onClear,
+  inline = false,
+}) {
+  const containerRef = useRef(null);
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Initialize view year & month from value or today
+  const [viewYear, setViewYear] = useState(() => {
+    if (value) {
+      const parts = String(value).split("-");
+      if (parts[0] && parts[0].length === 4) return Number(parts[0]);
+    }
+    return new Date().getFullYear();
+  });
+
+  const [viewMonth, setViewMonth] = useState(() => {
+    if (value) {
+      const parts = String(value).split("-");
+      if (parts[1]) return Number(parts[1]) - 1;
+    }
+    return new Date().getMonth();
+  });
+
+  // Keep view aligned when value changes externally
+  useEffect(() => {
+    if (value) {
+      const parts = String(value).split("-");
+      if (parts.length === 3 && parts[0].length === 4) {
+        const y = Number(parts[0]);
+        const m = Number(parts[1]) - 1;
+        if (!Number.isNaN(y) && !Number.isNaN(m)) {
+          setViewYear(y);
+          setViewMonth(m);
+        }
+      }
+    }
+  }, [value]);
+
+  // Close calendar when clicking outside (safe for Shadow DOM & web components)
+  useEffect(() => {
+    if (!isOpen || inline) return;
+    function handleClickOutside(event) {
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+      if (
+        containerRef.current &&
+        (containerRef.current.contains(event.target) || path.includes(containerRef.current))
+      ) {
+        return;
+      }
+      setIsOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen, inline]);
+
+  const formattedPreview = useMemo(() => {
+    return formatInputDatePreview(value);
+  }, [value]);
+
+  const todayStr = useMemo(() => {
+    const t = new Date();
+    const y = t.getFullYear();
+    const m = String(t.getMonth() + 1).padStart(2, "0");
+    const d = String(t.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }, []);
+
+  const handlePrevMonth = (e) => {
+    e.stopPropagation();
+    if (viewMonth === 0) {
+      setViewYear((y) => y - 1);
+      setViewMonth(11);
+    } else {
+      setViewMonth((m) => m - 1);
+    }
+  };
+
+  const handleNextMonth = (e) => {
+    e.stopPropagation();
+    if (viewMonth === 11) {
+      setViewYear((y) => y + 1);
+      setViewMonth(0);
+    } else {
+      setViewMonth((m) => m + 1);
+    }
+  };
+
+  const handleSelectDay = (day) => {
+    const mm = String(viewMonth + 1).padStart(2, "0");
+    const dd = String(day).padStart(2, "0");
+    const chosen = `${viewYear}-${mm}-${dd}`;
+    onChange?.(chosen);
+    if (!inline) setIsOpen(false);
+  };
+
+  const handleSetToday = (e) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    onChange?.(todayStr);
+    if (!inline) setIsOpen(false);
+  };
+
+  const handleSetTomorrow = (e) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const yyyy = tomorrow.getFullYear();
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
+    const dd = String(tomorrow.getDate()).padStart(2, "0");
+    onChange?.(`${yyyy}-${mm}-${dd}`);
+    if (!inline) setIsOpen(false);
+  };
+
+  const handleSetDaysAhead = (days) => (e) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    const target = new Date();
+    target.setDate(target.getDate() + days);
+    const yyyy = target.getFullYear();
+    const mm = String(target.getMonth() + 1).padStart(2, "0");
+    const dd = String(target.getDate()).padStart(2, "0");
+    onChange?.(`${yyyy}-${mm}-${dd}`);
+    if (!inline) setIsOpen(false);
+  };
+
+  const handleClear = (e) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    onChange?.("");
+    onClear?.();
+    if (!inline) setIsOpen(false);
+  };
+
+  // Calendar matrix calculations
+  const { leadingBlanks, daysInMonth } = useMemo(() => {
+    const firstDay = new Date(viewYear, viewMonth, 1);
+    const leading = (firstDay.getDay() + 6) % 7; // Monday = 0
+    const count = new Date(viewYear, viewMonth + 1, 0).getDate();
+    return { leadingBlanks: leading, daysInMonth: count };
+  }, [viewYear, viewMonth]);
+
+  const currentYear = new Date().getFullYear();
+  const yearOptions = useMemo(() => {
+    const yrs = [];
+    for (let y = currentYear - 2; y <= currentYear + 6; y++) {
+      yrs.push(y);
+    }
+    return yrs;
+  }, [currentYear]);
+
+  const calendarContent = (
+    <div
+      style={{
+        width: "100%",
+        maxWidth: inline ? "100%" : "290px",
+        margin: inline ? "0 auto" : undefined,
+        backgroundColor: "#ffffff",
+        border: "1px solid #dcdfe3",
+        borderRadius: "12px",
+        boxShadow: inline ? "none" : "0 8px 24px rgba(0, 0, 0, 0.16)",
+        padding: "12px",
+        boxSizing: "border-box",
+        userSelect: "none",
+      }}
+    >
+      {/* Calendar Header with Month/Year Navigation */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "10px",
+        }}
+      >
+        <button
+          type="button"
+          onClick={handlePrevMonth}
+          title="Previous month"
+          style={{
+            background: "#f6f6f7",
+            border: "1px solid #dcdfe3",
+            borderRadius: "6px",
+            width: "28px",
+            height: "28px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            color: "#202223",
+            fontWeight: 700,
+            fontSize: "14px",
+          }}
+        >
+          ‹
+        </button>
+
+        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+          <select
+            value={viewMonth}
+            onChange={(e) => setViewMonth(Number(e.target.value))}
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "#202223",
+              border: "1px solid #dcdfe3",
+              borderRadius: "6px",
+              padding: "4px 8px",
+              background: "#ffffff",
+              cursor: "pointer",
+            }}
+          >
+            {MONTH_NAMES.map((name, idx) => (
+              <option key={name} value={idx}>
+                {name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={viewYear}
+            onChange={(e) => setViewYear(Number(e.target.value))}
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "#202223",
+              border: "1px solid #dcdfe3",
+              borderRadius: "6px",
+              padding: "4px 8px",
+              background: "#ffffff",
+              cursor: "pointer",
+            }}
+          >
+            {yearOptions.map((yr) => (
+              <option key={yr} value={yr}>
+                {yr}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleNextMonth}
+          title="Next month"
+          style={{
+            background: "#f6f6f7",
+            border: "1px solid #dcdfe3",
+            borderRadius: "6px",
+            width: "28px",
+            height: "28px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            color: "#202223",
+            fontWeight: 700,
+            fontSize: "14px",
+          }}
+        >
+          ›
+        </button>
+      </div>
+
+      {/* Weekday Labels */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(7, 1fr)",
+          gap: "2px",
+          textAlign: "center",
+          marginBottom: "6px",
+        }}
+      >
+        {DAY_HEADERS.map((day) => (
+          <span
+            key={day}
+            style={{
+              fontSize: "11px",
+              fontWeight: 600,
+              color: "#6d7175",
+              padding: "4px 0",
+            }}
+          >
+            {day}
+          </span>
+        ))}
+      </div>
+
+      {/* Calendar Days Grid */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(7, 1fr)",
+          gap: "2px",
+        }}
+      >
+        {Array.from({ length: leadingBlanks }).map((_, idx) => (
+          <div key={`blank-${idx}`} style={{ height: "32px" }} />
+        ))}
+
+        {Array.from({ length: daysInMonth }).map((_, idx) => {
+          const day = idx + 1;
+          const mm = String(viewMonth + 1).padStart(2, "0");
+          const dd = String(day).padStart(2, "0");
+          const dateStr = `${viewYear}-${mm}-${dd}`;
+          const isSelected = dateStr === value;
+          const isToday = dateStr === todayStr;
+
+          return (
+            <button
+              key={dateStr}
+              type="button"
+              onClick={() => handleSelectDay(day)}
+              style={{
+                height: "32px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "13px",
+                fontWeight: isSelected ? 700 : isToday ? 600 : 400,
+                color: isSelected ? "#ffffff" : isToday ? "#005bd3" : "#202223",
+                backgroundColor: isSelected
+                  ? "#005bd3"
+                  : isToday
+                    ? "#f0f5ff"
+                    : "transparent",
+                border: isToday && !isSelected ? "1px solid #005bd3" : "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                transition: "background-color 0.15s, color 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                if (!isSelected) {
+                  e.currentTarget.style.backgroundColor = "#f1f2f4";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isSelected) {
+                  e.currentTarget.style.backgroundColor = isToday ? "#f0f5ff" : "transparent";
+                }
+              }}
+            >
+              {day}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Footer with Quick Action Buttons */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginTop: "10px",
+          paddingTop: "8px",
+          borderTop: "1px solid #f1f2f4",
+          flexWrap: "wrap",
+          gap: "6px",
+        }}
+      >
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={handleSetToday}
+            style={{
+              background: "#f1f2f4",
+              border: "none",
+              borderRadius: "4px",
+              padding: "4px 8px",
+              fontSize: "11px",
+              fontWeight: 500,
+              color: "#202223",
+              cursor: "pointer",
+            }}
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={handleSetTomorrow}
+            style={{
+              background: "#f1f2f4",
+              border: "none",
+              borderRadius: "4px",
+              padding: "4px 8px",
+              fontSize: "11px",
+              fontWeight: 500,
+              color: "#202223",
+              cursor: "pointer",
+            }}
+          >
+            Tomorrow
+          </button>
+          <button
+            type="button"
+            onClick={handleSetDaysAhead(5)}
+            style={{
+              background: "#f1f2f4",
+              border: "none",
+              borderRadius: "4px",
+              padding: "4px 8px",
+              fontSize: "11px",
+              fontWeight: 500,
+              color: "#202223",
+              cursor: "pointer",
+            }}
+          >
+            +5d
+          </button>
+          <button
+            type="button"
+            onClick={handleSetDaysAhead(10)}
+            style={{
+              background: "#f1f2f4",
+              border: "none",
+              borderRadius: "4px",
+              padding: "4px 8px",
+              fontSize: "11px",
+              fontWeight: 500,
+              color: "#202223",
+              cursor: "pointer",
+            }}
+          >
+            +10d
+          </button>
+        </div>
+
+        <div style={{ display: "flex", gap: "6px" }}>
+          {value && (
+            <button
+              type="button"
+              onClick={handleClear}
+              style={{
+                background: "none",
+                border: "none",
+                padding: "4px 6px",
+                fontSize: "11px",
+                fontWeight: 500,
+                color: "#d72c0d",
+                cursor: "pointer",
+              }}
+            >
+              Clear
+            </button>
+          )}
+          {!inline && (
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              style={{
+                background: "none",
+                border: "none",
+                padding: "4px 6px",
+                fontSize: "11px",
+                fontWeight: 500,
+                color: "#6d7175",
+                cursor: "pointer",
+              }}
+            >
+              Done
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+        width: "100%",
+        gap: "6px",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <label
+          style={{
+            fontSize: "13px",
+            fontWeight: 600,
+            color: "#303030",
+            fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          }}
+        >
+          {label}
+        </label>
+        <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={handleSetToday}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "0 2px",
+              fontSize: "11px",
+              color: "#005bd3",
+              cursor: "pointer",
+              fontWeight: 500,
+              textDecoration: "underline",
+            }}
+          >
+            Today
+          </button>
+          <span style={{ fontSize: "11px", color: "#8c9196" }}>·</span>
+          <button
+            type="button"
+            onClick={handleSetTomorrow}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "0 2px",
+              fontSize: "11px",
+              color: "#005bd3",
+              cursor: "pointer",
+              fontWeight: 500,
+              textDecoration: "underline",
+            }}
+          >
+            Tomorrow
+          </button>
+          <span style={{ fontSize: "11px", color: "#8c9196" }}>·</span>
+          <button
+            type="button"
+            onClick={handleSetDaysAhead(5)}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "0 2px",
+              fontSize: "11px",
+              color: "#005bd3",
+              cursor: "pointer",
+              fontWeight: 500,
+              textDecoration: "underline",
+            }}
+          >
+            +5d
+          </button>
+          {value && (
+            <>
+              <span style={{ fontSize: "11px", color: "#8c9196" }}>·</span>
+              <button
+                type="button"
+                onClick={handleClear}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: "0 2px",
+                  fontSize: "11px",
+                  color: "#d72c0d",
+                  cursor: "pointer",
+                  fontWeight: 500,
+                }}
+              >
+                Clear
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {details && (
+        <span style={{ fontSize: "12px", color: "#616161", marginBottom: "2px" }}>
+          {details}
+        </span>
+      )}
+
+      {/* Selected Date Confirmation */}
+      {value && formattedPreview && formattedPreview !== "—" ? (
+        <div
+          style={{
+            fontSize: "12px",
+            color: "#616161",
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            padding: "4px 8px",
+            backgroundColor: "#f0fdf4",
+            border: "1px solid #bbf7d0",
+            borderRadius: "6px",
+          }}
+        >
+          <span
+            style={{
+              display: "inline-block",
+              width: "6px",
+              height: "6px",
+              borderRadius: "50%",
+              backgroundColor: "#16a34a",
+              flexShrink: 0,
+            }}
+          />
+          <span>
+            {label ? `${label}: ` : "Selected date: "}<strong style={{ color: "#15803d" }}>{formattedPreview}</strong>
+          </span>
+        </div>
+      ) : (
+        <div
+          style={{
+            fontSize: "12px",
+            color: "#6d7175",
+            fontStyle: "italic",
+            padding: "4px 8px",
+          }}
+        >
+          No date selected (choose from the calendar below)
+        </div>
+      )}
+
+      {/* If inline, display the calendar directly. Otherwise render trigger button with popover */}
+      {inline ? (
+        calendarContent
+      ) : (
+        <>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setIsOpen((prev) => !prev)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+                e.preventDefault();
+                setIsOpen((prev) => !prev);
+              } else if (e.key === "Escape") {
+                setIsOpen(false);
+              } else if (e.key !== "Tab") {
+                e.preventDefault(); // Disallow typing
+              }
+            }}
+            title="Click to open calendar date picker"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              width: "100%",
+              height: "36px",
+              padding: "6px 12px",
+              fontSize: "14px",
+              fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+              backgroundColor: "#ffffff",
+              border: error
+                ? "1px solid #d72c0d"
+                : isOpen
+                  ? "1px solid #005bd3"
+                  : "1px solid #8c9196",
+              borderRadius: "8px",
+              boxSizing: "border-box",
+              cursor: "pointer",
+              userSelect: "none",
+              boxShadow: error
+                ? "0 0 0 1px #d72c0d"
+                : isOpen
+                  ? "0 0 0 1px #005bd3"
+                  : "none",
+              transition: "border-color 0.15s, box-shadow 0.15s",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", overflow: "hidden" }}>
+              <span
+                style={{
+                  color: value ? "#202223" : "#8c9196",
+                  fontWeight: value ? 500 : 400,
+                  whiteSpace: "nowrap",
+                  textOverflow: "ellipsis",
+                  overflow: "hidden",
+                }}
+              >
+                {formattedPreview || "Select date from picker..."}
+              </span>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 20 20"
+                fill={isOpen ? "#005bd3" : "#5c5f62"}
+                style={{ display: "block", transition: "fill 0.15s" }}
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M6 2a1 1 0 0 0-1 1v1H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1V3a1 1 0 1 0-2 0v1H7V3a1 1 0 0 0-1-1zm9 4H5v2h10V6zm1 4H4v6a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-6z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </div>
+          </div>
+
+          {error && (
+            <div
+              style={{
+                fontSize: "12px",
+                color: "#d72c0d",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                marginTop: "2px",
+              }}
+            >
+              <span>{error}</span>
+            </div>
+          )}
+
+          {isOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                left: 0,
+                zIndex: 9999,
+              }}
+            >
+              {calendarContent}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function ProductionOrderDetailsPage() {
   const loaderData = useLoaderData();
 
@@ -3340,10 +4432,12 @@ export default function ProductionOrderDetailsPage() {
   const submit = useSubmit();
 
   const order = loaderData?.order;
+  const pickupConfig = loaderData?.pickupConfig || {};
 
   const [note, setNote] = useState("");
 
   const [proofUrl, setProofUrl] = useState(order?.proofUrl || "");
+  const [proofNote, setProofNote] = useState("");
 
   const [productionPhotoUrl, setProductionPhotoUrl] = useState(
     order?.productionPhotoUrl || "",
@@ -3405,6 +4499,14 @@ export default function ProductionOrderDetailsPage() {
       setNote("");
       setHoldReasonInput("");
       setProductionApprovalNote("");
+      setPhysicalSampleFileUrl("");
+      setPhysicalSampleNote("");
+    }
+    if (actionData?.formError) {
+      shopify.toast.show(actionData.formError, { isError: true });
+    }
+    if (actionData?.emailWarning) {
+      shopify.toast.show(actionData.emailWarning, { isError: true });
     }
   }, [actionData]);
 
@@ -3417,6 +4519,7 @@ export default function ProductionOrderDetailsPage() {
       [field]: undefined,
     }));
   }
+
 
   function openHoldModal() {
     clearFieldError("holdReason");
@@ -3536,7 +4639,10 @@ export default function ProductionOrderDetailsPage() {
 
     formData.set("nextStatus", targetStatus);
 
-    formData.set("note", note);
+    formData.set(
+      "note",
+      targetStatus === "proof-approved" ? (proofNote.trim() || note) : note,
+    );
 
     formData.set("onHoldReason", "");
 
@@ -3566,6 +4672,27 @@ export default function ProductionOrderDetailsPage() {
 
     submit(formData, {
       method: "post",
+    });
+  }
+
+  function approveProof() {
+    submitIntent("approve_proof", {
+      proofNote: proofNote.trim(),
+    });
+  }
+
+  function requestProofChanges() {
+    if (!proofNote.trim()) {
+      setClientErrors((current) => ({
+        ...current,
+        proofNote: "Enter the requested artwork changes.",
+      }));
+      return;
+    }
+
+    clearFieldError("proofNote");
+    submitIntent("request_proof_changes", {
+      proofNote: proofNote.trim(),
     });
   }
 
@@ -3857,6 +4984,70 @@ export default function ProductionOrderDetailsPage() {
                         </s-paragraph>
                       </s-stack>
 
+                      {/* Contextual input: Proof decision when status is proof-sent */}
+                      {order.productionStatus === "proof-sent" && (
+                        <s-box padding="base" border="base" borderRadius="base" background="subdued">
+                          <s-stack direction="block" gap="base">
+                            <s-heading>Artwork Proof Decision</s-heading>
+                            <s-banner tone="info">
+                              <s-paragraph>
+                                Artwork Proof v{order.proofVersion || 1} has been sent to {getCustomerEmail(order) || "the customer"}. You can wait for customer response via email/portal, or manually record an approval or requested changes below.
+                              </s-paragraph>
+                            </s-banner>
+
+                            {order.proofUrl && (
+                              <s-box padding="small-200" border="base" borderRadius="base" style={{ backgroundColor: "#ffffff" }}>
+                                <s-stack direction="block" gap="small">
+                                  {/[.](jpg|jpeg|png|webp|gif|bmp)$/i.test((order.proofUrl || "").split("?")[0].split("#")[0].trim()) && (
+                                    <a href={order.proofUrl} target="_blank" rel="noopener noreferrer" style={{ display: "block", textAlign: "center" }}>
+                                      <img
+                                        src={order.proofUrl}
+                                        alt={`Artwork Proof v${order.proofVersion || 1}`}
+                                        style={{ maxWidth: "100%", maxHeight: 220, objectFit: "contain", borderRadius: 6 }}
+                                      />
+                                    </a>
+                                  )}
+                                  <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+                                    <s-text tone="subdued" style={{ fontSize: 13 }}>Current Proof: Version {order.proofVersion || 1}</s-text>
+                                    <s-button href={order.proofUrl} target="_blank">
+                                      View Full Proof ↗
+                                    </s-button>
+                                  </s-stack>
+                                </s-stack>
+                              </s-box>
+                            )}
+
+                            <s-text-area
+                              label="Revision / approval note"
+                              value={proofNote}
+                              placeholder="Required if requesting changes; optional note for approval..."
+                              error={clientErrors.proofNote || actionData?.fieldErrors?.proofNote || undefined}
+                              onInput={(event) => {
+                                setProofNote(event.currentTarget.value);
+                                clearFieldError("proofNote");
+                              }}
+                            />
+
+                            <s-stack direction="inline" gap="small">
+                              <s-button
+                                variant="primary"
+                                disabled={busy}
+                                onClick={approveProof}
+                              >
+                                {busy ? "Updating..." : "Approve Artwork Proof"}
+                              </s-button>
+                              <s-button
+                                tone="critical"
+                                disabled={busy}
+                                onClick={requestProofChanges}
+                              >
+                                Request Changes (Place On Hold)
+                              </s-button>
+                            </s-stack>
+                          </s-stack>
+                        </s-box>
+                      )}
+
                       {/* Contextual input: Proof upload when moving to proof-sent */}
                       {nextStepInfo.nextStatus === "proof-sent" && (
                         <s-box padding="base" border="base" borderRadius="base" background="subdued">
@@ -4011,12 +5202,16 @@ export default function ProductionOrderDetailsPage() {
                                 </s-banner>
 
                                 <s-grid gridTemplateColumns="1fr 1fr" gap="base">
-                                  <s-date-field
+                                  <DatePickerInput
                                     label="Ready Date"
                                     value={readyDate}
                                     error={clientErrors.readyDate || actionData?.fieldErrors?.readyDate || undefined}
-                                    onChange={(event) => {
-                                      setReadyDate(event.currentTarget?.value ?? event.target?.value ?? "");
+                                    onChange={(val) => {
+                                      setReadyDate(val);
+                                      clearFieldError("readyDate");
+                                    }}
+                                    onClear={() => {
+                                      setReadyDate("");
                                       clearFieldError("readyDate");
                                     }}
                                   />
@@ -4088,7 +5283,7 @@ export default function ProductionOrderDetailsPage() {
                             </s-banner>
 
                             <s-grid gridTemplateColumns="1fr 1fr" gap="base">
-                              <s-date-field
+                              <DatePickerInput
                                 label="Ready Date"
                                 value={readyDate}
                                 error={
@@ -4096,8 +5291,12 @@ export default function ProductionOrderDetailsPage() {
                                   actionData?.fieldErrors?.readyDate ||
                                   undefined
                                 }
-                                onChange={(event) => {
-                                  setReadyDate(event.currentTarget?.value ?? event.target?.value ?? "");
+                                onChange={(val) => {
+                                  setReadyDate(val);
+                                  clearFieldError("readyDate");
+                                }}
+                                onClear={() => {
+                                  setReadyDate("");
                                   clearFieldError("readyDate");
                                 }}
                               />
@@ -4354,7 +5553,7 @@ export default function ProductionOrderDetailsPage() {
             </s-section>
 
             {/* Physical Sample Section (if required) */}
-            {(order.physicalSampleRequired || order.hasPhysicalSample) && ["proof-approved", "in-production", "production-complete"].includes(
+            {(order.physicalSampleRequired || order.hasPhysicalSample) && ["proof-approved", "sample-preparation", "sample-review", "in-production", "production-complete"].includes(
               order.productionStatus === "on-hold"
                 ? (loaderData.history?.find(h => h?.toStatus === "on-hold")?.fromStatus || "")
                 : order.productionStatus
@@ -4370,7 +5569,13 @@ export default function ProductionOrderDetailsPage() {
                         >
                           <s-stack direction="block" gap="none">
                             <s-text tone="subdued" style={{ fontSize: 13 }}>Physical Sample Status</s-text>
-                            <s-heading style={{ fontSize: 16, margin: 0 }}>Sample v{order.physicalSampleVersion + 1}</s-heading>
+                            <s-heading style={{ fontSize: 16, margin: 0 }}>
+                              Sample v{
+                                (order.physicalSampleStatus === "sent" || order.physicalSampleStatus === "approved")
+                                  ? (order.physicalSampleVersion || 1)
+                                  : ((order.physicalSampleVersion || 0) + 1)
+                              }
+                            </s-heading>
                           </s-stack>
 
                           <s-badge tone={order.physicalSampleStatus === "approved" ? "success" : order.physicalSampleStatus === "changes_requested" ? "warning" : "info"}>
@@ -4383,7 +5588,7 @@ export default function ProductionOrderDetailsPage() {
                             <s-stack direction="block" gap="base">
                               <s-heading>Send Physical Sample</s-heading>
                               <s-text tone="subdued">
-                                Record dispatch of a physical pre-production sample to the customer. The order will be held pending customer approval.
+                                Record dispatch of a physical pre-production sample to the customer. The order will transition to Sample Review pending customer approval.
                               </s-text>
 
                               <ShopifyFileUpload
@@ -4429,14 +5634,17 @@ export default function ProductionOrderDetailsPage() {
                               <s-text tone="subdued">
                                 Physical sample v{order.physicalSampleVersion} is waiting for customer review. If the customer approved offline, you can approve on their behalf.
                               </s-text>
-                              <s-button
-                                variant="primary"
-                                disabled={busy}
-                                commandFor="physical-sample-approve-modal"
-                                command="--show"
-                              >
-                                {busy ? "Processing..." : "Approve on behalf of customer"}
-                              </s-button>
+                              <s-stack direction="inline" gap="small" alignItems="center">
+                                <s-button
+                                  variant="primary"
+                                  disabled={busy}
+                                  commandFor="physical-sample-approve-modal"
+                                  command="--show"
+                                >
+                                  {busy ? "Processing..." : "Approve on behalf of customer"}
+                                </s-button>
+
+                              </s-stack>
                             </s-stack>
                           </s-box>
                         )}
@@ -4516,6 +5724,14 @@ export default function ProductionOrderDetailsPage() {
 
           {/* Right Column (Contextual Profiles & Controls) */}
           <s-stack direction="block" gap="base">
+            {/* Documents: the proforma invoice for customs and payment (HYV-118). */}
+            <s-section heading="Documents">
+              <s-stack direction="block" gap="small-300">
+                <s-text tone="subdued">For customs and payment before shipment.</s-text>
+                <s-button href={`/app/proforma/${order.id.split("/").pop()}`}>Proforma Invoice</s-button>
+              </s-stack>
+            </s-section>
+
             {/* Customer & Company Profile Card */}
             <s-section heading="Customer & Company">
               <s-box padding="base" border="base" borderRadius="base" style={{ backgroundColor: "#ffffff" }}>
@@ -4588,6 +5804,106 @@ export default function ProductionOrderDetailsPage() {
                     <s-text tone="subdued">No delivery address provided.</s-text>
                   )}
 
+                  {order.customerArrangedFreight &&
+                    (pickupConfig?.pickup_address ||
+                      pickupConfig?.contact_name ||
+                      pickupConfig?.contact_phone ||
+                      pickupConfig?.contact_email) && (
+                      <div
+                        style={{
+                          marginTop: "8px",
+                          padding: "10px 12px",
+                          backgroundColor: "#fbfcfe",
+                          borderRadius: "6px",
+                          border: "1px solid #e1e3e5",
+                        }}
+                      >
+                        <s-stack direction="block" gap="small-200">
+                          <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+                            <s-text
+                              tone="subdued"
+                              style={{
+                                fontSize: 12,
+                                fontWeight: "600",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.5px",
+                              }}
+                            >
+                              Pickup Location & Contact Details
+                            </s-text>
+
+                          </s-stack>
+
+                          {pickupConfig.pickup_address && (
+                            <div style={{ marginTop: "2px" }}>
+                              <s-text tone="subdued" style={{ fontSize: 11 }}>Address:</s-text>
+                              <s-paragraph style={{ margin: "2px 0 0 0", fontSize: 13, whiteSpace: "pre-line" }}>
+                                {pickupConfig.pickup_address}
+                              </s-paragraph>
+                            </div>
+                          )}
+
+                          {pickupConfig.contact_name && (
+                            <s-stack direction="inline" justifyContent="space-between">
+                              <s-text tone="subdued" style={{ fontSize: 13 }}>Contact Name:</s-text>
+                              <s-text type="strong" style={{ fontSize: 13 }}>{pickupConfig.contact_name}</s-text>
+                            </s-stack>
+                          )}
+
+                          {pickupConfig.contact_phone && (
+                            <s-stack direction="inline" justifyContent="space-between">
+                              <s-text tone="subdued" style={{ fontSize: 13 }}>Contact Phone:</s-text>
+                              <s-text type="strong" style={{ fontSize: 13 }}>{pickupConfig.contact_phone}</s-text>
+                            </s-stack>
+                          )}
+
+                          {pickupConfig.contact_email && (
+                            <s-stack direction="inline" justifyContent="space-between">
+                              <s-text tone="subdued" style={{ fontSize: 13 }}>Contact Email:</s-text>
+                              <s-link href={`mailto:${pickupConfig.contact_email}`} style={{ fontSize: 13 }}>
+                                {pickupConfig.contact_email}
+                              </s-link>
+                            </s-stack>
+                          )}
+                        </s-stack>
+                      </div>
+                    )}
+
+                  {order.customerArrangedFreight &&
+                    !pickupConfig?.pickup_address &&
+                    !pickupConfig?.contact_name &&
+                    !pickupConfig?.contact_phone &&
+                    !pickupConfig?.contact_email && (
+                      <div
+                        style={{
+                          marginTop: "8px",
+                          padding: "8px 12px",
+                          backgroundColor: "#fff8f2",
+                          borderRadius: "6px",
+                          border: "1px dashed #fabda0",
+                        }}
+                      >
+                        <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+                          <s-text tone="subdued" style={{ fontSize: 12 }}>
+                            No pickup configuration set.
+                          </s-text>
+                          <a
+                            href="/app/pickup-config"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              fontSize: 11,
+                              color: "#005bd3",
+                              textDecoration: "none",
+                              fontWeight: "500",
+                            }}
+                          >
+                            Configure
+                          </a>
+                        </s-stack>
+                      </div>
+                    )}
+
                   {(order.customerArrangedFreight || order.collectionReadyDate || order.collectionCartons || order.collectionGrossWeight || order.collectionCbm) && (
                     <div style={{ marginTop: "8px", padding: "10px 12px", backgroundColor: "#fbfcfe", borderRadius: "6px", border: "1px solid #e1e3e5" }}>
                       <s-stack direction="block" gap="small-200">
@@ -4623,15 +5939,21 @@ export default function ProductionOrderDetailsPage() {
                 <s-stack direction="block" gap="base">
                   <s-stack direction="inline" justifyContent="space-between" alignItems="center">
                     <s-text tone="subdued">Production Due Date</s-text>
-                    <s-text type="strong">{order.productionDueAt ? formatDay(order.productionDueAt) : "—"}</s-text>
+                    <s-stack direction="inline" gap="small-200" alignItems="center">
+                      <s-text type="strong">{order.productionDueAt ? formatDay(order.productionDueAt) : "—"}</s-text>
+                      {dueStatus && <s-badge tone={dueStatus.tone}>{dueStatus.label}</s-badge>}
+                    </s-stack>
                   </s-stack>
 
+                  <s-divider />
+
                   <s-stack direction="block" gap="small">
-                    <s-date-field
+                    <DatePickerInput
                       label="Estimated ship date"
                       details="Shown to the buyer instead of the calculated production date."
                       value={shipDate}
-                      onChange={(event) => setShipDate(event.currentTarget.value)}
+                      onChange={(val) => setShipDate(val)}
+                      onClear={() => setShipDate("")}
                     />
 
                     <s-stack direction="inline" gap="small">
@@ -4702,13 +6024,27 @@ export default function ProductionOrderDetailsPage() {
                   <s-stack direction="block" gap="small-200">
                     <s-stack direction="inline" justifyContent="space-between" alignItems="center">
                       <s-text type="strong">Artwork Proof</s-text>
-                      <s-badge tone={order.proofVersion ? "info" : "neutral"}>
-                        v{order.proofVersion || 0}
-                      </s-badge>
+                      <s-stack direction="inline" gap="small-200" alignItems="center">
+                        <s-badge tone={order.proofVersion ? "info" : "neutral"}>
+                          v{order.proofVersion || 0}
+                        </s-badge>
+                        {order.productionStatus === "proof-approved" && (
+                          <s-badge tone="success">APPROVED</s-badge>
+                        )}
+                      </s-stack>
                     </s-stack>
 
                     {order.proofUrl ? (
                       <s-stack direction="block" gap="small-200">
+                        {/[.](jpg|jpeg|png|webp|gif|bmp)$/i.test((order.proofUrl || "").split("?")[0].split("#")[0].trim()) && (
+                          <a href={order.proofUrl} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
+                            <img
+                              src={order.proofUrl}
+                              alt={`Artwork proof v${order.proofVersion || 1}`}
+                              style={{ width: "100%", maxHeight: 120, objectFit: "cover", borderRadius: 6, border: "1px solid #dfe3e8" }}
+                            />
+                          </a>
+                        )}
                         <s-button href={order.proofUrl} target="_blank">
                           View Current Proof ↗
                         </s-button>
@@ -4725,6 +6061,29 @@ export default function ProductionOrderDetailsPage() {
                             )}
                           </s-stack>
                         ) : null}
+
+                        {order.productionStatus === "proof-sent" && (
+                          <s-stack direction="block" gap="small" style={{ marginTop: "8px" }}>
+                            <s-text-area
+                              label="Change / approval note"
+                              value={proofNote}
+                              placeholder="Enter note if requesting changes..."
+                              error={clientErrors.proofNote || actionData?.fieldErrors?.proofNote || undefined}
+                              onInput={(event) => {
+                                setProofNote(event.currentTarget.value);
+                                clearFieldError("proofNote");
+                              }}
+                            />
+                            <s-stack direction="inline" gap="small">
+                              <s-button variant="primary" disabled={busy} onClick={approveProof}>
+                                {busy ? "Updating..." : "Approve Proof"}
+                              </s-button>
+                              <s-button tone="critical" disabled={busy} onClick={requestProofChanges}>
+                                Request Changes
+                              </s-button>
+                            </s-stack>
+                          </s-stack>
+                        )}
                       </s-stack>
                     ) : (
                       <s-text tone="subdued" style={{ fontSize: 13 }}>No digital proof created yet.</s-text>
@@ -4915,6 +6274,7 @@ export default function ProductionOrderDetailsPage() {
           {busy ? "Approving..." : "Approve physical sample"}
         </s-button>
       </s-modal>
+
     </s-page>
   );
 }

@@ -12,6 +12,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { changeProductionStatus, gql, productionStatusOf, SOURCES } from "./order-status.server";
 import { loadOrder, loadOrderForAction } from "./order-action.server";
+import { orderRequiresPhysicalSample } from "./portal.server";
 
 /**
  * Requesting changes puts the order On Hold. The production chain has no
@@ -172,18 +173,22 @@ async function decide(admin, order, decision, { who, message, where, source, ipA
     return { ok: false, error: `There's no Artwork Proof waiting for a decision on ${order.name}.` };
   }
 
+  const isSampleOrder = orderRequiresPhysicalSample(order);
   const chosen = DECISIONS[decision];
+  const targetStatus = decision === "approve" && isSampleOrder ? "sample-preparation" : chosen.to;
   const version = order.proofVersion?.value;
   const chargeable = decision === "changes" && Number(version) > INCLUDED_REVISIONS;
 
   const moved = await changeProductionStatus(admin, order, {
-    to: chosen.to,
+    to: targetStatus,
     changedBy: who,
     source,
     ipAddress,
     userAgent,
-    note: decision === "approve" 
-      ? `Proof Image Approved\nIMAGE: ${order.proofUrl?.value || ""}`
+    note: decision === "approve"
+      ? (isSampleOrder
+          ? `Proof Image Approved (Sample Preparation)\nIMAGE: ${order.proofUrl?.value || ""}`
+          : `Proof Image Approved\nIMAGE: ${order.proofUrl?.value || ""}`)
       : [
           `${chosen.verb}${version ? ` (version ${version})` : ""} ${where}.`,
           message ? `"${message}"` : "",
@@ -197,5 +202,5 @@ async function decide(admin, order, decision, { who, message, where, source, ipA
   });
   if (!moved.ok) return moved;
 
-  return { ok: true, orderName: order.name };
+  return { ok: true, orderName: order.name, isSampleOrder };
 }

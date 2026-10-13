@@ -8,6 +8,8 @@
  *
  */
 import { formatMoney, formatDate } from "./portal.server";
+import { bankAccountFor } from "./bank-details.server";
+import { CURRENCY_COUNTRY } from "./quote-document.server";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -15,6 +17,9 @@ const INVOICES_QUERY = `#graphql
   query CompanyInvoices($id: ID!, $first: Int!) {
     companyLocation(id: $id) {
       id
+      # The country an order without its own address is invoiced for.
+      billingAddress { countryCode }
+      shippingAddress { countryCode }
       orders(first: $first, sortKey: CREATED_AT, reverse: true) {
         nodes {
           id
@@ -27,6 +32,8 @@ const INVOICES_QUERY = `#graphql
           estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
           totalPriceSet { presentmentMoney { amount currencyCode } }
           totalOutstandingSet { presentmentMoney { amount currencyCode } }
+          billingAddress { countryCodeV2 }
+          shippingAddress { countryCodeV2 }
           lineItems(first: 3) { nodes { title quantity } }
           paymentTerms {
             paymentTermsName
@@ -93,7 +100,10 @@ async function ordersForLocation(admin, locationGid) {
     console.warn("[invoices] query failed", JSON.stringify(body.errors));
     return { orders: [], failed: true };
   }
-  return { orders: body?.data?.companyLocation?.orders?.nodes || [], failed: false };
+  const loc = body?.data?.companyLocation;
+  const locCountry = loc?.billingAddress?.countryCode || loc?.shippingAddress?.countryCode || "";
+  const orders = (loc?.orders?.nodes || []).map((o) => ({ ...o, locCountry }));
+  return { orders, failed: false };
 }
 
 function toInvoice(order) {
@@ -136,6 +146,12 @@ function toInvoice(order) {
     shipDateLabel: formatDate(order.estimatedShipDate?.value),
     daysUntilDue: days,
     termsName: order.paymentTerms?.paymentTermsName || "",
+    country:
+      order.billingAddress?.countryCodeV2 ||
+      order.shippingAddress?.countryCodeV2 ||
+      order.locCountry ||
+      CURRENCY_COUNTRY[currency] ||
+      "",
     // Shopify has no invoice PDF, so we render one from the order.
     downloadHref: order.id
       ? `/apps/account/invoices/download?order=${encodeURIComponent(order.id)}`
@@ -152,7 +168,7 @@ function toInvoice(order) {
  *
  * @param {ReturnType<typeof toInvoice>[]} invoices from loadInvoices
  */
-export function paymentDue(invoices) {
+export function paymentDue(invoices, customAccounts) {
   const unpaid = invoices.filter((invoice) => invoice.outstanding > 0);
   if (!unpaid.length) return null;
 
@@ -166,12 +182,24 @@ export function paymentDue(invoices) {
     : `Invoice ${next.reference} is unpaid.`;
   const more = unpaid.length - 1;
 
+  // Remittance details matching quote and invoice (HYV-105, K11)
+  const bank = bankAccountFor(next.country || next.currency, customAccounts);
+  const rows = bank?.rows ? Object.fromEntries(bank.rows) : {};
+  const remittance = bank?.rows?.length
+    ? {
+        accountName: rows["Account Name"] || "Hyve Promo Pte Ltd",
+        bank: rows["Bank Name"] || "",
+        accountNumber: rows["Account Number"] || rows["IBAN"] || "",
+        reference: next.reference,
+      }
+    : null;
+
   return {
     headline: overdue ? "Payment overdue" : "Payment due",
     detail: more
       ? `${due} ${more} more unpaid ${more === 1 ? "invoice is" : "invoices are"} on the Invoices page.`
       : due,
     amount: next.outstandingLabel,
-    remittance: null,
+    remittance,
   };
 }

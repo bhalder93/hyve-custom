@@ -21,6 +21,7 @@ import { authenticate } from "../shopify.server";
 import { ensureCommercialDefinitions } from "../lib/commercial-metafields.server";
 
 import { completeB2BOnboarding } from "../lib/b2b-onboarding.server";
+import { setCompanyTier } from "../lib/company-tier.server";
 import { addressErrors, addressFormatFor, internationalPhone, shopifyAddressInput } from "../lib/address-formats.server";
 import { ADDRESS_FORMATS } from "../lib/address-formats.data";
 import { approvalMissing } from "../lib/approval-checklist";
@@ -187,6 +188,12 @@ function formatRegisteredAddress(address) {
  *
  * @returns {Promise<Map<string, {title: string, locationIds: string[]}>>}
  */
+/** The payment terms the approval set, as its setup step recorded them. */
+function approvedTerms(steps = []) {
+  const detail = steps.find((step) => step.name === "payment terms" && step.ok)?.detail || "";
+  return detail.split(",")[0].trim();
+}
+
 async function tierCatalogsOnCompany(admin, companyId, catalogs) {
   const found = new Map();
   if (!companyId) return found;
@@ -397,6 +404,9 @@ async function assignCatalogToCompany({ admin, companyId, catalogId }) {
   if (!payload?.catalog?.id) {
     throw new Error("Shopify did not return the assigned catalog.");
   }
+
+  // The tier's name on the company, for the product page badge (HYV-178).
+  await setCompanyTier(admin, companyId, payload.catalog.title);
 
   return {
     catalog: payload.catalog,
@@ -832,6 +842,7 @@ export const action = async ({ request, params }) => {
         admin,
         companyId: application.company_id,
       });
+      await setCompanyTier(admin, application.company_id, "");
 
       await saveSetupRow(admin, application, targetGid, {
         name: "catalog assignment",
@@ -944,6 +955,8 @@ export const action = async ({ request, params }) => {
         salesRep: setup.salesRep,
         salesRepEmail: setup.salesRepEmail,
         hasCatalog: tiers.size > 0,
+        tierName: [...tiers.values()][0]?.title || "",
+        paymentTermsName: approvedTerms(setup.steps),
       });
       if (!sent) return { success: false, error: "The approval email could not be sent. Please try again." };
       await updateDistributorApplication(admin, targetGid, {
@@ -1180,6 +1193,16 @@ export const action = async ({ request, params }) => {
 
 
     if (status === APPLICATION_STATUSES.APPROVED) {
+
+      // A distributor without a Price Tier Catalog gets retail prices everywhere,
+      // which is what a new distributor saw at the trade-show test (HYV-178).
+      if (!catalogId) {
+        return {
+          success: false,
+          error: "Choose a Price Tier Catalog before approving.",
+          status: APPLICATION_STATUSES.PENDING,
+        };
+      }
 
       // Every distributor gets a named contact they can reach. The form blocks
 
@@ -1568,6 +1591,11 @@ export const action = async ({ request, params }) => {
         salesRep,
         salesRepEmail,
         hasCatalog,
+        tierName: onboardingSteps
+          .find((step) => step.name === "catalog assignment" && step.ok)
+          ?.detail.replace(/ assigned.*$/, "")
+          .trim() || "",
+        paymentTermsName: approvedTerms(onboardingSteps),
       });
 
       onboardingSteps.push({
@@ -2379,6 +2407,14 @@ export default function DistributorDetailPage() {
     !step.ok && fixedSince(step) ? { ...step, ok: true, detail: "Fixed since approval." } : step,
   );
   const setupProblems = setupSteps.filter((step) => !step.ok);
+  // What the approval actually set, as the setup list below shows it
+  // (HYV-192): the panel read the company separately and could disagree.
+  const stepDetail = (name) => setupSteps.find((step) => step.name === name && step.ok)?.detail || "";
+  const approvedTermsName = stepDetail("payment terms").split(",")[0].trim();
+  const approvedTierTitle =
+    catalogs.find((catalog) => catalog.id === approvedCatalogId)?.title ||
+    assignedCatalogTitle ||
+    stepDetail("catalog assignment").replace(/ assigned.*$/, "").trim();
   // Only for approvals that recorded their setup; older approvals already
   // emailed the applicant the old way and have nothing saved.
   const approvalEmailHeld =
@@ -2405,6 +2441,11 @@ export default function DistributorDetailPage() {
   const [catalogId, setCatalogId] = useState("");
 
   const [approvedCatalogId, setApprovedCatalogId] = useState(assignedCatalogId || "");
+  // After Approve the page reloads with the catalog just assigned; follow it,
+  // or the panel kept reading "no Price Tier Catalog yet" (HYV-192).
+  useEffect(() => {
+    setApprovedCatalogId(assignedCatalogId || "");
+  }, [assignedCatalogId]);
 
   const [catalogChangeId, setCatalogChangeId] = useState(assignedCatalogId || "");
 
@@ -2444,7 +2485,9 @@ export default function DistributorDetailPage() {
     missingForApproval.push("a company linking decision");
   }
 
-  // Price Tier Catalog is optional during approval.
+  // A Price Tier Catalog is required: without one the distributor gets
+  // retail prices everywhere (HYV-178).
+  if (!catalogId) missingForApproval.push("a Price Tier Catalog");
   const approvalComplete = missingForApproval.length === 0;
 
 
@@ -3986,7 +4029,7 @@ export default function DistributorDetailPage() {
                             <s-stack direction="block" gap="extra-small">
                               <s-text type="strong">Price Tier Catalog</s-text>
                               <s-text color="subdued" type="small">
-                                Optional during approval. You can assign, change, or remove the catalog after approval.
+                                Required. It sets the distributor's prices everywhere. You can change it after approval.
                               </s-text>
                             </s-stack>
 
@@ -3997,7 +4040,7 @@ export default function DistributorDetailPage() {
                                 setCatalogId(e?.currentTarget?.value ?? e?.target?.value ?? "")
                               }
                             >
-                              <s-option value="">No catalog</s-option>
+                              <s-option value="">Choose a catalog</s-option>
                               {catalogs.map((catalog) => (
                                 <s-option key={catalog.id} value={catalog.id}>
                                   {catalog.title}
@@ -4213,14 +4256,15 @@ export default function DistributorDetailPage() {
                           .join(", ")}.`}
                       </s-banner>
                     ) : (
-                      <s-banner tone="success" heading="Application Approved">
-                        {`The company and its main contact are set up in Shopify${
-                          paymentTermsName ? `, with ${paymentTermsName} payment terms` : ", paying at checkout (no payment terms)"
-                        }${
-                          approvedCatalogId
-                            ? ` and the ${catalogs.find((catalog) => catalog.id === approvedCatalogId)?.title || "selected"} catalog`
-                            : " and no Price Tier Catalog yet"
-                        }.`}
+                      <s-banner
+                        tone={approvalEmailHeld ? "warning" : "success"}
+                        heading={approvalEmailHeld ? "Approved, but the approval email hasn't gone out" : "Application Approved"}
+                      >
+                        {`The company and its main contact are set up in Shopify: ${
+                          approvedTermsName || paymentTermsName
+                            ? `${approvedTermsName || paymentTermsName} payment terms`
+                            : "paying at checkout (no payment terms)"
+                        }, ${approvedTierTitle ? `${approvedTierTitle} pricing` : "no Price Tier Catalog yet"}.`}
                       </s-banner>
                     )}
 

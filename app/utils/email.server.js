@@ -844,6 +844,7 @@ export async function sendProofApprovedEmail({
   estimatedShipDate,
   lineItems = [],
   orderUrl,
+  isSampleOrder = false,
 }) {
   if (!productionDueAt) {
     throw new Error("Production due date is required.");
@@ -866,7 +867,7 @@ export async function sendProofApprovedEmail({
     : null;
 
   const html = customerLayout({
-    title: customerStatusLabel("proof-approved"),
+    title: isSampleOrder ? "Approved — Sample Preparation" : customerStatusLabel("proof-approved"),
     customerName,
     orderName,
     orderDate,
@@ -878,7 +879,9 @@ export async function sendProofApprovedEmail({
       </p>
 
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
-        Your order is now moving into production.
+        ${isSampleOrder
+        ? "<strong>Approved — Sample Preparation:</strong> We'll prepare your physical pre-production sample before bulk production begins."
+        : "Your order is now moving into production."}
       </p>
 
       <div
@@ -898,7 +901,7 @@ export async function sendProofApprovedEmail({
             margin-bottom:6px;
           "
         >
-          Production target
+          ${isSampleOrder ? "Target completion date" : "Production target"}
         </div>
 
         <div
@@ -915,16 +918,20 @@ export async function sendProofApprovedEmail({
 
 ${estimatedShipDateOnly ? `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;"><strong>Estimated ship date:</strong> ${escapeHtml(estimatedShipDateOnly)}</p>` : ''}
       <p style="margin:0; line-height:1.7; font-size:15px;">
-        We will contact you again when production is complete.
+        ${isSampleOrder
+        ? "We will contact you with photos and details once your physical sample is dispatched."
+        : "We will contact you again when production is complete."}
       </p>
     `,
   });
 
   return sendEmail({
     to: customerEmail,
-    subject: `${customerStatusLabel("proof-approved")} - ${orderName}`,
+    subject: `${isSampleOrder ? "Approved — Sample Preparation" : customerStatusLabel("proof-approved")} - ${orderName}`,
     html,
-    text: `Your Artwork Proof for ${orderName} has been approved. Production target: ${productionDueDateOnly}.\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    text: isSampleOrder
+      ? `Your Artwork Proof for ${orderName} has been approved. Approved — Sample Preparation. We'll prepare your physical sample before production begins.\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`
+      : `Your Artwork Proof for ${orderName} has been approved. Production target: ${productionDueDateOnly}.\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
   });
 }
 
@@ -1066,10 +1073,11 @@ export async function sendPhysicalSampleEmail({
   orderName,
   orderDate,
   sampleVersion,
-  orderId,
   fileUrl,
+  note,
   approveUrl,
   changesUrl,
+  reviewUrl,
 }) {
   const html = customerLayout({
     title: "Physical Sample Ready For Review",
@@ -1088,12 +1096,24 @@ export async function sendPhysicalSampleEmail({
       >
         <div style="font-size:15px; line-height:1.6; color:${BRAND.primaryText};">
           <strong>Action required:</strong>
-          Please review your Physical Sample, then approve it or request changes with the buttons below.
-          No sign-in needed.
+          ${approveUrl && changesUrl
+            ? "Please review your Physical Sample, then approve it or request changes with the buttons below. No sign-in needed."
+            : "Please review your Physical Sample, then approve it or request changes in your account."}
         </div>
       </div>
 
-      ${/[.](jpg|jpeg|png|webp|gif|bmp)$/i.test((fileUrl || "").split("?")[0].split("#")[0].trim()) ? `
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        Your physical pre-production sample has been prepared and dispatched.
+      </p>
+
+      ${note ? `
+        <div style="padding:14px; background:#f8fafc; border:1px solid ${BRAND.border}; border-radius:10px; margin:16px 0;">
+          <div style="font-size:12px; font-weight:700; color:${BRAND.secondaryText}; text-transform:uppercase; margin-bottom:4px;">Sample Note:</div>
+          <div style="font-size:14px; color:${BRAND.primaryText}; line-height:1.5;">${escapeHtml(note)}</div>
+        </div>
+      ` : ""}
+
+      ${fileUrl && /[.](jpg|jpeg|png|webp|gif|bmp)$/i.test((fileUrl || "").split("?")[0].split("#")[0].trim()) ? `
         <div style="margin:22px 0;">
           <a href="${escapeHtml(fileUrl)}" target="_blank" style="display: block;">
             <img src="${escapeHtml(fileUrl)}" alt="Physical Sample" style="max-width: 100%; max-height: 500px; border-radius: 8px; border: 1px solid #e2e8f0; display: block;" />
@@ -1101,55 +1121,54 @@ export async function sendPhysicalSampleEmail({
         </div>
       ` : ''}
 
-      <div style="margin:22px 0;">
-        <a
-          href="${escapeHtml(fileUrl)}"
-          style="
-            display:inline-block;
-            padding:14px 22px;
-            background:#0f172a;
-            color:#fff;
-            text-decoration:none;
-            border-radius:10px;
-            font-size:14px;
-            font-weight:700;
-          "
-          target="_blank"
-          rel="noopener"
-        >
-          View Physical Sample Photos/Docs
-        </a>
-      </div>
+      ${fileUrl ? `
+        <div style="margin:16px 0 22px;">
+          <a
+            href="${escapeHtml(fileUrl)}"
+            style="
+              display:inline-block;
+              padding:10px 18px;
+              background:#f1f5f9;
+              color:#0f172a;
+              text-decoration:none;
+              border-radius:8px;
+              font-size:13px;
+              font-weight:600;
+            "
+            target="_blank"
+            rel="noopener"
+          >
+            View Physical Sample Photos / Docs ↗
+          </a>
+        </div>
+      ` : ""}
 
-      ${decisionButtons(approveUrl, changesUrl)}
+      ${approveUrl && changesUrl ? decisionButtons(approveUrl, changesUrl) : ""}
 
-      <p style="margin:0; line-height:1.7; font-size:15px;">
+      <p style="margin:0 0 16px; line-height:1.7; font-size:15px;">
         <strong>Physical Sample version:</strong>
-        ${escapeHtml(sampleVersion || "1")}
+        v${escapeHtml(sampleVersion || "1")}
       </p>
 
-      <div style="margin:22px 0;">
-        <a
-          href="${CUSTOMER_ORDERS_URL}"
-          style="
-            display:inline-block;
-            padding:14px 22px;
-            background:#0f172a;
-            color:#ffffff;
-            text-decoration:none;
-            border-radius:10px;
-            font-size:14px;
-            font-weight:700;
-          "
-        >
-          Review Physical Sample in Portal
-        </a>
-      </div>
-
-      <p style="margin:0; line-height:1.7; font-size:15px;">
-        <strong>Physical Sample version:</strong>
-        ${escapeHtml(sampleVersion || "1")}
-      </p>
+      ${reviewUrl ? `
+        <div style="margin:18px 0;">
+          <a
+            href="${escapeHtml(reviewUrl)}"
+            style="
+              display:inline-block;
+              padding:14px 22px;
+              background:#0f172a;
+              color:#ffffff;
+              text-decoration:none;
+              border-radius:10px;
+              font-size:14px;
+              font-weight:700;
+            "
+          >
+            Open Sample Review
+          </a>
+        </div>
+      ` : ""}
     `,
   });
 
@@ -1157,7 +1176,7 @@ export async function sendPhysicalSampleEmail({
     to: customerEmail,
     subject: `Physical Sample Ready For Review - ${orderName}`,
     html,
-    text: `Your physical sample for ${orderName} is ready. Review it here: ${CUSTOMER_ORDERS_URL}`,
+    text: `Your physical sample for ${orderName} (v${sampleVersion || "1"}) is ready for review.\n\nReview & Approve (no sign-in required): ${reviewUrl || approveUrl}\nApprove: ${approveUrl || ""}\nRequest changes: ${changesUrl || ""}`,
     replyTo: process.env.EMAIL_REPLY_TO,
   });
 }
@@ -1204,19 +1223,19 @@ export async function sendReadyForCollectionEmail({
         <table style="width: 100%; font-size: 14px; color: ${BRAND.primaryText}; border-collapse: collapse;">
           <tr>
             <td style="padding: 4px 0; width: 40%; font-weight: 600;">Ready Date</td>
-            <td style="padding: 4px 0;">${collectionDetails.readyDate || "—"}</td>
+            <td style="padding: 4px 0;">${escapeHtml(collectionDetails.readyDate || "—")}</td>
           </tr>
           <tr>
             <td style="padding: 4px 0; font-weight: 600;">Number of Cartons</td>
-            <td style="padding: 4px 0;">${collectionDetails.numberOfCartons || "—"}</td>
+            <td style="padding: 4px 0;">${escapeHtml(collectionDetails.numberOfCartons || "—")}</td>
           </tr>
           <tr>
             <td style="padding: 4px 0; font-weight: 600;">Gross Weight</td>
-            <td style="padding: 4px 0;">${collectionDetails.grossWeight || "—"} Kg</td>
+            <td style="padding: 4px 0;">${escapeHtml(collectionDetails.grossWeight || "—")} Kg</td>
           </tr>
           <tr>
             <td style="padding: 4px 0; font-weight: 600;">CBM</td>
-            <td style="padding: 4px 0;">${collectionDetails.cbm || "—"}</td>
+            <td style="padding: 4px 0;">${escapeHtml(collectionDetails.cbm || "—")}</td>
           </tr>
         </table>
       </div>
@@ -1224,15 +1243,16 @@ export async function sendReadyForCollectionEmail({
       <div style="margin: 20px 0; padding: 16px; background-color: #f6f6f7; border-radius: 8px;">
         <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 16px; color: ${BRAND.primaryText};">Pickup Location</h3>
         <div style="font-size: 14px; color: ${BRAND.primaryText}; line-height: 1.5;">
-          ${pickupConfig.pickup_address ? `<p style="margin: 0 0 8px;"><strong>Address:</strong><br/>${pickupConfig.pickup_address.replace(/\n/g, '<br/>')}</p>` : ''}
-          ${pickupConfig.contact_name ? `<p style="margin: 0 0 8px;"><strong>Contact:</strong> ${pickupConfig.contact_name} ${pickupConfig.contact_phone ? `(${pickupConfig.contact_phone})` : ''}</p>` : ''}
+          ${pickupConfig.pickup_address ? `<p style="margin: 0 0 8px;"><strong>Address:</strong><br/>${escapeHtml(pickupConfig.pickup_address).replace(/\n/g, '<br/>')}</p>` : ''}
+          ${pickupConfig.contact_name ? `<p style="margin: 0 0 8px;"><strong>Contact:</strong> ${escapeHtml(pickupConfig.contact_name)} ${pickupConfig.contact_phone ? `(${escapeHtml(pickupConfig.contact_phone)})` : ''}</p>` : ''}
+          ${pickupConfig.contact_email ? `<p style="margin: 0 0 8px;"><strong>Email:</strong> ${escapeHtml(pickupConfig.contact_email)}</p>` : ''}
           <p style="margin: 0 0 4px;"><strong>Opening Hours:</strong></p>
           <ul style="margin: 0; padding-left: 20px; color: ${BRAND.secondaryText};">
             ${['monday_hours', 'tuesday_hours', 'wednesday_hours', 'thursday_hours', 'friday_hours', 'saturday_hours', 'sunday_hours'].map(day => {
       const val = pickupConfig[day];
       if (val) {
         const dayName = day.split('_')[0].charAt(0).toUpperCase() + day.split('_')[0].slice(1);
-        return `<li>${dayName}: ${val}</li>`;
+        return `<li>${dayName}: ${escapeHtml(val)}</li>`;
       }
       return '';
     }).join('')}

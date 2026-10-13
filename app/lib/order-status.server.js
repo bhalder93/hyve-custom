@@ -33,7 +33,7 @@ const NOTIFIED_TAG_PREFIX = "hyve-notified:";
  * Recorded on the history entry, next to the webhooks' and the admin screen's:
  * a move made signed in to the portal, or from a link in the proof email.
  */
-export const SOURCES = { portal: "CUSTOMER_PORTAL", proofEmail: "PROOF_EMAIL", sla: "SLA_CHECK", manualSla: "MANUAL_SLA" };
+export const SOURCES = { portal: "CUSTOMER_PORTAL", proofEmail: "PROOF_EMAIL", sla: "SLA_CHECK", manualSla: "MANUAL_SLA", creditReview: "CREDIT_REVIEW" };
 
 /**
  * The only moves a buyer makes, each allowed by the Production Orders screen's
@@ -41,7 +41,9 @@ export const SOURCES = { portal: "CUSTOMER_PORTAL", proofEmail: "PROOF_EMAIL", s
  */
 const PORTAL_MOVES = {
   "order-placed": ["artwork-received"],
-  "proof-sent": ["proof-approved", "on-hold"],
+  "proof-sent": ["proof-approved", "sample-preparation", "on-hold"],
+  "sample-preparation": ["sample-review", "on-hold"],
+  "sample-review": ["in-production", "sample-preparation", "on-hold"],
   "production-complete": ["on-hold"],
 };
 
@@ -69,7 +71,11 @@ export const PRODUCTION_ORDER_FRAGMENT = `#graphql
     rush: metafield(namespace: "$app", key: "rush") { value }
     proofVersion: metafield(namespace: "$app", key: "proof_version") { value }
     proofUrl: metafield(namespace: "$app", key: "proof_url") { value }
+    productionPhotoUrl: metafield(namespace: "$app", key: "production_photo_url") { value }
+    productionPhotoVersion: metafield(namespace: "$app", key: "production_photo_version") { value }
+    productionApprovalStatus: metafield(namespace: "$app", key: "production_approval_status") { value }
     physicalSampleHistory: metafield(namespace: "$app", key: "physical_sample_history") { value }
+    physicalSampleRequired: metafield(namespace: "$app", key: "physical_sample_required") { value }
     estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
     lineItems(first: 100) {
       nodes {
@@ -165,33 +171,14 @@ export async function changeProductionStatus(
 
   const changedAt = new Date().toISOString();
   const productionDueAt =
-    to === "proof-approved" ? await productionDueFrom(admin, changedAt, order.rush?.value === "true") : null;
+    to === "proof-approved" || to === "in-production"
+      ? await productionDueFrom(admin, changedAt, order.rush?.value === "true")
+      : null;
 
-  const statusTags = (order.tags || []).filter((t) => String(t).startsWith(STATUS_TAG_PREFIX));
-  if (statusTags.length) {
-    check(await gql(admin, TAGS_REMOVE, { id: order.id, tags: statusTags }), "tagsRemove");
-  }
-  check(await gql(admin, TAGS_ADD, { id: order.id, tags: [`${STATUS_TAG_PREFIX}${to}`] }), "tagsAdd");
-
-  const field = (key, type, value) => ({ ownerId: order.id, namespace: "$app", key, type, value });
-  const metafields = [
-    field("production_status", "single_line_text_field", to),
-    field("status_changed_at", "date_time", changedAt),
-  ];
-  if (productionDueAt) metafields.push(field("production_due_at", "date_time", productionDueAt));
-  if (to === "on-hold") metafields.push(field("on_hold_reason", "single_line_text_field", onHoldReason.trim()));
-  check(await gql(admin, METAFIELDS_SET, { metafields }), "metafieldsSet");
-
-  if (to !== "on-hold") {
-    check(
-      await gql(admin, METAFIELDS_DELETE, {
-        metafields: [{ ownerId: order.id, namespace: "$app", key: "on_hold_reason" }],
-      }),
-      "metafieldsDelete",
-    );
-  }
-
-  await recordStatusHistory(admin, { order, from, to, changedAt, changedBy: changedBy || "Customer", source, note, ipAddress, userAgent });
+  await writeProductionStatus(admin, order, {
+    from, to, changedAt, productionDueAt, onHoldReason,
+    changedBy: changedBy || "Customer", source, note, ipAddress, userAgent,
+  });
 
   if (to === "artwork-received") {
     try {
@@ -224,6 +211,45 @@ export async function changeProductionStatus(
   }
 
   return { ok: true, from, productionDueAt, emailError };
+}
+
+/**
+ * Writes a status move: the status tag, the status fields, the hold reason
+ * (set on hold, cleared off it) and the timeline entry. No move rules and no
+ * emails; callers decide those. changeProductionStatus uses it for the
+ * buyer's moves, and the credit review hold and release (HYV-162) use it
+ * directly, since neither is a buyer's move nor something to email about.
+ */
+export async function writeProductionStatus(
+  admin,
+  order,
+  { from, to, changedAt = new Date().toISOString(), productionDueAt = null, onHoldReason = "", changedBy, source, note = "", ipAddress = "", userAgent = "" },
+) {
+  const statusTags = (order.tags || []).filter((t) => String(t).startsWith(STATUS_TAG_PREFIX));
+  if (statusTags.length) {
+    check(await gql(admin, TAGS_REMOVE, { id: order.id, tags: statusTags }), "tagsRemove");
+  }
+  check(await gql(admin, TAGS_ADD, { id: order.id, tags: [`${STATUS_TAG_PREFIX}${to}`] }), "tagsAdd");
+
+  const field = (key, type, value) => ({ ownerId: order.id, namespace: "$app", key, type, value });
+  const metafields = [
+    field("production_status", "single_line_text_field", to),
+    field("status_changed_at", "date_time", changedAt),
+  ];
+  if (productionDueAt) metafields.push(field("production_due_at", "date_time", productionDueAt));
+  if (to === "on-hold") metafields.push(field("on_hold_reason", "single_line_text_field", String(onHoldReason).trim()));
+  check(await gql(admin, METAFIELDS_SET, { metafields }), "metafieldsSet");
+
+  if (to !== "on-hold") {
+    check(
+      await gql(admin, METAFIELDS_DELETE, {
+        metafields: [{ ownerId: order.id, namespace: "$app", key: "on_hold_reason" }],
+      }),
+      "metafieldsDelete",
+    );
+  }
+
+  await recordStatusHistory(admin, { order, from, to, changedAt, changedBy, source, note, ipAddress, userAgent });
 }
 
 /** The emails the admin screen sends for the same two statuses. */
@@ -295,11 +321,11 @@ export async function notifyCustomerServiceOrderOnHold(
 }
 
 async function notifyCustomer(admin, order, status, productionDueAt) {
-  if (status !== "artwork-received" && status !== "proof-approved") return;
+  if (status !== "artwork-received" && status !== "proof-approved" && status !== "sample-preparation") return;
 
   const tag = `${NOTIFIED_TAG_PREFIX}${status}`;
   if ((order.tags || []).includes(tag)) return;
-  if (!(await statusEmailWanted(admin, order.customer?.id, status))) return;
+  if (!(await statusEmailWanted(admin, order.customer?.id, status === "sample-preparation" ? "proof-approved" : status))) return;
 
   const customerEmail = order.customer?.defaultEmailAddress?.emailAddress || order.email || "";
   if (!customerEmail) throw new Error("Customer email address is missing.");
@@ -319,8 +345,12 @@ async function notifyCustomer(admin, order, status, productionDueAt) {
     estimatedShipDate = d.toISOString();
   }
 
-  if (status === "artwork-received") await sendArtworkReceivedEmail(common);
-  else await sendProofApprovedEmail({ ...common, productionDueAt, estimatedShipDate });
+  if (status === "artwork-received") {
+    await sendArtworkReceivedEmail(common);
+  } else {
+    const isSampleOrder = status === "sample-preparation" || order.physicalSampleRequired?.value === "true";
+    await sendProofApprovedEmail({ ...common, productionDueAt, estimatedShipDate, isSampleOrder });
+  }
 
   check(await gql(admin, TAGS_ADD, { id: order.id, tags: [tag] }), "tagsAdd");
 }

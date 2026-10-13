@@ -171,23 +171,47 @@ export function distributorPage({
             </div>
 
             <div class="hyve-dist__field">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div>
+                  <label
+                    class="hyve-dist__label"
+                    for="dist-firstname"
+                  >
+                    First Name
+                    <span class="hyve-dist__req">*</span>
+                  </label>
 
-              <label
-                class="hyve-dist__label"
-                for="dist-contact"
-              >
-                Primary Contact Person
-              </label>
+                  <input
+                    type="text"
+                    id="dist-firstname"
+                    name="firstName"
+                    class="hyve-dist__input"
+                    placeholder="e.g. Sarah"
+                    value="${typed("firstName", customer?.firstName || "")}"
+                    required
+                  >
+                </div>
 
-              <input
-                type="text"
-                id="dist-contact"
-                name="contactPerson"
-                class="hyve-dist__input"
-                placeholder="e.g. Sarah Mitchell"
-                value="${typed("contactPerson", customer?.name || "")}"
-              >
+                <div>
+                  <label
+                    class="hyve-dist__label"
+                    for="dist-lastname"
+                  >
+                    Last Name
+                    <span class="hyve-dist__req">*</span>
+                  </label>
 
+                  <input
+                    type="text"
+                    id="dist-lastname"
+                    name="lastName"
+                    class="hyve-dist__input"
+                    placeholder="e.g. Mitchell"
+                    value="${typed("lastName", customer?.lastName || "")}"
+                    required
+                  >
+                </div>
+              </div>
             </div>
 
             <div class="hyve-dist__field">
@@ -207,12 +231,16 @@ export function distributorPage({
                 id="dist-phone"
                 name="contactPhone"
                 class="hyve-dist__input"
-                placeholder="e.g. +65 9123 4567"
+                placeholder="e.g. 9123 4567 or +65 9123 4567"
                 value="${typed("contactPhone", customer?.phone || "")}"
                 required
                 ${fieldError("contactPhone") ? 'aria-invalid="true"' : ""}
                 aria-describedby="dist-phone-error"
               >
+
+              <p class="hyve-dist__hint" style="margin: 4px 0 0; font-size: 12px; color: #64748b;">
+                Spaces and dashes are allowed. Country code is optional — automatically added based on your selected Country / Market.
+              </p>
 
               <div
                 class="hyve-dist__field-error"
@@ -4296,6 +4324,40 @@ const DISTRIBUTOR_SCRIPT = `
       if (box && !box.checked) {
         setMarket(box, true);
         autoTicked = box.value;
+      }
+    });
+  }
+
+  // Contact phone placeholder dynamically reflects the selected country
+  const phoneInput = document.getElementById('dist-phone');
+  const PHONE_EXAMPLE_FOR = {
+    Singapore: 'e.g. 9123 4567 or +65 9123 4567',
+    Malaysia: 'e.g. 012 345 6789 or +60 12 345 6789',
+    'Hong Kong': 'e.g. 2345 6789 or +852 2345 6789',
+    Philippines: 'e.g. 0917 123 4567 or +63 917 123 4567',
+    Thailand: 'e.g. 081 234 5678 or +66 81 234 5678',
+    Indonesia: 'e.g. 0812 3456 789 or +62 812 3456 789',
+    Vietnam: 'e.g. 091 234 5678 or +84 91 234 5678',
+    China: 'e.g. 138 0000 0000 or +86 138 0000 0000',
+  };
+  if (basedIn && phoneInput) {
+    const updatePhonePlaceholder = () => {
+      phoneInput.placeholder = PHONE_EXAMPLE_FOR[basedIn.value] || 'e.g. 9123 4567 or with country code';
+    };
+    basedIn.addEventListener('change', updatePhonePlaceholder);
+    updatePhonePlaceholder();
+  }
+
+  // Allow spaces and dashes while typing, but refine phone input before form submission
+  if (phoneInput && form) {
+    form.addEventListener('submit', () => {
+      const raw = phoneInput.value.trim();
+      if (raw) {
+        const hasPlus = raw.startsWith('+');
+        const digits = raw.replace(/\\D/g, '');
+        if (digits) {
+          phoneInput.value = hasPlus ? '+' + digits : digits;
+        }
       }
     });
   }

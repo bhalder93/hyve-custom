@@ -414,12 +414,8 @@ function renderAddressModal(company = null) {
               <select class="hyve-select" id="addr-province-select" name="province" hidden disabled></select>
             </div>
             <div class="hyve-form-group">
-              <label class="hyve-label" for="addr-phone">Phone Number${
-                companyMode ? "" : ' <span class="hyve-label__opt">(Optional)</span>'
-              }</label>
-              <input type="tel" class="hyve-input" id="addr-phone" name="phone" placeholder="e.g. +65 9123 4567"${
-                companyMode ? " required" : ""
-              }>
+              <label class="hyve-label" for="addr-phone">Phone Number <span class="hyve-label__opt">(Optional)</span></label>
+              <input type="tel" class="hyve-input" id="addr-phone" name="phone" placeholder="e.g. 9123 4567 or +65 9123 4567">
             </div>
           </div>
 
@@ -1305,6 +1301,13 @@ const ADDRESSES_SCRIPT = `
     toggle(zipGroup, zipInput, !fields || fields.has('zip'), true);
     if (cityLabel) cityLabel.textContent = format ? format.labels.city : plainLabels.city;
     if (zipLabel) zipLabel.textContent = format ? format.labels.zip : plainLabels.zip;
+    if (phoneInput) {
+      if (format && format.phonePrefix) {
+        phoneInput.placeholder = 'e.g. 9123 4567 or +' + format.phonePrefix + ' 9123 4567';
+      } else {
+        phoneInput.placeholder = 'e.g. 9123 4567';
+      }
+    }
 
     const zones = format ? format.zones : [];
     const listed = zones.length > 0;
@@ -1350,19 +1353,36 @@ const ADDRESSES_SCRIPT = `
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     showFormError('');
+    if (phoneInput && phoneInput.value) {
+      const rawVal = phoneInput.value.trim();
+      phoneInput.value = (rawVal.startsWith('+') ? '+' : '') + rawVal.replace(/[^0-9]/g, '');
+    }
     const label = submitBtn.querySelector('span');
     const idle = label.textContent;
     submitBtn.disabled = true;
     label.textContent = 'Saving...';
     try {
       const res = await fetch(form.action, { method: 'POST', body: new FormData(form) });
-      const next = new URL(res.url, window.location.href);
-      const error = next.searchParams.get('error');
+      let error = null;
+      if (res.headers.get('content-type')?.includes('application/json')) {
+        const data = await res.json();
+        error = data.error;
+        if (!error && data.success) {
+          window.location.href = window.location.pathname + (data.notice ? '?notice=' + encodeURIComponent(data.notice) : '');
+          return;
+        }
+      } else {
+        const next = new URL(res.url, window.location.href);
+        error = next.searchParams.get('error');
+        if (!error && res.ok) {
+          window.location.href = window.location.pathname + next.search;
+          return;
+        }
+      }
       if (error || !res.ok) {
         showFormError(error || 'The address could not be saved. Please try again.');
         return;
       }
-      window.location.href = window.location.pathname + next.search;
     } catch (err) {
       console.error('Failed to save address', err);
       showFormError('The address could not be saved. Please check your connection and try again.');

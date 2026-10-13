@@ -31,18 +31,18 @@ export function orderModal(order, library = [], pickupConfig = {}) {
   // A proof waiting on the buyer is the one thing they have to act on, so it
   // is flagged beside the order number and decided at the top of the order.
   const awaitingApproval = order.statusKey === "proof-sent" && Boolean(order.id);
-  const awaitingPhysicalSample = order.hasPhysicalSample && order.physicalSampleStatus === "sent" && ["proof-approved", "on-hold"].includes(order.statusKey) && Boolean(order.id);
+  const awaitingPhysicalSample = order.hasPhysicalSample && (order.physicalSampleStatus === "sent" || order.statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(order.statusKey) && Boolean(order.id);
   const awaitingProductionApproval = order.statusKey === "production-completed" && order.productionApprovalStatus !== "approved" && Boolean(order.id);
 
   return `
     <div class="hyve-modal" id="order-${esc(order.name)}" data-order-modal hidden>
       <div class="hyve-modal__backdrop" data-modal-close></div>
 
-      <div class="hyve-modal__panel" role="dialog" aria-modal="true" aria-label="Order ${esc(order.name)}">
+      <div class="hyve-modal__panel" role="dialog" aria-modal="true" aria-label="Order ${esc(order.reference || order.name)}">
         <header class="hyve-modal__head">
           <div class="hyve-modal__title-row">
-            <h2 class="hyve-modal__title">Order ${esc(order.name)}</h2>
-            ${awaitingApproval ? `<span class="hyve-modal__badge">Approval required</span>` : ""}
+            <h2 class="hyve-modal__title">Order ${esc(order.reference || order.name)}</h2>
+            ${awaitingApproval || awaitingPhysicalSample || awaitingProductionApproval ? `<span class="hyve-modal__badge">Approval required</span>` : ""}
           </div>
           <button type="button" class="hyve-modal__close" aria-label="Close" data-modal-close>${icoClose()}</button>
         </header>
@@ -71,7 +71,7 @@ export function orderModal(order, library = [], pickupConfig = {}) {
 
         <footer class="hyve-modal__foot">
           <a class="hyve-ord__btn hyve-ord__btn--ghost" href="${WHATSAPP_URL}" target="_blank" rel="noopener">${icoHelp()}<span>WhatsApp Us</span></a>
-          <a class="hyve-ord__btn hyve-ord__btn--ghost" href="mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`Order ${order.name}`)}">${icoMail()}<span>Email Us</span></a>
+          <a class="hyve-ord__btn hyve-ord__btn--ghost" href="mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`Order ${order.reference || order.name}`)}">${icoMail()}<span>Email Us</span></a>
           ${
             // Every order has its invoice (HYV-144); one still under credit
             // review is a draft, not an order yet.
@@ -82,6 +82,11 @@ export function orderModal(order, library = [], pickupConfig = {}) {
           ${
             order.quoteHref
               ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="${esc(order.quoteHref)}">${icoFile()}<span>Download Quote</span></a>`
+              : ""
+          }
+          ${
+            order.proformaHref
+              ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="${esc(order.proformaHref)}">${icoFile()}<span>Download Proforma</span></a>`
               : ""
           }
           ${order.trackHref ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="${esc(order.trackHref)}">${icoTruck()}<span>Track Shipment</span></a>` : ""}
@@ -126,13 +131,17 @@ function timeline(order, chain, reachedIndex) {
   const isBranch = reachedIndex === -1;
 
   let deducedIndex = 0;
-  if (isBranch && order.statusKey === "on-hold") {
-    if (order.productionPhotoUrl || order.productionApprovalStatus) {
-      deducedIndex = 3; // in-production
-    } else if (order.proofUrl) {
-      deducedIndex = 2; // proof-sent
-    } else {
-      deducedIndex = 1; // artwork-received
+  if (isBranch) {
+    if (order.statusKey === "sample-preparation" || order.statusKey === "sample-review") {
+      deducedIndex = 2; // after proof-sent
+    } else if (order.statusKey === "on-hold") {
+      if (order.productionPhotoUrl || order.productionApprovalStatus) {
+        deducedIndex = 3; // in-production
+      } else if (order.proofUrl) {
+        deducedIndex = 2; // proof-sent
+      } else {
+        deducedIndex = 1; // artwork-received
+      }
     }
   }
 
@@ -151,8 +160,15 @@ function timeline(order, chain, reachedIndex) {
       </li>`;
   }).join("");
 
+  const branchLabel = statusByKey(order.statusKey)?.label || "";
+  const branchExtra = order.statusKey === "sample-preparation"
+    ? " — The physical sample is being prepared before production begins."
+    : order.statusKey === "sample-review"
+      ? " — Awaiting customer approval on physical sample."
+      : (order.onHoldReason ? ` — ${esc(order.onHoldReason)}` : "");
+
   const branch = isBranch
-    ? `<p class="hyve-tl__branch">${icoAlert()}<span>${esc(statusByKey(order.statusKey)?.label || "")}${order.onHoldReason ? ` — ${esc(order.onHoldReason)}` : ""}</span></p>`
+    ? `<p class="hyve-tl__branch">${icoAlert()}<span>${esc(branchLabel)}${branchExtra}</span></p>`
     : "";
 
   return `
@@ -232,15 +248,52 @@ function shippingPanel(order) {
     </section>`;
 }
 
+function formatDay(value) {
+  if (!value) return "—";
+
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    const [, year, month, day] = match;
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const mIdx = parseInt(month, 10) - 1;
+    if (mIdx >= 0 && mIdx < 12) {
+      return `${parseInt(day, 10)} ${months[mIdx]} ${year}`;
+    }
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Singapore",
+  }).format(date);
+}
+
 function pickupPanel(order, pickupConfig) {
   // Only show this if there are collection details (meaning it was marked Ready for Collection with these inputs)
   if (!order.collectionReadyDate && !order.collectionCartons && !order.collectionGrossWeight) return "";
 
   const rows = [
-    ["Ready Date", order.collectionReadyDate],
+    ["Ready Date", formatDay(order.collectionReadyDate)],
     ["Number of Cartons", order.collectionCartons],
-    ["Gross Weight", order.collectionGrossWeight],
-    ["Total CBM", order.collectionCbm],
+    ["Gross Weight", order.collectionGrossWeight ? `${order.collectionGrossWeight}${/kg/i.test(order.collectionGrossWeight) ? "" : " kg"}` : ""],
+    ["Total CBM", order.collectionCbm ? `${order.collectionCbm}${/m³|cbm/i.test(order.collectionCbm) ? "" : " m³"}` : ""],
   ].filter(([, v]) => v);
 
   const pickupRows = [];
@@ -249,6 +302,7 @@ function pickupPanel(order, pickupConfig) {
     if (v.pickup_address) pickupRows.push(["Pickup Address", v.pickup_address]);
     if (v.contact_name) pickupRows.push(["Contact Name", v.contact_name]);
     if (v.contact_phone) pickupRows.push(["Contact Phone", v.contact_phone]);
+    if (v.contact_email) pickupRows.push(["Contact Email", v.contact_email]);
     
     const hours = [
       ["Monday", v.monday_hours],

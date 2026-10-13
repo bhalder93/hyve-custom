@@ -96,7 +96,7 @@ function getInitials(name) {
 
 
 export const loader = async ({ request, params }) => {
-  const { admin, session, sessionToken } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = session?.shop || "";
   const paramId = params?.id;
   if (!paramId) {
@@ -249,7 +249,8 @@ export const loader = async ({ request, params }) => {
    ========================================================================== */
 
 export const action = async ({ request }) => {
-  const { admin, sessionToken } = await authenticate.admin(request);  const formData = await request.formData();
+  const { admin } = await authenticate.admin(request);
+  const formData = await request.formData();
   const intent = String(formData.get("intent") || "").trim();
   const draftOrderId = String(formData.get("draftOrderId") || "").trim();
 
@@ -512,8 +513,13 @@ export default function QuoteDetailPage() {
     [quote.id, shop],
   );
 
-  const isAccepted = quote.quoteStatus.key === STATUS_KEYS.ACCEPTED;
-  const isRejected = quote.quoteStatus.key === STATUS_KEYS.REJECTED;
+  const isAccepted =
+    quote.quoteStatus?.key === STATUS_KEYS.ACCEPTED ||
+    quote.listStatus === "accepted" ||
+    Boolean(quote.order?.id);
+  const isRejected =
+    quote.quoteStatus?.key === STATUS_KEYS.REJECTED ||
+    quote.listStatus === "declined";
   const decided = isAccepted || isRejected;
 
   const currency = quote.totalPriceSet?.presentmentMoney?.currencyCode || "USD";
@@ -550,7 +556,7 @@ export default function QuoteDetailPage() {
       {/* Our quotation email with the PDF attached, instead of Shopify's
           "Send invoice", which can't carry the PDF (HYV-166). Not offered
           once the quote has become an order or been declined. */}
-      {quote.listStatus !== "accepted" && quote.listStatus !== "declined" ? (
+      {!decided && quote.listStatus !== "accepted" && quote.listStatus !== "declined" ? (
         <s-button
           slot="secondary-actions"
           onClick={() => fetcher.submit({ intent: "email_quotation", draftOrderId: quote.id }, { method: "post" })}
@@ -736,55 +742,44 @@ export default function QuoteDetailPage() {
             </div>
 
             {/* Decision */}
-            <div className="hyv-panel" style={{ padding: "16px 18px" }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "14px",
-                  flexWrap: "wrap",
-                }}
-              >
-                <div>
-                  <div className="hyv-panel__title">Decision</div>
-                  <p className="hyv-muted" style={{ margin: "3px 0 0" }}>
-                    {isAccepted
-                      ? "Approved. The buyer sees it as Sent and can confirm it from their portal."
-                      : isRejected
-                        ? "The buyer sees this quote as declined and is offered a requote."
-                        : "Approving or declining updates the buyer's portal straight away."}
-                  </p>
-                </div>
-                <s-stack direction="inline" gap="small-200">
-                  <s-button
-                    variant="primary"
-                    disabled={isSubmitting || isAccepted}
-                    loading={isSubmitting && fetcher.formData?.get("targetStatus") === "accepted"}
-                    onClick={() => handleUpdateStatus("accepted")}
-                  >
-                    Approve quote
-                  </s-button>
-                  <s-button
-                    tone="critical"
-                    disabled={isSubmitting || isRejected}
-                    loading={isSubmitting && fetcher.formData?.get("targetStatus") === "rejected"}
-                    onClick={() => handleUpdateStatus("rejected")}
-                  >
-                    Decline
-                  </s-button>
-                  {decided ? (
+            {!decided ? (
+              <div className="hyv-panel" style={{ padding: "16px 18px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "14px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div>
+                    <div className="hyv-panel__title">Decision</div>
+                    <p className="hyv-muted" style={{ margin: "3px 0 0" }}>
+                      Approving or declining updates the buyer&apos;s portal straight away.
+                    </p>
+                  </div>
+                  <s-stack direction="inline" gap="small-200">
                     <s-button
-                      variant="tertiary"
+                      variant="primary"
                       disabled={isSubmitting}
-                      onClick={() => handleUpdateStatus("awaiting_action")}
+                      loading={isSubmitting && fetcher.formData?.get("targetStatus") === "accepted"}
+                      onClick={() => handleUpdateStatus("accepted")}
                     >
-                      Reset
+                      Approve quote
                     </s-button>
-                  ) : null}
-                </s-stack>
+                    <s-button
+                      tone="critical"
+                      disabled={isSubmitting}
+                      loading={isSubmitting && fetcher.formData?.get("targetStatus") === "rejected"}
+                      onClick={() => handleUpdateStatus("rejected")}
+                    >
+                      Decline
+                    </s-button>
+                  </s-stack>
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
         </div>
       </s-section>

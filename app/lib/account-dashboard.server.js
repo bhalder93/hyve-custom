@@ -26,7 +26,7 @@ const QUICK_ACTIONS = [
 /**
  * @param {object} opts
  * @param {{firstName?:string}} [opts.customer]
- * @param {{totalOrders:number, pendingProofs:number, activeQuotes:number}} opts.stats
+ * @param {{totalOrders:number, awaitingArtwork:number, approvals:number, activeQuotes:number}} opts.stats
  * @param {?object} [opts.payment]  outstanding invoice, when one is known
  * @param {Array<object>} [opts.recentOrders]
  * @param {Array<object>} [opts.promotions]  from loadPromotions
@@ -52,7 +52,8 @@ export function dashboardPage({
 
       <div class="hyve-dash__stats">
         ${statCard(icoBox(), "lime", stats.totalOrders ?? 0, "Total Orders")}
-        ${statCard(icoClock(), "amber", stats.pendingProofs ?? 0, "Pending Artwork Proofs")}
+        ${statCard(icoUpload(), "amber", stats.awaitingArtwork ?? 0, "Awaiting Artwork")}
+        ${statCard(icoClock(), "teal", stats.approvals ?? 0, "Proofs & Approvals")}
         ${statCard(icoQuote(), "blue", stats.activeQuotes ?? 0, "Active Quotes")}
       </div>
 
@@ -222,7 +223,7 @@ const DASHBOARD_STYLES = `
   .hyve-dash__title { font-family: var(--hyve-display); font-size: 22px; font-weight: 800; margin: 0 0 3px; }
   .hyve-dash__sub { color: var(--hyve-500); font-size: 13px; margin: 0 0 20px; }
 
-  .hyve-dash__stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+  .hyve-dash__stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
   .hyve-dash__stat { display: flex; flex-direction: column; gap: 2px; background: var(--hyve-white); border: 1px solid var(--hyve-border); border-radius: var(--hyve-radius); padding: 20px; }
   .hyve-dash__stat-icon { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; margin-bottom: 14px; }
   .hyve-dash__stat-icon svg { width: 19px; height: 19px; }
@@ -290,7 +291,7 @@ const DASHBOARD_STYLES = `
     .hyve-dash__actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
   @media (max-width: 760px) {
-    .hyve-dash__stats { gap: 10px; }
+    .hyve-dash__stats { gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .hyve-dash__stat { padding: 14px; }
     .hyve-dash__actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .hyve-dash__payment-amount { margin-left: 0; text-align: left; }

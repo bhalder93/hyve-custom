@@ -4,6 +4,7 @@ import { getAllDistributorApplications } from "../lib/distributor-metaobject.ser
 import { QUOTE_STATUSES, loadStaffQuotes } from "../lib/account-quotes.server";
 import { STAFF_QUOTE_LABELS as QUOTE_LABELS, STAFF_QUOTE_TONES as QUOTE_TONES } from "../lib/quote-labels";
 import { formatMoney } from "../lib/portal.server";
+import { loadCreditReviewQueue } from "../lib/credit-review.server";
 import {
   AdminTheme,
   Metric,
@@ -36,6 +37,16 @@ export const loader = async ({ request }) => {
     console.warn("[dashboard] quotes query failed:", error?.message || error);
   }
 
+  // The same list as the Credit review page (HYV-162), so the counts match.
+  let creditReview = 0;
+  let creditReviewFailed = false;
+  try {
+    creditReview = (await loadCreditReviewQueue(admin)).length;
+  } catch (error) {
+    creditReviewFailed = true;
+    console.warn("[dashboard] credit review query failed:", error?.message || error);
+  }
+
   const isStatus = (application, value) =>
     String(application.status || "Pending Review").toLowerCase() === value;
 
@@ -44,6 +55,7 @@ export const loader = async ({ request }) => {
   const count = (status) => quotes.filter((q) => q.status === status).length;
 
   return {
+    creditReview: { waiting: creditReview, failed: creditReviewFailed },
     applications: {
       total: applications.length,
       pending: applications.filter((a) => isStatus(a, "pending review")).length,
@@ -102,12 +114,12 @@ function statusTone(status) {
 }
 
 export default function DashboardPage() {
-  const { applications, quotes } = useLoaderData();
+  const { applications, quotes, creditReview } = useLoaderData();
 
-  // Only applications wait on Hyve. A quote sitting with the buyer is not
-  // staff work, and counting it here made the headline claim work that was not
-  // theirs to do.
-  const needsAttention = applications.pending;
+  // Applications and orders waiting on a credit review wait on Hyve. A quote
+  // sitting with the buyer is not staff work, and counting it here made the
+  // headline claim work that was not theirs to do.
+  const needsAttention = applications.pending + creditReview.waiting;
   // Still worth saying, but as information rather than as work owed.
   const withBuyer = quotes.awaiting
     ? `${quotes.awaiting} quote${quotes.awaiting === 1 ? "" : "s"} with the buyer`
@@ -136,8 +148,17 @@ export default function DashboardPage() {
                   <p className="hyv-hero__sub">
                     {[
                       needsAttention === 0
-                        ? "Every application has been decided"
-                        : `${needsAttention} application${needsAttention === 1 ? "" : "s"} to decide`,
+                        ? "Every application and credit review has been decided"
+                        : [
+                            applications.pending
+                              ? `${applications.pending} application${applications.pending === 1 ? "" : "s"} to decide`
+                              : "",
+                            creditReview.waiting
+                              ? `${creditReview.waiting} order${creditReview.waiting === 1 ? "" : "s"} waiting for credit review`
+                              : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" · "),
                       withBuyer,
                     ]
                       .filter(Boolean)
@@ -151,6 +172,15 @@ export default function DashboardPage() {
             </div>
 
             <div className="hyv-metrics">
+              <Metric
+                label="Credit review"
+                value={creditReview.failed ? "—" : creditReview.waiting}
+                foot={creditReview.failed ? "Couldn't load the queue" : "Terms orders waiting for approval"}
+                icon={<IconClock />}
+                accent="#a3361f"
+                soft="#fdeee9"
+                href="/app/credit-review"
+              />
               <Metric
                 label="Applications pending"
                 value={applications.pending}

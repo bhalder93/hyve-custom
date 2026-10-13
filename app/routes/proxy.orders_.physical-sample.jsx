@@ -1,5 +1,7 @@
 import { authenticate } from "../shopify.server";
 import { portalChrome } from "../lib/account-data.server";
+import { loadOrderForAction } from "../lib/order-action.server";
+import { productionCalendar, productionDueDate } from "../lib/order-status.server";
 
 async function parseGraphQL(response, operationName = "GraphQL") {
   const data = await response.json();
@@ -34,6 +36,13 @@ export const action = async ({ request }) => {
 
     const chrome = await portalChrome(admin, customerId);
 
+    // Only the buyer's own order, or their company's (HYV-114).
+    const owned = await loadOrderForAction(admin, orderGid, {
+      customerGid: `gid://shopify/Customer/${customerId}`,
+      locationGids: chrome.terms?.locationIds || [],
+    });
+    if (!owned.ok) return backToOrders({ error: owned.error });
+
     // Fetch the current order state
     const orderResponse = await admin.graphql(
       `#graphql
@@ -62,6 +71,13 @@ export const action = async ({ request }) => {
       }
     } catch (e) {
       // ignore
+    }
+
+    // Only a sample that's been sent and not yet decided, read as the order
+    // window reads it: a resubmitted form can't move a later order back.
+    const latest = [...currentHistory].sort((a, b) => (b.sampleVersion || 0) - (a.sampleVersion || 0))[0];
+    if (latest?.status !== "sent") {
+      return backToOrders({ error: "This physical sample has already been answered." });
     }
 
     const currentVersion = currentHistory.reduce((max, entry) => Math.max(max, entry.sampleVersion || 0), 0);
@@ -98,6 +114,22 @@ export const action = async ({ request }) => {
         { ownerId: orderGid, namespace: "$app", key: "status_changed_at", type: "date_time", value: inProdAt }
       );
 
+      try {
+        const calendar = await productionCalendar(admin);
+        const productionDueAt = productionDueDate(calendar, inProdAt, order.rush?.value === "true");
+        if (productionDueAt) {
+          metafields.push({
+            ownerId: orderGid,
+            namespace: "$app",
+            key: "production_due_at",
+            type: "date_time",
+            value: productionDueAt,
+          });
+        }
+      } catch (err) {
+        console.error("Failed to calculate production due date on sample approval:", err);
+      }
+
       const ipAddress = (request.headers.get("true-client-ip") || request.headers.get("x-shopify-client-ip") || request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "").split(",")[0].trim();
       const userAgent = String(form.get("client_user_agent") || "").trim() || request.headers.get("user-agent") || "";
 
@@ -106,14 +138,16 @@ export const action = async ({ request }) => {
         try {
           const hist = JSON.parse(order.physicalSampleHistory.value);
           if (hist && hist.length > 0) fileUrl = hist[0].fileUrl || "";
-        } catch (e) {}
+        } catch {
+          // ignore
+        }
       }
 
       // Add a history item for the transition
       const historyFields = [
         { key: "order_id", value: orderGid },
         { key: "order_name", value: order.name },
-        { key: "from_status", value: order.productionStatus?.value || "on-hold" },
+        { key: "from_status", value: order.productionStatus?.value || "sample-review" },
         { key: "to_status", value: "in-production" },
         { key: "changed_at", value: inProdAt },
         { key: "changed_by", value: chrome.customer?.name || chrome.customer?.email || "The buyer" },
@@ -136,8 +170,22 @@ export const action = async ({ request }) => {
         console.error("CreateHistory Error:", e, e.graphQLErrors);
       }
 
-      // Update tags
-      const currentStatusTags = (order.tags || []).filter(t => t.startsWith("hyve-status:"));
+      // Clear on_hold_reason metafield
+      try {
+        await admin.graphql(
+          `#graphql
+            mutation ClearOnHoldReason($metafields: [MetafieldIdentifierInput!]!) {
+              metafieldsDelete(metafields: $metafields) { userErrors { message } }
+            }
+          `,
+          { variables: { metafields: [{ ownerId: orderGid, namespace: "$app", key: "on_hold_reason" }] } }
+        );
+      } catch (e) {
+        console.error("ClearOnHoldReason Error:", e);
+      }
+
+      // Update tags - remove all hyve-status tags (including any stale hyve-status:on-hold)
+      const currentStatusTags = (order.tags || []).filter(t => t.startsWith("hyve-status:") || t === "hyve-status:on-hold" || t === "hyve-status:sample-review");
       if (currentStatusTags.length) {
         try {
           await admin.graphql(
@@ -159,10 +207,23 @@ export const action = async ({ request }) => {
     } else {
       const heldAt = new Date().toISOString();
       metafields.push(
-        { ownerId: orderGid, namespace: "$app", key: "production_status", type: "single_line_text_field", value: "on-hold" },
+        { ownerId: orderGid, namespace: "$app", key: "production_status", type: "single_line_text_field", value: "sample-preparation" },
         { ownerId: orderGid, namespace: "$app", key: "status_changed_at", type: "date_time", value: heldAt },
-        { ownerId: orderGid, namespace: "$app", key: "on_hold_reason", type: "single_line_text_field", value: `Changes requested to Physical Sample: ${message}` }
       );
+
+      // Clear on_hold_reason
+      try {
+        await admin.graphql(
+          `#graphql
+            mutation ClearOnHoldReason($metafields: [MetafieldIdentifierInput!]!) {
+              metafieldsDelete(metafields: $metafields) { userErrors { message } }
+            }
+          `,
+          { variables: { metafields: [{ ownerId: orderGid, namespace: "$app", key: "on_hold_reason" }] } }
+        );
+      } catch (e) {
+        console.error("ClearOnHoldReason Error:", e);
+      }
 
       const ipAddress = (request.headers.get("true-client-ip") || request.headers.get("x-shopify-client-ip") || request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "").split(",")[0].trim();
       const userAgent = String(form.get("client_user_agent") || "").trim() || request.headers.get("user-agent") || "";
@@ -171,8 +232,8 @@ export const action = async ({ request }) => {
       const historyFields = [
         { key: "order_id", value: orderGid },
         { key: "order_name", value: order.name },
-        { key: "from_status", value: order.productionStatus?.value || "" },
-        { key: "to_status", value: "on-hold" },
+        { key: "from_status", value: order.productionStatus?.value || "sample-review" },
+        { key: "to_status", value: "sample-preparation" },
         { key: "changed_at", value: heldAt },
         { key: "changed_by", value: chrome.customer?.name || chrome.customer?.email || "The buyer" },
         { key: "source", value: "CUSTOMER_PORTAL" },
@@ -195,7 +256,7 @@ export const action = async ({ request }) => {
       }
 
       // Update tags
-      const currentStatusTags = (order.tags || []).filter(t => t.startsWith("hyve-status:"));
+      const currentStatusTags = (order.tags || []).filter(t => t.startsWith("hyve-status:") || t === "hyve-status:sample-review" || t === "hyve-status:on-hold");
       if (currentStatusTags.length) {
         try {
           await admin.graphql(
@@ -209,7 +270,7 @@ export const action = async ({ request }) => {
       try {
         await admin.graphql(
           `#graphql mutation AddTags($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { message } } }`,
-          { variables: { id: orderGid, tags: ["hyve-status:on-hold"] } }
+          { variables: { id: orderGid, tags: ["hyve-status:sample-preparation"] } }
         );
       } catch (e) {
         console.error("AddTags Error:", e, e.graphQLErrors);
@@ -238,7 +299,7 @@ export const action = async ({ request }) => {
       notice:
         decision === "approve"
           ? `Thank you — Physical Sample approved for ${order.name}. We'll start production.`
-          : `Thanks — we've passed your change request for ${order.name} to the team.`,
+          : `Thanks — we've passed your change request for ${order.name} to the team. We'll prepare the next physical sample.`,
     });
   } catch (error) {
     if (error instanceof Response) throw error;

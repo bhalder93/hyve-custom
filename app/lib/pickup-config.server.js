@@ -1,11 +1,10 @@
-import { authenticate } from "../shopify.server";
-
 export const METAOBJECT_TYPE = "$app:pickup_configuration"; // using app-owned metaobject for reliable creation
 
 export const METAOBJECT_FIELDS_SCHEMA = [
   { name: "Pickup Address", key: "pickup_address", type: "multi_line_text_field" },
   { name: "Contact Name", key: "contact_name", type: "single_line_text_field" },
   { name: "Contact Phone", key: "contact_phone", type: "single_line_text_field" },
+  { name: "Contact Email", key: "contact_email", type: "single_line_text_field" },
   { name: "Monday Hours", key: "monday_hours", type: "single_line_text_field" },
   { name: "Tuesday Hours", key: "tuesday_hours", type: "single_line_text_field" },
   { name: "Wednesday Hours", key: "wednesday_hours", type: "single_line_text_field" },
@@ -23,14 +22,46 @@ export async function ensurePickupConfigDefinition(admin) {
           metaobjectDefinitionByType(type: $type) {
             id
             type
+            fieldDefinitions {
+              key
+            }
           }
         }
       `,
       { variables: { type: METAOBJECT_TYPE } }
     );
     const body = await response.json();
-    if (body?.data?.metaobjectDefinitionByType) {
-      return { ok: true, type: body.data.metaobjectDefinitionByType.type };
+    const existingDef = body?.data?.metaobjectDefinitionByType;
+    if (existingDef) {
+      const existingKeys = new Set((existingDef.fieldDefinitions || []).map((f) => f.key));
+      const missingFields = METAOBJECT_FIELDS_SCHEMA.filter((f) => !existingKeys.has(f.key));
+      if (missingFields.length > 0) {
+        try {
+          await admin.graphql(
+            `#graphql
+              mutation UpdateDefinition($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) {
+                metaobjectDefinitionUpdate(id: $id, definition: $definition) {
+                  metaobjectDefinition { id }
+                  userErrors { field message code }
+                }
+              }
+            `,
+            {
+              variables: {
+                id: existingDef.id,
+                definition: {
+                  fieldDefinitions: missingFields.map((f) => ({
+                    create: { name: f.name, key: f.key, type: f.type },
+                  })),
+                },
+              },
+            }
+          );
+        } catch (updateErr) {
+          console.warn("Could not update metaobject definition with missing fields:", updateErr);
+        }
+      }
+      return { ok: true, type: existingDef.type };
     }
   } catch (error) {
     console.warn("Could not fetch definition:", error);

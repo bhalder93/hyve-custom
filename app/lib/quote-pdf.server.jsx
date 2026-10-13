@@ -304,7 +304,11 @@ function QuoteDoc({ doc, withImages }) {
           </View>
           {/* Only where Hyve delivers duty paid. On FOB (and EXW) the buyer
               clears customs, so the line doesn't apply (HYV-116, Michael Oct 4). */}
-          {/^DDP\b/i.test(String(doc.incoterm || "")) ? <Text style={styles.dutyNote}>{DUTY_NOTE}</Text> : null}
+          {/* Not when the quote already carries the duty line, which sales add
+              from the draft's Import duty box (HYV-140). */}
+          {/^DDP\b/i.test(String(doc.incoterm || "")) && !rows.some((row) => /^import duties/i.test(String(row.title || ""))) ? (
+            <Text style={styles.dutyNote}>{DUTY_NOTE}</Text>
+          ) : null}
         </View>
 
         {/* Payment terms apart from the logistics, which NetSuite filed under
@@ -338,7 +342,12 @@ function QuoteDoc({ doc, withImages }) {
               <Pair key={label} label={`${label}:`} value={value} labelStyle={styles.bankLabel} />
             ))}
           </View>
-        ) : null}
+        ) : (
+          <View style={styles.bank} wrap={false}>
+            <Text style={styles.heading}>Payment Details</Text>
+            <Text style={styles.addressLine}>Payment and bank transfer details will be provided on your invoice.</Text>
+          </View>
+        )}
 
         <View style={styles.closing} wrap={false}>
           <Text style={styles.closingLine}>

@@ -8,6 +8,7 @@ import {
   runSlaEngine,
 } from "../utils/sla-engine.server";
 import { sendQuoteExpiryReminders } from "../lib/quote-expiry-reminders.server";
+import { sendMissedCreditReviewAlerts } from "../lib/credit-review.server";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Helpers                                   */
@@ -24,7 +25,6 @@ function getBearerToken(request) {
       "authorization",
     );
 
-    console.log(authorization)
   if (!authorization) {
     return "";
   }
@@ -278,6 +278,12 @@ export async function action({
     // HYV-110: one reminder to the buyer shortly before a quote expires. Its
     // failure is reported, never allowed to fail the SLA run.
     summary.quoteReminders = await sendQuoteExpiryReminders(admin).catch(
+      (error) => ({ sent: 0, errors: [error?.message || String(error)] }),
+    );
+
+    // HYV-162: the credit review alert, for any order the draft webhook
+    // couldn't alert on. At most one run late, never missed.
+    summary.creditReviewAlerts = await sendMissedCreditReviewAlerts(admin).catch(
       (error) => ({ sent: 0, errors: [error?.message || String(error)] }),
     );
 

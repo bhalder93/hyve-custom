@@ -16,11 +16,47 @@ import { parsePhoneNumberFromString } from "libphonenumber-js/min";
  * @param {string} phone
  * @param {string} [countryCode] ISO code such as "HK"
  */
+/**
+ * Clean and refine phone number input, stripping dashes, spaces, and extraneous punctuation
+ * while preserving leading + or 00.
+ */
+export function refinePhone(phone) {
+  const raw = String(phone || "").trim();
+  if (!raw) return "";
+
+  const withPlus = raw.startsWith("00") ? `+${raw.slice(2)}` : raw;
+  const hasPlus = withPlus.startsWith("+");
+  const digits = withPlus.replace(/\D/g, "");
+
+  if (!digits) return "";
+  return hasPlus ? `+${digits}` : digits;
+}
+
 export function phoneE164(phone, countryCode) {
   const raw = String(phone || "").trim();
   if (!raw) return "";
-  const parsed = parsePhoneNumberFromString(raw, countryCode ? String(countryCode).toUpperCase() : undefined);
-  return parsed?.isValid() ? parsed.number : "";
+  const code = countryCode ? String(countryCode).toUpperCase() : undefined;
+
+  let parsed = parsePhoneNumberFromString(raw, code);
+  if (parsed?.isValid()) return parsed.number;
+
+  const refined = refinePhone(raw);
+  if (refined && refined !== raw) {
+    parsed = parsePhoneNumberFromString(refined, code);
+    if (parsed?.isValid()) return parsed.number;
+  }
+
+  if (refined.startsWith("00")) {
+    parsed = parsePhoneNumberFromString("+" + refined.slice(2));
+    if (parsed?.isValid()) return parsed.number;
+  }
+
+  if (!refined.startsWith("+")) {
+    parsed = parsePhoneNumberFromString("+" + refined);
+    if (parsed?.isValid()) return parsed.number;
+  }
+
+  return "";
 }
 
 /** Whether Shopify will take this as the country's phone number. */

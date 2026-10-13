@@ -7,20 +7,15 @@
  *   Europe          Banking Circle
  *   everyone else   DBS (USD)
  *
- * One account per document. The quotation prints it now; the estimate and the
- * proforma invoice will read the same accounts from here.
- *
- * DBS USD and Banking Circle, and the countries that count as Europe, are still
- * being typed out by James. An account without its details prints no bank
- * block rather than a half-filled one: fill in `rows` and it appears.
+ * One account per document. The quotation, invoice and portal remittance panel
+ * all read the same accounts from here.
  */
 
 const ACCOUNT_NAME = "Hyve Promo Pte Ltd";
 
-const ACCOUNTS = {
+export const DEFAULT_ACCOUNTS = {
   DBS_SGD: {
     heading: "For Payment in SGD",
-    // As on both NetSuite's quotation and Hyve's own (Q46153).
     rows: [
       ["Bank Name", "DBS Bank Ltd"],
       ["Bank Address", "12 Marina Boulevard, DBS Asia Central, Marina Bay Financial Centre Tower 3, SG 018982"],
@@ -33,7 +28,6 @@ const ACCOUNTS = {
   },
   CFSB_USD: {
     heading: "For Payment in USD",
-    // As on NetSuite's quotation (EST-SG-000007).
     rows: [
       ["Bank Name", "Community Federal Savings Bank"],
       ["Bank Address", "89-16 Jamaica Ave, Woodhaven, NY, United States, 11421"],
@@ -44,31 +38,46 @@ const ACCOUNTS = {
       ["Fedwire Routing Number", "026073008"],
     ],
   },
-  // Details to come from James.
-  DBS_USD: { heading: "For Payment in USD", rows: [] },
-  BANKING_CIRCLE: { heading: "For Payment in Europe", rows: [] },
+  DBS_USD: {
+    heading: "For Payment in USD",
+    rows: [],
+  },
+  BANKING_CIRCLE: {
+    heading: "For Payment in Europe",
+    rows: [],
+  },
 };
 
 /** Europe means the EU's 27 member states (Michael, Oct 4). */
-const EUROPE_COUNTRIES = [
+export const EUROPE_COUNTRIES = [
   "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE",
   "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
 ];
 
+export function defaultBankAccounts() {
+  return JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS));
+}
+
 /**
- * @param {string} countryCode the customer's two-letter country
- * @returns {?{heading: string, rows: string[][]}} null until that account's
- *   details are in
+ * Resolves the appropriate bank account for a country, optionally using
+ * custom accounts loaded dynamically from the app settings.
+ *
+ * @param {string} countryCode the customer's two-letter country or currency code
+ * @param {Record<string, {heading: string, rows: string[][]}>} [customAccounts] optional dynamically loaded accounts
+ * @returns {?{heading: string, rows: string[][]}} null until that account's details are filled in
  */
-export function bankAccountFor(countryCode) {
+export function bankAccountFor(countryCode, customAccounts) {
   const country = String(countryCode || "").toUpperCase();
+  const accounts = customAccounts || DEFAULT_ACCOUNTS;
+
   const account =
     country === "US"
-      ? ACCOUNTS.CFSB_USD
+      ? accounts.CFSB_USD
       : country === "SG"
-        ? ACCOUNTS.DBS_SGD
+        ? accounts.DBS_SGD
         : EUROPE_COUNTRIES.includes(country)
-          ? ACCOUNTS.BANKING_CIRCLE
-          : ACCOUNTS.DBS_USD;
-  return account.rows.length ? account : null;
+          ? accounts.BANKING_CIRCLE
+          : accounts.DBS_USD;
+
+  return account && Array.isArray(account.rows) && account.rows.length ? account : null;
 }

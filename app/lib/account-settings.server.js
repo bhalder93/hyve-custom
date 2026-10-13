@@ -2,7 +2,7 @@
  * Account Settings page for the account portal (rendered inside accountShell).
  *
  * Provides:
- *   - Profile Information (Full Name, Email Address, Company, Phone, Save Changes button)
+ *   - Profile Information (First Name, Last Name, Email Address, Company, Phone, Save Changes button)
  *   - Notifications (Email Notifications, WhatsApp Updates via customer metafield, Marketing Emails)
  *   - Instant toggle interactivity with AJAX persistence to customer metafields
  *   - Production-ready responsive layout matching the UI mockup
@@ -14,12 +14,25 @@ import { SHIPPING_METHODS } from "./company-profile.server";
  * Format customer settings data with fallbacks matching the mockup.
  */
 export function mapCustomerSettings(customer = null) {
-  const firstName = customer?.firstName || "";
-  const lastName = customer?.lastName || "";
-  const displayName = customer?.displayName || "";
-  const fullName = displayName || `${firstName} ${lastName}`.trim() || customer?.name || "";
+  const firstName = String(customer?.firstName || "").trim();
+  const lastName = String(customer?.lastName || "").trim();
+  const email = String(customer?.email || customer?.defaultEmailAddress?.emailAddress || "").trim();
 
-  const email = customer?.email || customer?.defaultEmailAddress?.emailAddress || "";
+  let resolvedFirstName = firstName;
+  let resolvedLastName = lastName;
+
+  // Only fall back to displayName if neither first nor last name is set,
+  // and ensure it is not an email address.
+  if (!resolvedFirstName && !resolvedLastName) {
+    const rawDisplayName = String(customer?.displayName || "").trim();
+    if (rawDisplayName && !rawDisplayName.includes("@") && rawDisplayName !== email) {
+      const parts = rawDisplayName.split(/\s+/).filter(Boolean);
+      resolvedFirstName = parts[0] || "";
+      resolvedLastName = parts.slice(1).join(" ") || "";
+    }
+  }
+
+  const fullName = `${resolvedFirstName} ${resolvedLastName}`.trim();
 
   const company = customer?.companyMetafield?.value || customer?.defaultAddress?.company || "";
 
@@ -44,8 +57,8 @@ export function mapCustomerSettings(customer = null) {
   return {
     id: customer?.id || "",
     fullName,
-    firstName,
-    lastName,
+    firstName: resolvedFirstName,
+    lastName: resolvedLastName,
     email,
     company,
     phone,
@@ -98,17 +111,30 @@ export function settingsPage({
             <h2 class="hyve-settings__card-title">Profile Information</h2>
           </div>
 
-          <div class="hyve-settings__form-group">
-            <label class="hyve-settings__label" for="settings-fullname">Full Name</label>
-            <input
-              type="text"
-              id="settings-fullname"
-              name="fullName"
-              class="hyve-settings__input"
-              value="${esc(settings.fullName)}"
-              required
-              placeholder="e.g. Sarah Mitchell"
-            >
+          <div class="hyve-settings__name-grid">
+            <div class="hyve-settings__form-group">
+              <label class="hyve-settings__label" for="settings-firstname">First Name</label>
+              <input
+                type="text"
+                id="settings-firstname"
+                name="firstName"
+                class="hyve-settings__input"
+                value="${esc(settings.firstName)}"
+                required
+                placeholder="e.g. Sarah"
+              >
+            </div>
+            <div class="hyve-settings__form-group">
+              <label class="hyve-settings__label" for="settings-lastname">Last Name</label>
+              <input
+                type="text"
+                id="settings-lastname"
+                name="lastName"
+                class="hyve-settings__input"
+                value="${esc(settings.lastName)}"
+                placeholder="e.g. Mitchell"
+              >
+            </div>
           </div>
 
           <div class="hyve-settings__form-group">
@@ -437,6 +463,8 @@ const SETTINGS_STYLES = `
   .hyve-settings__card--company { margin-bottom: 24px; }
   .hyve-settings__company-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; }
   @media (max-width: 760px) { .hyve-settings__company-grid { grid-template-columns: 1fr; } }
+  .hyve-settings__name-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; }
+  @media (max-width: 540px) { .hyve-settings__name-grid { grid-template-columns: 1fr; } }
   .hyve-settings__hint { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: #64748B; }
   .hyve-settings__hint--note { margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: #F1F5F9; color: #475569; font-size: 13px; }
 

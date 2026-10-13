@@ -139,7 +139,10 @@ export const COMPANY_ADDRESS = "firstName lastName recipient companyName address
 
 const QUOTE_QUERY = `#graphql
   query QuoteDocument($id: ID!) {
-    shop { name }
+    shop {
+      name
+      bankMetafield: metafield(namespace: "hyve", key: "bank_details") { value }
+    }
     draftOrder(id: $id) {
       id
       name
@@ -340,7 +343,14 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
 
     shippingMethod: !cartQuote && shippingLine?.title ? shippingLine.title : "",
     remarks: remarksFrom(draft.note2),
-    bank: bankAccountFor(country),
+    bank: (() => {
+      let customAccounts = null;
+      try {
+        const rawJson = body.data.shop?.bankMetafield?.value;
+        if (rawJson) customAccounts = JSON.parse(rawJson);
+      } catch {}
+      return bankAccountFor(country, customAccounts);
+    })(),
   };
 }
 
@@ -438,6 +448,29 @@ function remarksFrom(note) {
     .filter((line, i) => !(i === 0 && line.trim() === CART_QUOTE_NOTE))
     .join("\n")
     .trim();
+}
+
+/**
+ * An order's lines as it stands now. An edited order keeps its original
+ * quantities and totals on `quantity` and `discountedTotalSet`; the edit is on
+ * `currentQuantity` (HYV-118: 500 edited to 400 still printed 500). Lines
+ * edited to nothing are left out, and each total is recomputed from the unit
+ * price. Needs `currentQuantity` and `discountedUnitPriceSet` on the lines.
+ */
+export function currentOrderLines(order) {
+  return (order?.lineItems?.nodes || [])
+    .map((li) => {
+      const quantity = li.currentQuantity ?? li.quantity;
+      const unit = li.discountedUnitPriceSet?.presentmentMoney;
+      if (!unit || quantity === li.quantity) return { ...li, quantity };
+      const total = (Math.round(Number(unit.amount || 0) * 100) * quantity) / 100;
+      return {
+        ...li,
+        quantity,
+        discountedTotalSet: { presentmentMoney: { amount: total.toFixed(2), currencyCode: unit.currencyCode } },
+      };
+    })
+    .filter((li) => li.quantity > 0);
 }
 
 /** A draft order's own address, for the address blocks. */

@@ -131,7 +131,8 @@ export async function loadProductionPhotoFromLink(admin, link) {
   const order = await loadOrder(admin, link.orderGid);
   if (!order) return { ok: false, error: "We couldn't find that order." };
 
-  const currentStatus = order.productionStatus?.value || "";
+  const statusTag = (order.tags || []).find((t) => t.startsWith("hyve-status:"));
+  const currentStatus = order.productionStatus?.value || statusTag?.replace("hyve-status:", "") || "";
   if (currentStatus !== "production-complete" && currentStatus !== "production-completed") {
     return { ok: false, error: `There's no Production Photo waiting for a decision on ${order.name}.` };
   }

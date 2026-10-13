@@ -6,12 +6,14 @@ import { dashboardPage } from "../lib/account-dashboard.server";
 import {
   awaitingActionCount,
   loadReviewOrders,
+  dashboardCounts,
   mapOrders,
   ordersPage,
   withArtworkDeadlines,
 } from "../lib/account-orders.server";
 import { signedOutPage } from "../lib/account-signed-out.server";
 import { loadPromotions } from "../lib/promotions.server";
+import { loadBankDetailsConfig } from "../lib/bank-settings.server";
 import { loadInvoices, paymentDue } from "../lib/invoices.server";
 import { loadPickupConfig } from "../lib/pickup-config.server";
 
@@ -50,9 +52,13 @@ export const loader = async ({ request }) => {
     // The payment due banner comes from the same invoices the Invoices page
     // lists. If they can't be read, the dashboard shows without the banner.
     // Terms orders still under credit review are orders too (HYV-99).
-    const [invoices, reviewOrders] = isDistributor
-      ? await Promise.all([loadInvoices(admin, terms?.locationIds || []), loadReviewOrders(admin, reviewDraftIds)])
-      : [null, []];
+    const [invoices, reviewOrders, bankConfig] = isDistributor
+      ? await Promise.all([
+          loadInvoices(admin, terms?.locationIds || []),
+          loadReviewOrders(admin, reviewDraftIds),
+          loadBankDetailsConfig(admin).catch(() => null),
+        ])
+      : [null, [], null];
 
     const orders = [...reviewOrders, ...mapOrders(orderNodes)];
     // The artwork "by" date on orders still waiting for it (HYV-102).
@@ -64,12 +70,14 @@ export const loader = async ({ request }) => {
           customer,
           stats: {
             totalOrders: orders.length,
-            pendingProofs: counts.orders,
+            // What's waiting on the buyer, split (HYV-173): artwork to send,
+            // an order in review included, and approvals to give.
+            ...dashboardCounts(orders),
             // Quotes awaiting the buyer's decision — the same figure the nav
             // badge carries, so the two never disagree.
             activeQuotes: counts.quotes,
           },
-          payment: invoices && !invoices.failed ? paymentDue(invoices.invoices) : null,
+          payment: invoices && !invoices.failed ? paymentDue(invoices.invoices, bankConfig?.accounts) : null,
           recentOrders: orders.slice(0, 3),
           promotions,
           pickupConfig,

@@ -75,6 +75,7 @@ export default function PickupConfig() {
       "pickup_address",
       "contact_name",
       "contact_phone",
+      "contact_email",
       "monday_hours",
       "tuesday_hours",
       "wednesday_hours",
@@ -155,6 +156,14 @@ export default function PickupConfig() {
             value={draft["contact_phone"] || ""}
             onInput={handleInput("contact_phone")}
           ></s-text-field>
+
+          <s-text-field
+            label="Contact email"
+            type="email"
+            name="contact_email"
+            value={draft["contact_email"] || ""}
+            onInput={handleInput("contact_email")}
+          ></s-text-field>
         </s-stack>
       </s-section>
 
@@ -180,8 +189,8 @@ export default function PickupConfig() {
       <s-section heading="Opening hours">
         <s-stack direction="block" gap="base">
           <s-paragraph tone="neutral" color="subdued">
-            Daily operating hours for pickup. Example: "9:00 am – 5:00 pm" or
-            "Closed".
+            Daily operating hours for pickup. Example: &quot;9:00 am – 5:00 pm&quot; or
+            &quot;Closed&quot;.
           </s-paragraph>
 
           <s-grid gridTemplateColumns="1fr 1fr" gap="base">

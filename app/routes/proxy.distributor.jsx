@@ -16,7 +16,7 @@ import {
 
 import { registrationNumberProblem } from "../lib/registration-number.server";
 
-import { validPhone } from "../lib/phone";
+import { validPhone, phoneE164, refinePhone } from "../lib/phone";
 
 import { uploadToShopifyFiles } from "../lib/shopify-files.server";
 
@@ -235,7 +235,7 @@ export const action = async ({ request }) => {
       .get("accept")
       ?.includes("application/json") ||
     request.headers.get("x-requested-with") ===
-      "XMLHttpRequest";
+    "XMLHttpRequest";
 
 
   /* ------------------------------------------------------------------------ */
@@ -306,20 +306,54 @@ export const action = async ({ request }) => {
           : typedWebsite;
 
 
-      const contactPerson = String(
+      const formFirstName = String(
+        formData.get("firstName") || "",
+      ).trim();
+
+      const formLastName = String(
+        formData.get("lastName") || "",
+      ).trim();
+
+      const formContactPerson = String(
         formData.get("contactPerson") || "",
       ).trim();
 
+      let firstName = formFirstName;
+      let lastName = formLastName;
 
-      const contactPhone = String(
+      if (!firstName && !lastName && formContactPerson) {
+        const parts = formContactPerson.split(/\s+/).filter(Boolean);
+        firstName = parts[0] || "";
+        lastName = parts.slice(1).join(" ") || "";
+      }
+
+      const contactPerson =
+        `${firstName} ${lastName}`.trim() || formContactPerson;
+
+
+      const rawContactPhone = String(
         formData.get("contactPhone") || "",
       ).trim();
 
-
       const countryBased = String(
         formData.get("countryBased") ||
-          "Singapore",
+        "Singapore",
       ).trim();
+
+      const countryCode =
+        addressFormatFor(countryBased)?.code || "SG";
+
+      // Allow dashes and spaces on input, but refine the phone when processing
+      const refinedRawPhone =
+        refinePhone(rawContactPhone);
+
+      // Country code is optional on input: automatically resolve and
+      // add the appropriate country calling code based on countryBased if not present.
+      const formattedContactPhone =
+        phoneE164(refinedRawPhone || rawContactPhone, countryCode);
+
+      const contactPhone =
+        formattedContactPhone || refinedRawPhone || rawContactPhone;
 
 
       const businessType = String(
@@ -329,13 +363,13 @@ export const action = async ({ request }) => {
 
       const relationToBusiness = String(
         formData.get("relationToBusiness") ||
-          "",
+        "",
       ).trim();
 
 
       const preferredCurrency = String(
         formData.get("preferredCurrency") ||
-          "",
+        "",
       ).trim();
 
 
@@ -346,8 +380,8 @@ export const action = async ({ request }) => {
       const marketsSold =
         marketsArray.length
           ? marketsArray
-              .map(String)
-              .join(", ")
+            .map(String)
+            .join(", ")
           : "Singapore";
 
 
@@ -358,7 +392,7 @@ export const action = async ({ request }) => {
 
       const registrationNumber = String(
         formData.get("registrationNumber") ||
-          "",
+        "",
       ).trim();
 
 
@@ -429,11 +463,28 @@ export const action = async ({ request }) => {
           ) || "",
         ).trim(),
 
-        phone: String(
-          formData.get(
-            "registeredAddress.phone",
-          ) || "",
-        ).trim(),
+        phone:
+          phoneE164(
+            refinePhone(
+              String(
+                formData.get(
+                  "registeredAddress.phone",
+                ) || "",
+              ).trim(),
+            ),
+            addressFormatFor(
+              formData.get(
+                "registeredAddress.country",
+              ) || countryBased,
+            )?.code || countryCode,
+          ) ||
+          refinePhone(
+            String(
+              formData.get(
+                "registeredAddress.phone",
+              ) || "",
+            ).trim(),
+          ),
       });
 
 
@@ -467,11 +518,11 @@ export const action = async ({ request }) => {
 
       // Approval puts this number on the company address, which Shopify
       // won't save without one, so the application asks for it (HYV-143).
-      const phoneProblem = !contactPhone
+      const phoneProblem = !rawContactPhone
         ? "Contact phone number is required."
-        : validPhone(contactPhone, addressFormatFor(countryBased)?.code)
+        : validPhone(contactPhone, countryCode)
           ? null
-          : `Enter a valid ${countryBased} phone number.`;
+          : `Enter a valid phone number.`;
 
       if (phoneProblem) {
         addressValidation.valid = false;
@@ -528,6 +579,10 @@ export const action = async ({ request }) => {
                 companyName,
 
                 companyWebsite,
+
+                firstName,
+
+                lastName,
 
                 contactPerson,
 
@@ -603,7 +658,7 @@ export const action = async ({ request }) => {
         docFile &&
         typeof docFile === "object" &&
         typeof docFile.arrayBuffer ===
-          "function" &&
+        "function" &&
         docFile.size > 0
       ) {
         registrationDocName =
@@ -640,6 +695,17 @@ export const action = async ({ request }) => {
           customerId,
         );
 
+      // Make sure customer has firstName and lastName in Shopify.
+      // If not, take firstName and lastName from the application and update the customer first.
+      const hasCustomerNames = Boolean(
+        customer?.firstName && customer?.lastName,
+      );
+      if (!hasCustomerNames && (firstName || lastName)) {
+        await updateCustomerName(admin, gidCustomerId, {
+          firstName: firstName || customer?.firstName || "",
+          lastName: lastName || customer?.lastName || "",
+        });
+      }
 
       const customerEmail =
         customer?.email || "";
@@ -1035,12 +1101,12 @@ function respond(
 
   const param = error
     ? `error=${encodeURIComponent(
-        error,
-      )}`
+      error,
+    )}`
     : `notice=${encodeURIComponent(
-        notice ||
-          "Application received",
-      )}`;
+      notice ||
+      "Application received",
+    )}`;
 
 
   return new Response(null, {
@@ -1133,15 +1199,24 @@ async function fetchCustomerDetails(
     const last =
       c.lastName || "";
 
+    const rawName = `${first} ${last}`.trim();
+    const displayName =
+      c.displayName && !c.displayName.includes("@") && c.displayName !== c.defaultEmailAddress?.emailAddress
+        ? c.displayName
+        : "";
     const name =
-      c.displayName ||
-      `${first} ${last}`.trim();
+      rawName ||
+      displayName;
 
 
     return {
       customer: {
         id:
           c.id,
+
+        firstName: first,
+
+        lastName: last,
 
         name,
 
@@ -1170,6 +1245,59 @@ async function fetchCustomerDetails(
     return {
       customer: null,
     };
+  }
+}
+
+
+/* -------------------------------------------------------------------------- */
+/*                       UPDATE CUSTOMER NAME                                 */
+/* -------------------------------------------------------------------------- */
+
+async function updateCustomerName(
+  admin,
+  customerId,
+  { firstName, lastName },
+) {
+  if (!admin || !customerId) return;
+  const gid =
+    customerId.startsWith("gid://")
+      ? customerId
+      : `gid://shopify/Customer/${customerId}`;
+
+  const input = { id: gid };
+  if (firstName) input.firstName = firstName;
+  if (lastName) input.lastName = lastName;
+
+  try {
+    const response = await withTimeout(
+      admin.graphql(
+        `#graphql
+        mutation UpdateCustomerName($input: CustomerInput!) {
+          customerUpdate(input: $input) {
+            customer {
+              id
+              firstName
+              lastName
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+        `,
+        { variables: { input } },
+      ),
+      ADMIN_TIMEOUT_MS,
+    );
+
+    const body = await response.json();
+    const userErrors = body?.data?.customerUpdate?.userErrors;
+    if (userErrors && userErrors.length > 0) {
+      console.warn("[account] updateCustomerName userErrors", userErrors);
+    }
+  } catch (err) {
+    console.warn("[account] updateCustomerName threw (non-fatal)", err?.message || err);
   }
 }
 
