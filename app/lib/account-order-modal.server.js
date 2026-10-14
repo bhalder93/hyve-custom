@@ -18,6 +18,7 @@ import { esc } from "./account-shell.server";
 import { MAX_FILE_LABEL, artworkRulesFor, isPreviewable } from "./artwork.server";
 import { VISIBLE_STATUSES, statusByKey, statusChain } from "./portal.server";
 import { WHATSAPP_URL, SUPPORT_EMAIL } from "./customer-service.server";
+import { awaitingSampleDecision } from "./sample-approval.server";
 
 // F5 asks for the format and size limits to be stated before upload, so each
 // position reads them from the same rule the upload itself enforces
@@ -31,7 +32,9 @@ export function orderModal(order, library = [], pickupConfig = {}) {
   // A proof waiting on the buyer is the one thing they have to act on, so it
   // is flagged beside the order number and decided at the top of the order.
   const awaitingApproval = order.statusKey === "proof-sent" && Boolean(order.id);
-  const awaitingPhysicalSample = order.hasPhysicalSample && (order.physicalSampleStatus === "sent" || order.statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(order.statusKey) && Boolean(order.id);
+  // Not once staff put the order On Hold for another reason: the sample
+  // decision route would refuse the answer.
+  const awaitingPhysicalSample = order.hasPhysicalSample && (order.physicalSampleStatus === "sent" || order.statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(order.statusKey) && (order.statusKey !== "on-hold" || awaitingSampleDecision("on-hold", order.onHoldReason)) && Boolean(order.id);
   const awaitingProductionApproval = order.statusKey === "production-completed" && order.productionApprovalStatus !== "approved" && Boolean(order.id);
 
   return `

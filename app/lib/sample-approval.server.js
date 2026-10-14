@@ -48,6 +48,37 @@ export async function sampleDecisionLinks(admin, orderGid, version) {
   };
 }
 
+/**
+ * True while the order waits for the buyer's answer on a sent sample: Sample
+ * Review, or an order from the old flow, which left a sent sample at Proof
+ * Approved or put it On Hold ("Waiting for physical sample approval"). Staff
+ * putting the order On Hold for another reason, or moving it on, ends the
+ * wait. The caller checks the latest sample is the one sent.
+ */
+export function awaitingSampleDecision(productionStatus, onHoldReason = "") {
+  if (productionStatus === "sample-review" || productionStatus === "proof-approved") return true;
+  const reason = String(onHoldReason || "").trim().toLowerCase();
+  return (
+    productionStatus === "on-hold" &&
+    (reason.startsWith("physical sample") || reason === "waiting for physical sample approval")
+  );
+}
+
+async function onHoldReasonOf(admin, orderGid) {
+  const response = await admin.graphql(
+    `#graphql
+      query SampleOrderHoldReason($id: ID!) {
+        order(id: $id) {
+          onHoldReason: metafield(namespace: "$app", key: "on_hold_reason") { value }
+        }
+      }
+    `,
+    { variables: { id: orderGid } },
+  );
+  const body = await response.json();
+  return body?.data?.order?.onHoldReason?.value || "";
+}
+
 export async function loadSampleFromLink(admin, link) {
   const order = await loadOrder(admin, link.orderGid);
   if (!order) return { ok: false, error: "We couldn't find that order." };
@@ -71,6 +102,12 @@ export async function loadSampleFromLink(admin, link) {
   // link, or one already answered, can't move the order again.
   if (latestSample.status !== "sent" || String(latestSample.sampleVersion) !== String(link.version)) {
     return { ok: false, error: `This link is for a physical sample of ${order.name} that has already been answered.` };
+  }
+
+  const productionStatus = order.productionStatus?.value || "";
+  const onHoldReason = productionStatus === "on-hold" ? await onHoldReasonOf(admin, order.id) : "";
+  if (!awaitingSampleDecision(productionStatus, onHoldReason)) {
+    return { ok: false, error: `${order.name} isn't waiting for a physical sample decision.` };
   }
 
   return { ok: true, order, sample: latestSample, history };

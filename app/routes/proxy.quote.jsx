@@ -390,7 +390,12 @@ function buildLineItems(items, currencyCode) {
     const line = {
       quantity: Math.max(1, parseInt(it.quantity, 10) || 1),
     };
-    if (customAttributes.length) line.customAttributes = customAttributes;
+    // Hidden marker: the price already has the cart's retail quantity break,
+    // so the cart transform doesn't apply it again at the quote's checkout
+    // (HYV-190). Hidden in checkout and dropped from the order like the
+    // other `_hyve_` fields.
+    customAttributes.push({ key: "_hyve_quote", value: "1" });
+    line.customAttributes = customAttributes;
 
     line.variantId = `gid://shopify/ProductVariant/${it.variant_id}`;
     line.priceOverride = { amount: unit, currencyCode };

@@ -46,8 +46,16 @@ const MARKETS_QUERY = `#graphql
           localCurrencies
           roundingEnabled
         }
-        conditions { companyLocationsCondition { companyLocations(first: 250) { nodes { id } } } }
       }
+    }
+  }`;
+
+// Members are read one distributor market at a time: asking for 250 members
+// of each of 100 markets in one query goes over Shopify's 1,000-point limit.
+const MARKET_MEMBERS_QUERY = `#graphql
+  query DistributorMarketMembers($id: ID!) {
+    market(id: $id) {
+      conditions { companyLocationsCondition { companyLocations(first: 250) { nodes { id } } } }
     }
   }`;
 
@@ -130,6 +138,9 @@ export async function keepCompanyCurrency(admin, companyGid) {
 
     const handle = marketHandle(currency);
     const markets = (await run(admin, MARKETS_QUERY))?.markets?.nodes || [];
+    for (const m of markets.filter(isDistributorMarket)) {
+      m.conditions = (await run(admin, MARKET_MEMBERS_QUERY, { id: m.id }))?.market?.conditions || null;
+    }
     const market = markets.find((m) => m.handle === handle);
     const inTarget = market ? membersOf(market) : new Set();
     // Our other currency markets, which a location leaves when the company's

@@ -13,6 +13,7 @@
  */
 
 import { orderBelongsTo } from "./portal.server";
+import { locationPaymentTerms } from "./purchasing-company.server";
 
 const SOURCE_QUERY = `#graphql
   query ReorderSource($id: ID!) {
@@ -109,7 +110,10 @@ export async function reorder(admin, orderGid, customerGid, locationGids = []) {
   }
 
   const company = order.purchasingEntity?.company?.id ? order.purchasingEntity : null;
-  const template = company?.location?.buyerExperienceConfiguration?.paymentTermsTemplate?.id;
+  // The company's own terms, as cart quotes take them: a schedule only for
+  // Net terms, and fixed-date terms left to sales (a Net-style schedule on
+  // them made Shopify refuse the reorder).
+  const paymentTerms = company ? await locationPaymentTerms(admin, company.location.id) : null;
 
   const input = {
     lineItems,
@@ -128,14 +132,7 @@ export async function reorder(admin, orderGid, customerGid, locationGids = []) {
         }
       : { purchasingEntity: { customerId: customerGid } }),
     // The company's own terms, so the new order is due when their others are.
-    ...(template
-      ? {
-          paymentTerms: {
-            paymentTermsTemplateId: template,
-            paymentSchedules: [{ issuedAt: new Date().toISOString() }],
-          },
-        }
-      : {}),
+    ...(paymentTerms ? { paymentTerms } : {}),
   };
 
   const created = await gql(admin, DRAFT_CREATE, { input });

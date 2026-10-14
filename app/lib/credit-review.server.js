@@ -112,7 +112,7 @@ const ORDER_FIELDS = `
 
 const HELD_ORDERS_QUERY = `#graphql
   query CreditReviewHeldOrders {
-    orders(first: 50, query: "tag:${CREDIT_HOLD_TAG}", sortKey: CREATED_AT) {
+    orders(first: 25, query: "tag:${CREDIT_HOLD_TAG}", sortKey: CREATED_AT) {
       nodes { ${ORDER_FIELDS} }
     }
   }`;
@@ -122,11 +122,47 @@ const ORDER_QUERY = `#graphql
     order(id: $id) { ${ORDER_FIELDS} }
   }`;
 
-const TAGS = `#graphql
-  mutation CreditReviewTags($id: ID!, $add: [String!]!, $remove: [String!]!) {
-    tagsAdd(id: $id, tags: $add) { userErrors { field message } }
-    tagsRemove(id: $id, tags: $remove) { userErrors { field message } }
+const TAGS_ADD = `#graphql
+  mutation CreditReviewTagsAdd($id: ID!, $tags: [String!]!) {
+    tagsAdd(id: $id, tags: $tags) { userErrors { field message } }
   }`;
+
+const TAGS_REMOVE = `#graphql
+  mutation CreditReviewTagsRemove($id: ID!, $tags: [String!]!) {
+    tagsRemove(id: $id, tags: $tags) { userErrors { field message } }
+  }`;
+
+const BLANK_CHECK = `#graphql
+  query CreditReviewLines($id: ID!) {
+    order(id: $id) { lineItems(first: 100) { nodes { customAttributes { key value } } } }
+  }`;
+
+/** Adds or removes tags, and fails loudly when Shopify refuses. */
+async function changeTags(admin, id, { add = [], remove = [] }) {
+  if (add.length) {
+    const errors = (await run(admin, TAGS_ADD, { id, tags: add }))?.tagsAdd?.userErrors || [];
+    if (errors.length) throw new Error(errors[0].message);
+  }
+  if (remove.length) {
+    const errors = (await run(admin, TAGS_REMOVE, { id, tags: remove }))?.tagsRemove?.userErrors || [];
+    if (errors.length) throw new Error(errors[0].message);
+  }
+}
+
+/**
+ * Where a released order goes: Order Received, or Ready For Collection for a
+ * blank quote order (no artwork on any line), as orders/create sets it.
+ */
+async function releaseStatus(admin, orderGid) {
+  const lines = (await run(admin, BLANK_CHECK, { id: orderGid }))?.order?.lineItems?.nodes || [];
+  const blank = lines.every(
+    (line) => !(line.customAttributes || []).some((attr) => attr.key === "Artwork" && String(attr.value || "").trim()),
+  );
+  return blank ? "ready-for-collection" : "order-placed";
+}
+
+/** Shopify's single-line field: a reason typed over several lines, on one. */
+const oneLine = (text) => String(text || "").replace(/\s*[\r\n]+\s*/g, " ").trim();
 
 const CANCEL = `#graphql
   mutation CreditReviewCancel($orderId: ID!, $staffNote: String) {
@@ -253,8 +289,14 @@ export async function holdOrderForCreditReview(admin, orderGid) {
   const source = (order.customAttributes || []).find((attr) => attr.key === "Source")?.value;
   if (source !== "Cart quote") return { held: false, reason: "not from a cart quote" };
   const from = productionStatusOf(order);
-  if (from !== "order-placed") return { held: false, reason: `already at ${from || "no status"}` };
+  // Order Received, or Ready For Collection for a blank quote order.
+  if (from !== "order-placed" && from !== "ready-for-collection") {
+    return { held: false, reason: `already at ${from || "no status"}` };
+  }
 
+  // Tagged first: an order On Hold without the tag would be missing from the
+  // queue, with nothing to release it.
+  await changeTags(admin, orderGid, { add: [CREDIT_HOLD_TAG] });
   await writeProductionStatus(admin, order, {
     from,
     to: "on-hold",
@@ -263,8 +305,6 @@ export async function holdOrderForCreditReview(admin, orderGid) {
     source: SOURCES.creditReview,
     note: "Placed from a cart quote by a company whose orders are reviewed. Held until Hyve approves it in Credit Review.",
   });
-  const tagged = (await run(admin, TAGS, { id: orderGid, add: [CREDIT_HOLD_TAG], remove: [] }))?.tagsAdd;
-  if (tagged?.userErrors?.length) throw new Error(tagged.userErrors[0].message);
 
   const alert = await sendCreditReviewAlert(admin, { ...order, tags: [...(order.tags || []), CREDIT_HOLD_TAG] }).catch((error) => ({
     sent: false,
@@ -276,19 +316,25 @@ export async function holdOrderForCreditReview(admin, orderGid) {
 
 async function approveHeldOrder(admin, orderGid) {
   const order = await loadHeldOrder(admin, orderGid);
-  if (!heldForReview(order) || productionStatusOf(order) !== "on-hold") {
+  if (!heldForReview(order)) return { ok: false, error: "This order is no longer waiting for a credit review." };
+  const to = await releaseStatus(admin, orderGid);
+  const from = productionStatusOf(order);
+  // Still On Hold, or released already by an approval whose tag removal
+  // failed: then only the tag is left to take off.
+  if (from === "on-hold") {
+    await writeProductionStatus(admin, order, {
+      from,
+      to,
+      changedBy: "Credit review",
+      source: SOURCES.creditReview,
+      note: "Credit approved in Hyve Custom.",
+    });
+  } else if (from !== to) {
     return { ok: false, error: "This order is no longer waiting for a credit review." };
   }
-  await writeProductionStatus(admin, order, {
-    from: "on-hold",
-    to: "order-placed",
-    changedBy: "Credit review",
-    source: SOURCES.creditReview,
-    note: "Credit approved in Hyve Custom.",
-  });
-  await run(admin, TAGS, { id: orderGid, add: [], remove: [CREDIT_HOLD_TAG] });
+  await changeTags(admin, orderGid, { remove: [CREDIT_HOLD_TAG] });
   // The buyer had Shopify's order confirmation at checkout.
-  return { ok: true, orderName: order.name, released: true };
+  return { ok: true, orderName: order.name, released: true, releasedTo: to === "ready-for-collection" ? "Ready For Collection" : "Order Received" };
 }
 
 async function declineHeldOrder(admin, orderGid, why) {
@@ -300,19 +346,33 @@ async function declineHeldOrder(admin, orderGid, why) {
   const cancelError = cancelled?.orderCancelUserErrors?.[0]?.message;
   if (cancelError) return { ok: false, error: `Shopify couldn't cancel the order: ${cancelError}` };
 
-  await writeProductionStatus(admin, order, {
-    from: productionStatusOf(order),
-    to: "on-hold",
-    onHoldReason: `Not approved on payment terms: ${why}`,
-    changedBy: "Credit review",
-    source: SOURCES.creditReview,
-    note: `Credit declined and the order cancelled. Reason: ${why}`,
-  });
-  await run(admin, TAGS, { id: orderGid, add: [CREDIT_DECLINED_TAG], remove: [CREDIT_HOLD_TAG] });
+  // Cancelled now, so the rest is done even if one step fails: the buyer is
+  // still told, and staff see what didn't save.
+  const problems = [];
+  try {
+    await writeProductionStatus(admin, order, {
+      from: productionStatusOf(order),
+      to: "on-hold",
+      // The reason is kept on one line, as the field allows.
+      onHoldReason: oneLine(`Not approved on payment terms: ${why}`),
+      changedBy: "Credit review",
+      source: SOURCES.creditReview,
+      note: `Credit declined and the order cancelled. Reason: ${why}`,
+    });
+  } catch (error) {
+    problems.push(`reason not saved (${error?.message || error})`);
+  }
+  try {
+    // Off the Production Orders On Hold tab: it's cancelled, not waiting.
+    await changeTags(admin, orderGid, { add: [CREDIT_DECLINED_TAG], remove: [CREDIT_HOLD_TAG, "hyve-status:on-hold"] });
+  } catch (error) {
+    problems.push(`tags not updated (${error?.message || error})`);
+  }
 
   const row = reviewRow(order);
   const emailed = await emailDecline(row, why);
-  return { ok: true, emailed };
+  if (problems.length) console.error("[credit-review] decline after cancel", order.name, problems.join("; "));
+  return { ok: true, emailed, warning: problems.length ? `Cancelled, but ${problems.join(" and ")}.` : "" };
 }
 
 export async function loadReviewDraft(admin, draftGid) {
@@ -438,7 +498,24 @@ export async function sendMissedCreditReviewAlerts(admin) {
   const result = { sent: 0, errors: [] };
   for (const node of missed) {
     try {
-      const sent = await notifyCreditReview(admin, node.id);
+      const sent = await notifyCreditReview(admin, node.id, { wait: false });
+      if (sent.sent) result.sent += 1;
+      else console.log("[credit-review] safety net: no alert", node.name, sent.reason);
+    } catch (error) {
+      result.errors.push(`${node.name}: ${error?.message || error}`);
+    }
+  }
+  // Orders held from a quote link: their alert goes from orders/create, once.
+  const held = ((await run(admin, HELD_ORDERS_QUERY))?.orders?.nodes || []).filter(
+    (node) =>
+      heldForReview(node) &&
+      !(node.tags || []).includes(NOTIFIED_TAG) &&
+      new Date(node.createdAt).getTime() >= since &&
+      new Date(node.createdAt).getTime() <= Date.now() - 2 * 60 * 1000,
+  );
+  for (const node of held) {
+    try {
+      const sent = await sendCreditReviewAlert(admin, node);
       if (sent.sent) result.sent += 1;
       else console.log("[credit-review] safety net: no alert", node.name, sent.reason);
     } catch (error) {
@@ -452,13 +529,14 @@ export async function sendMissedCreditReviewAlerts(admin) {
  * Tells Hyve an order is waiting: the Credit Review recipients and the
  * company's sales rep, or the store's address when neither is set.
  */
-export async function notifyCreditReview(admin, draftGid) {
+export async function notifyCreditReview(admin, draftGid, { wait = true } = {}) {
   let draft = await loadReviewDraft(admin, draftGid);
   // Who made a draft is read from its "created" event, which may not be
   // readable the moment the webhook arrives: up to about a minute is allowed.
-  for (const wait of [5000, 15000, 40000]) {
+  // The safety net doesn't wait: Flow gives the cron 30 seconds.
+  for (const pause of wait ? [5000, 15000, 40000] : []) {
     if (!draft || draft.createdEvent?.nodes?.length) break;
-    await new Promise((resolve) => setTimeout(resolve, wait));
+    await new Promise((resolve) => setTimeout(resolve, pause));
     draft = await loadReviewDraft(admin, draftGid);
   }
   if (!draft) return { sent: false, reason: "draft not found" };
@@ -503,12 +581,16 @@ async function sendCreditReviewAlert(admin, node) {
     mutation CreditReviewNotified($id: ID!, $tags: [String!]!) {
       tagsAdd(id: $id, tags: $tags) { userErrors { field message } }
     }`, { id: draftGid, tags: [NOTIFIED_TAG] }).catch((error) => ({ error }));
+  // Not marked, not sent: the 15-minute safety net would otherwise send it
+  // again on every run. It tries again next run.
   if (tagged?.error || tagged?.tagsAdd?.userErrors?.length) {
     console.warn("[credit-review] notified tag not set", draftGid, tagged?.error?.message || JSON.stringify(tagged?.tagsAdd?.userErrors));
+    return { sent: false, reason: "couldn't mark it as alerted; retried next run" };
   }
   const { sendEmail } = await import("./mailer.server");
   const { brandedEmail, escapeHtml } = await import("../utils/email.server");
-  await sendEmail({
+  try {
+    await sendEmail({
     to: [...to].join(","),
     subject: `Credit review: ${row.name} — ${row.company || row.buyer || "a distributor"}`,
     html: brandedEmail({
@@ -528,6 +610,11 @@ async function sendCreditReviewAlert(admin, node) {
         ["Items", escapeHtml(row.items || "—")],
       ],
     }),
-  });
+    });
+  } catch (error) {
+    // Unmarked, so the next safety-net run sends it.
+    await run(admin, TAGS_REMOVE, { id: draftGid, tags: [NOTIFIED_TAG] }).catch(() => {});
+    throw error;
+  }
   return { sent: true, to: [...to] };
 }

@@ -1041,6 +1041,15 @@ export async function action({ request }) {
         setRush,
       });
 
+      // HYV-162: a blank order from a cart quote's link is held for credit
+      // review too, as a decorated one is below.
+      try {
+        const held = await holdOrderForCreditReview(admin, order.id);
+        if (held.held) console.log(`Order ${order.name} held for credit review`);
+      } catch (holdError) {
+        console.error(`Credit review hold failed for ${order.name}:`, holdError?.message || holdError);
+      }
+
       console.log(`Blank order initialization complete: ${order.name}`, {
         orderId: order.id,
 

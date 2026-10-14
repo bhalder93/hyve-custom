@@ -26,6 +26,7 @@ import { customerArrangesFreight } from "./production-statuses";
 import { incotermFromShipping } from "./incoterm";
 import { CREDIT_DECLINED_TAG, CREDIT_HOLD_TAG } from "./credit-review.server";
 import { currentOrderLines } from "./quote-document.server";
+import { awaitingSampleDecision } from "./sample-approval.server";
 import {
   ARTWORK_PENDING,
   VISIBLE_STATUSES,
@@ -84,7 +85,9 @@ export function mapOrders(nodes = []) {
       poNumber: node?.poNumber || "",
       // Every order has its invoice, a paid one marked PAID: companies need it
       // for their books whether they paid by card or on terms (HYV-144).
-      hasInvoice: Boolean(node?.id),
+      // No invoice while Hyve reviews the credit, nor once it's declined and
+      // cancelled (HYV-162).
+      hasInvoice: Boolean(node?.id) && !creditHeld && !creditDeclined,
       // Set where this order began life as a quote, so the detail can offer
       // that quote's PDF alongside the invoice.
       quoteHref: node?.quoteDraftId
@@ -301,15 +304,30 @@ export function dashboardCounts(orders = []) {
     (o) =>
       o.statusKey === "proof-sent" ||
       (o.statusKey === "production-completed" && o.productionApprovalStatus !== "approved") ||
-      (o.hasPhysicalSample && (o.physicalSampleStatus === "sent" || o.statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(o.statusKey)),
+      sampleDecisionOpen(o),
   ).length;
   return { awaitingArtwork, approvals };
+}
+
+/**
+ * A physical sample waiting on the buyer's answer, as the order window and
+ * the sample decision route read it: not once staff hold the order for
+ * another reason.
+ */
+function sampleDecisionOpen(order, statusKey = order.statusKey) {
+  if (statusKey === "sample-review") return true;
+  return (
+    Boolean(order.hasPhysicalSample) &&
+    order.physicalSampleStatus === "sent" &&
+    ["proof-approved", "sample-preparation", "on-hold"].includes(statusKey) &&
+    (statusKey !== "on-hold" || awaitingSampleDecision("on-hold", order.onHoldReason))
+  );
 }
 
 export function awaitingActionCount(orders = []) {
   return orders.filter((o) => {
     if (o.statusKey === "production-completed" && o.productionApprovalStatus !== "approved") return true;
-    if (o.hasPhysicalSample && (o.physicalSampleStatus === "sent" || o.statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(o.statusKey)) return true;
+    if (sampleDecisionOpen(o)) return true;
     if (AWAITING_DISTRIBUTOR.includes(o.statusKey) && o.statusKey !== "production-completed") return true;
     return false;
   }).length;
@@ -387,7 +405,7 @@ export function orderRow(order) {
   const meta = metaLine(order, status.key);
 
   const needsProductionApproval = order.statusKey === "production-completed" && order.productionApprovalStatus !== "approved";
-  const needsPhysicalSampleApproval = order.hasPhysicalSample && (order.physicalSampleStatus === "sent" || order.statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(order.statusKey);
+  const needsPhysicalSampleApproval = sampleDecisionOpen(order);
 
   return `
     <article class="hyve-ord__row" data-modal-row="order-${esc(order.name)}" data-status="${esc(order.statusKey)}" data-search="${esc(haystack)}">
@@ -426,7 +444,7 @@ function rowActions(order, statusKey) {
   const actions = [];
 
   const needsProductionApproval = statusKey === "production-completed" && order.productionApprovalStatus !== "approved";
-  const needsPhysicalSampleApproval = (order.hasPhysicalSample && (order.physicalSampleStatus === "sent" || statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(statusKey)) || statusKey === "sample-review";
+  const needsPhysicalSampleApproval = sampleDecisionOpen(order, statusKey);
 
   if (statusKey === "proof-sent") {
     actions.push(openDetail(icoProof(), "Review Artwork Proof", "primary"));
@@ -471,7 +489,7 @@ function rowActions(order, statusKey) {
 /** J12 action-required line, plus the status-specific detail lines. */
 function metaLine(order, statusKey) {
   const needsProductionApproval = statusKey === "production-completed" && order.productionApprovalStatus !== "approved";
-  const needsPhysicalSampleApproval = (order.hasPhysicalSample && (order.physicalSampleStatus === "sent" || statusKey === "sample-review") && ["proof-approved", "sample-preparation", "sample-review", "on-hold"].includes(statusKey)) || statusKey === "sample-review";
+  const needsPhysicalSampleApproval = sampleDecisionOpen(order, statusKey);
 
   if (statusKey === "proof-sent") {
     const by = order.proofDueBy ? ` by <strong>${esc(order.proofDueBy)}</strong>` : "";

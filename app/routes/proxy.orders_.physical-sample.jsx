@@ -2,6 +2,7 @@ import { authenticate } from "../shopify.server";
 import { portalChrome } from "../lib/account-data.server";
 import { loadOrderForAction } from "../lib/order-action.server";
 import { productionCalendar, productionDueDate } from "../lib/order-status.server";
+import { awaitingSampleDecision } from "../lib/sample-approval.server";
 
 async function parseGraphQL(response, operationName = "GraphQL") {
   const data = await response.json();
@@ -28,10 +29,16 @@ export const action = async ({ request }) => {
     const form = await request.formData();
     const orderGid = String(form.get("order") || "");
     const decision = String(form.get("decision") || "");
-    const message = String(form.get("message") || "");
+    const message = String(form.get("message") || "").trim().slice(0, 900);
 
     if (!orderGid.startsWith("gid://shopify/Order/")) {
       return backToOrders({ error: "We couldn't work out which order that was." });
+    }
+    if (decision !== "approve" && decision !== "changes") {
+      return backToOrders({ error: "That isn't a decision we can record." });
+    }
+    if (decision === "changes" && !message) {
+      return backToOrders({ error: "Tell us what needs changing so we can prepare the next physical sample." });
     }
 
     const chrome = await portalChrome(admin, customerId);
@@ -51,6 +58,8 @@ export const action = async ({ request }) => {
             name
             tags
             productionStatus: metafield(namespace: "$app", key: "production_status") { value }
+            onHoldReason: metafield(namespace: "$app", key: "on_hold_reason") { value }
+            rush: metafield(namespace: "$app", key: "rush") { value }
             physicalSampleHistory: metafield(namespace: "$app", key: "physical_sample_history") { value }
           }
         }
@@ -78,6 +87,10 @@ export const action = async ({ request }) => {
     const latest = [...currentHistory].sort((a, b) => (b.sampleVersion || 0) - (a.sampleVersion || 0))[0];
     if (latest?.status !== "sent") {
       return backToOrders({ error: "This physical sample has already been answered." });
+    }
+    // Staff may have put the order On Hold or moved it on since the sample went.
+    if (!awaitingSampleDecision(order.productionStatus?.value || "", order.onHoldReason?.value)) {
+      return backToOrders({ error: "This order isn't waiting for a sample decision." });
     }
 
     const currentVersion = currentHistory.reduce((max, entry) => Math.max(max, entry.sampleVersion || 0), 0);

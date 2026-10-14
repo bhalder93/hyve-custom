@@ -38,9 +38,11 @@ export const STATUS_TRANSITIONS = {
 
   "proof-sent": ["proof-approved", "sample-preparation", "on-hold"],
 
-  "proof-approved": ["sample-preparation", "sample-review", "in-production", "on-hold"],
+  // Sample Review is reached only by Dispatch Physical Sample on the order
+  // page, which records the sample the buyer's email links answer.
+  "proof-approved": ["sample-preparation", "in-production", "on-hold"],
 
-  "sample-preparation": ["sample-review", "in-production", "on-hold"],
+  "sample-preparation": ["in-production", "on-hold"],
 
   "sample-review": ["in-production", "sample-preparation", "on-hold"],
 

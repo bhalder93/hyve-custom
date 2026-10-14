@@ -37,7 +37,8 @@ const QUERY = `#graphql
         lastNotificationCustom: metafield(namespace: "custom", key: "last_payment_reminder_sent_at") {
           value
         }
-        totalPriceSet {
+        # After any order edit, as on the invoice.
+        totalPriceSet: currentTotalPriceSet {
           presentmentMoney {
             amount
             currencyCode

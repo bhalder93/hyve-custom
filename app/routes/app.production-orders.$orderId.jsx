@@ -29,6 +29,8 @@ import {
 } from "../lib/order-status.server";
 import { productionDecisionLinks } from "../lib/production-approval.server";
 import { sampleDecisionLinks } from "../lib/sample-approval.server";
+import { orderRequiresPhysicalSample } from "../lib/portal.server";
+import { CREDIT_HOLD_TAG } from "../lib/credit-review.server";
 import {
   syncLineItemArtworkReceived,
   updateLineItemArtworkAttributesInPayload,
@@ -48,6 +50,20 @@ import { incotermFromShipping } from "../lib/incoterm";
 
 /** Set once a paid physical sample has been approved (ORS-03, HYV-102). */
 const SAMPLE_APPROVED_TAG = "hyve-sample:approved";
+/** Set by the buyer's (portal or email) and staff physical sample approvals. */
+const SAMPLE_APPROVED_TAGS = [SAMPLE_APPROVED_TAG, "hyve-sample-approved"];
+/** The intents that move an order's production status. */
+const STATUS_INTENTS = new Set([
+  "approve_proof",
+  "request_proof_changes",
+  "approve_production",
+  "decline_production",
+  "resubmit_production_photo",
+  "send_physical_sample",
+  "admin_approve_physical_sample",
+  "approve_sample",
+  "change_status",
+]);
 const READY_FOR_COLLECTION_STATUS = "ready-for-collection";
 
 /** An order carrying the paid physical sample charge, chosen at checkout. */
@@ -145,6 +161,16 @@ function formatMoney(amount, currency) {
     }).format(numeric);
   } catch {
     return `${currency || ""} ${numeric.toFixed(2)}`.trim();
+  }
+}
+
+/** The latest physical sample's status, read as the loader reads it. */
+function latestSampleStatus(order) {
+  try {
+    const history = JSON.parse(order?.physicalSampleHistory?.value || "[]") || [];
+    return [...history].sort((a, b) => (b.sampleVersion || 0) - (a.sampleVersion || 0))[0]?.status || "";
+  } catch {
+    return "";
   }
 }
 
@@ -321,7 +347,7 @@ export function getNextStepInfo(order, history = []) {
       waitingReason: "This order requires a physical pre-production sample to be manufactured, sent, and approved by the customer before mass manufacturing can begin.",
       currentAction: "Physical sample required prior to mass production.",
       stageTitle: "Sample Preparation",
-      description: "Prepare the physical sample. Production has not started.",
+      description: "Prepare the physical sample, then send it with Dispatch Physical Sample below. Production has not started.",
       canProceed: false,
     };
   }
@@ -1541,7 +1567,7 @@ async function sendCustomerStatusEmail({
         d.setDate(d.getDate() + 5);
         estimatedShipDate = d.toISOString();
       }
-      const isSample = Boolean(order.physicalSampleRequired || order.hasPhysicalSample || status === "sample-preparation");
+      const isSample = order.physicalSampleRequired?.value === "true" || hasPhysicalSample(order) || status === "sample-preparation";
       return sendProofApprovedEmail({
         ...common,
 
@@ -1815,6 +1841,8 @@ export async function loader({ request, params }) {
 
         sampleApproved: (order.tags ?? []).includes(SAMPLE_APPROVED_TAG),
 
+        creditReviewHold: (order.tags ?? []).includes(CREDIT_HOLD_TAG),
+
         productionPhotoUrl: order.productionPhotoUrl?.value || "",
 
         productionPhotoVersion: Number(
@@ -1888,6 +1916,26 @@ export async function action({ request, params }) {
 
     const ipAddress = (request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "").split(",")[0].trim();
     const userAgent = request.headers.get("user-agent") || "";
+
+    // An order held for credit review moves only from Credit Review.
+    if (STATUS_INTENTS.has(intent)) {
+      const tagsResponse = await admin.graphql(
+        `#graphql
+          query ProductionOrderTags($id: ID!) {
+            order(id: $id) { tags }
+          }
+        `,
+        { variables: { id: orderId } },
+      );
+      const tagsData = await parseGraphQL(tagsResponse, "ProductionOrderTags");
+      if ((tagsData.data?.order?.tags ?? []).includes(CREDIT_HOLD_TAG)) {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError: "This order is waiting for a credit review. Approve or decline it in Credit Review.",
+        };
+      }
+    }
 
     // HYV-110: pause or resume this order's automatic messages.
     if (intent === "toggle_notifications") {
@@ -2089,18 +2137,25 @@ export async function action({ request, params }) {
       }
 
       const changedAt = new Date().toISOString();
-      const productionDueAt = productionDueDate(
-        await productionCalendar(admin),
-        changedAt,
-        order.rush?.value === "true",
-      );
+      // A sample order goes to Sample Preparation, as when the buyer approves
+      // (proof.server.js); its production date is set when the sample is
+      // approved.
+      const isSampleOrder = orderRequiresPhysicalSample(order);
+      const approvedStatus = isSampleOrder ? "sample-preparation" : "proof-approved";
+      const productionDueAt = isSampleOrder
+        ? null
+        : productionDueDate(
+          await productionCalendar(admin),
+          changedAt,
+          order.rush?.value === "true",
+        );
 
       const changedBy =
         (await staffMemberLabel(request, sessionToken)) || "Shopify Admin";
 
       await setOrderMetafields(admin, {
         orderId,
-        status: "proof-approved",
+        status: approvedStatus,
         changedAt,
         productionDueAt,
       });
@@ -2109,7 +2164,7 @@ export async function action({ request, params }) {
         tag.startsWith("hyve-status:"),
       );
       await removeTags(admin, orderId, productionTags);
-      await addTags(admin, orderId, ["hyve-status:proof-approved"]);
+      await addTags(admin, orderId, [`hyve-status:${approvedStatus}`]);
 
       const proofVersion = order.proofVersion?.value || "1";
       const proofNote = String(formData.get("proofNote") || "").trim();
@@ -2125,7 +2180,7 @@ export async function action({ request, params }) {
         orderId,
         orderName: order.name,
         fromStatus: "proof-sent",
-        toStatus: "proof-approved",
+        toStatus: approvedStatus,
         changedAt,
         changedBy,
         note: auditNote,
@@ -2141,7 +2196,7 @@ export async function action({ request, params }) {
           admin,
           order,
           orderId,
-          status: "proof-approved",
+          status: approvedStatus,
           productionDueAt,
         });
         emailSent = result.sent;
@@ -2155,7 +2210,7 @@ export async function action({ request, params }) {
 
       return {
         success: true,
-        message: `Artwork Proof v${proofVersion} approved. Production due ${formatDate(productionDueAt)}.${emailSent ? " Customer email sent." : ""}`,
+        message: `Artwork Proof v${proofVersion} approved. ${isSampleOrder ? "Moved to Sample Preparation." : `Production due ${formatDate(productionDueAt)}.`}${emailSent ? " Customer email sent." : ""}`,
         emailWarning,
       };
     }
@@ -2919,10 +2974,15 @@ export async function action({ request, params }) {
     }
 
 
+    const sampleRequired = order.physicalSampleRequired?.value === "true";
+    const sampleApproved =
+      latestSampleStatus(order) === "approved" ||
+      (order.tags ?? []).some((tag) => SAMPLE_APPROVED_TAGS.includes(tag));
+
     if (
       nextStatus === "in-production" &&
-      order.physicalSampleRequired &&
-      order.physicalSampleStatus !== "approved"
+      sampleRequired &&
+      !sampleApproved
     ) {
       return {
         success: false,
@@ -2938,7 +2998,7 @@ export async function action({ request, params }) {
     if (
       nextStatus === "in-production" &&
       hasPhysicalSample(order) &&
-      !(order.tags ?? []).includes(SAMPLE_APPROVED_TAG)
+      !sampleApproved
     ) {
       return {
         success: false,
@@ -3031,7 +3091,7 @@ export async function action({ request, params }) {
     await removeTags(admin, orderId, productionTags);
 
     const tagsToAdd = [`hyve-status:${nextStatus}`];
-    if (nextStatus === "in-production" && (order.physicalSampleRequired || hasPhysicalSample(order)) && order.physicalSampleStatus === "approved") {
+    if (nextStatus === "in-production" && (sampleRequired || hasPhysicalSample(order)) && latestSampleStatus(order) === "approved") {
       tagsToAdd.push("hyve-sample-approved");
     }
     await addTags(admin, orderId, tagsToAdd);
@@ -4803,6 +4863,11 @@ export default function ProductionOrderDetailsPage() {
       </s-stack>
 
       {/* Action / Error Banners */}
+      {order.creditReviewHold && (
+        <s-banner tone="warning" heading="Waiting for credit review">
+          <s-paragraph>This order is waiting for a credit review. Approve or decline it in Credit Review.</s-paragraph>
+        </s-banner>
+      )}
       {actionData?.success === false && actionData?.formError && (
         <s-banner tone="critical" heading="Unable to complete action">
           <s-paragraph>{actionData.formError}</s-paragraph>
@@ -5412,10 +5477,10 @@ export default function ProductionOrderDetailsPage() {
                             </s-button>
                           )}
 
-                          {nextStepInfo.nextStatus !== "shipped" && (
+                          {nextStepInfo.nextStatus !== "shipped" && nextStepInfo.nextStatus !== "sample-review" && (
                             <s-button
                               variant="primary"
-                              disabled={busy}
+                              disabled={busy || order.creditReviewHold}
                               onClick={proceedNextStep}
                             >
                               {busy ? "Updating..." : nextStepInfo.actionVerb}
@@ -5553,7 +5618,7 @@ export default function ProductionOrderDetailsPage() {
             </s-section>
 
             {/* Physical Sample Section (if required) */}
-            {(order.physicalSampleRequired || order.hasPhysicalSample) && ["proof-approved", "sample-preparation", "sample-review", "in-production", "production-complete"].includes(
+            {(order.physicalSampleRequired || order.hasPhysicalSample || ["sample-preparation", "sample-review"].includes(order.productionStatus)) && ["proof-approved", "sample-preparation", "sample-review", "in-production", "production-complete"].includes(
               order.productionStatus === "on-hold"
                 ? (loaderData.history?.find(h => h?.toStatus === "on-hold")?.fromStatus || "")
                 : order.productionStatus

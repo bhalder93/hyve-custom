@@ -29,7 +29,8 @@ export const action = async ({ request }) => {
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
   const id = String(form.get("id") || "");
-  if (!id.startsWith("gid://shopify/DraftOrder/")) return { ok: false, id, error: "Missing order." };
+  // A draft waiting for review, or an order from a quote link held On Hold.
+  if (!/^gid:\/\/shopify\/(DraftOrder|Order)\/\d+$/.test(id)) return { ok: false, id, error: "Missing order." };
 
   try {
     if (intent === "approve") {
@@ -39,7 +40,7 @@ export const action = async ({ request }) => {
             ok: true,
             id,
             message: result.released
-              ? `Approved. Order ${result.orderName} released to Order Received.`
+              ? `Approved. Order ${result.orderName} released to ${result.releasedTo || "Order Received"}.`
               : `Approved. Order ${result.orderName} created; Shopify emails the buyer the confirmation.`,
           }
         : { ok: false, id, error: result.error };
@@ -47,7 +48,13 @@ export const action = async ({ request }) => {
     if (intent === "decline") {
       const result = await declineCreditReview(admin, id, form.get("reason"));
       return result.ok
-        ? { ok: true, id, message: `Declined${result.emailed ? " and the buyer emailed" : ", but the buyer email didn't send"}.` }
+        ? {
+            ok: true,
+            id,
+            message: `Declined${result.emailed ? " and the buyer emailed" : ", but the buyer email didn't send"}.${
+              result.warning ? ` ${result.warning}` : ""
+            }`,
+          }
         : { ok: false, id, error: result.error };
     }
   } catch (error) {

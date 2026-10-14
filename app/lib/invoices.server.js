@@ -25,16 +25,19 @@ const INVOICES_QUERY = `#graphql
           id
           name
           createdAt
+          cancelledAt
+          tags
           poNumber
           displayFinancialStatus
           displayFulfillmentStatus
           # The ship date customer service gives, as on the order (HYV-102).
           estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
-          totalPriceSet { presentmentMoney { amount currencyCode } }
+          # As the order stands after any edit, as on the invoice PDF.
+          totalPriceSet: currentTotalPriceSet { presentmentMoney { amount currencyCode } }
           totalOutstandingSet { presentmentMoney { amount currencyCode } }
           billingAddress { countryCodeV2 }
           shippingAddress { countryCodeV2 }
-          lineItems(first: 3) { nodes { title quantity } }
+          lineItems(first: 5) { nodes { title quantity: currentQuantity } }
           paymentTerms {
             paymentTermsName
             overdue
@@ -74,8 +77,10 @@ export async function loadInvoices(admin, locationGids) {
     const seen = new Set();
     const invoices = results
       .flatMap((r) => r.orders)
-      // Only orders on terms produce an invoice; a prepaid order is already settled.
-      .filter((o) => o.paymentTerms)
+      // Only orders on terms produce an invoice; a prepaid order is already
+      // settled. Not while Hyve reviews the credit, nor once it's cancelled
+      // (HYV-162), as on the Orders page.
+      .filter((o) => o.paymentTerms && !o.cancelledAt && !(o.tags || []).some((t) => t === "credit-review-hold" || t === "credit-declined"))
       .map(toInvoice)
       .filter((invoice) => {
         if (!invoice || seen.has(invoice.orderId)) return false;
@@ -132,6 +137,9 @@ function toInvoice(order) {
     orderId: order.id,
     poNumber: order.poNumber || "",
     items: (order.lineItems?.nodes || [])
+      // A line removed by an order edit is left off.
+      .filter((li) => li.quantity > 0)
+      .slice(0, 3)
       .map((li) => `${li.title} x${li.quantity}`)
       .join(", "),
     status: paid ? "paid" : days != null && days < 0 ? "overdue" : "pending",

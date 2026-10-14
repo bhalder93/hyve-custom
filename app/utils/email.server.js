@@ -846,16 +846,19 @@ export async function sendProofApprovedEmail({
   orderUrl,
   isSampleOrder = false,
 }) {
-  if (!productionDueAt) {
+  // A sample order has no production date until the sample is approved.
+  if (!productionDueAt && !isSampleOrder) {
     throw new Error("Production due date is required.");
   }
 
-  const productionDueDateOnly = new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "Asia/Singapore",
-  }).format(new Date(productionDueAt));
+  const productionDueDateOnly = productionDueAt
+    ? new Intl.DateTimeFormat("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "Asia/Singapore",
+    }).format(new Date(productionDueAt))
+    : null;
 
   const estimatedShipDateOnly = estimatedShipDate
     ? new Intl.DateTimeFormat("en-GB", {
@@ -884,7 +887,7 @@ export async function sendProofApprovedEmail({
         : "Your order is now moving into production."}
       </p>
 
-      <div
+      ${productionDueDateOnly ? `<div
         style="
           padding:16px;
           background:#f8fafc;
@@ -914,7 +917,7 @@ export async function sendProofApprovedEmail({
         >
           ${escapeHtml(productionDueDateOnly)}
         </div>
-      </div>
+      </div>` : ""}
 
 ${estimatedShipDateOnly ? `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;"><strong>Estimated ship date:</strong> ${escapeHtml(estimatedShipDateOnly)}</p>` : ''}
       <p style="margin:0; line-height:1.7; font-size:15px;">

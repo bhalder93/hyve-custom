@@ -34,7 +34,7 @@ const TAB_CONFIG = {
     id: "production",
     label: "In Production",
     query:
-      "tag:'hyve-status:proof-approved' OR tag:'hyve-status:in-production'",
+      "tag:'hyve-status:proof-approved' OR tag:'hyve-status:sample-preparation' OR tag:'hyve-status:sample-review' OR tag:'hyve-status:in-production'",
   },
   dispatch: {
     id: "dispatch",
@@ -79,6 +79,8 @@ function statusTone(status) {
 
     case "proof-sent":
     case "proof-approved":
+    case "sample-preparation":
+    case "sample-review":
     case "in-production":
       return "info";
 

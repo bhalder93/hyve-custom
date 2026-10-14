@@ -2409,6 +2409,9 @@ export default function DistributorDetailPage() {
   const setupProblems = setupSteps.filter((step) => !step.ok);
   // What the approval actually set, as the setup list below shows it
   // (HYV-192): the panel read the company separately and could disagree.
+  // Declared before the panel text below reads it. The effect further down
+  // keeps it on the catalog the page reloads with after Approve.
+  const [approvedCatalogId, setApprovedCatalogId] = useState(assignedCatalogId || "");
   const stepDetail = (name) => setupSteps.find((step) => step.name === name && step.ok)?.detail || "";
   const approvedTermsName = stepDetail("payment terms").split(",")[0].trim();
   const approvedTierTitle =
@@ -2440,12 +2443,6 @@ export default function DistributorDetailPage() {
 
   const [catalogId, setCatalogId] = useState("");
 
-  const [approvedCatalogId, setApprovedCatalogId] = useState(assignedCatalogId || "");
-  // After Approve the page reloads with the catalog just assigned; follow it,
-  // or the panel kept reading "no Price Tier Catalog yet" (HYV-192).
-  useEffect(() => {
-    setApprovedCatalogId(assignedCatalogId || "");
-  }, [assignedCatalogId]);
 
   const [catalogChangeId, setCatalogChangeId] = useState(assignedCatalogId || "");
 

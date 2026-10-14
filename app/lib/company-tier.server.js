@@ -25,7 +25,7 @@ const CLEAR = `#graphql
  * @param {string|null} tier the catalog's title, or empty to clear it
  */
 export async function setCompanyTier(admin, companyGid, tier) {
-  if (!admin || !companyGid) return;
+  if (!admin || !companyGid) return false;
   const value = String(tier || "").trim();
   try {
     const response = value
@@ -38,20 +38,24 @@ export async function setCompanyTier(admin, companyGid, tier) {
     const body = await response.json();
     const errors = body?.data?.metafieldsSet?.userErrors || body?.data?.metafieldsDelete?.userErrors || [];
     if (errors.length) console.warn("[company-tier] update failed", companyGid, JSON.stringify(errors));
+    return !errors.length && !body?.errors?.length;
   } catch (error) {
     console.warn("[company-tier] update failed", companyGid, error?.message || error);
+    return false;
   }
 }
 
 const COMPANIES = `#graphql
   query CompanyTiers($after: String) {
-    companies(first: 50, after: $after) {
+    # Small pages: Shopify refuses a query costing over 1,000 points, and the
+    # nested lists multiply (50 × 20 × 10 was about 13,000).
+    companies(first: 10, after: $after) {
       pageInfo { hasNextPage endCursor }
       nodes {
         id
         name
         tier: metafield(namespace: "hyve", key: "tier") { value }
-        locations(first: 20) { nodes { catalogs(first: 10) { nodes { title status } } } }
+        locations(first: 10) { nodes { catalogs(first: 5) { nodes { title status } } } }
       }
     }
   }`;
@@ -61,13 +65,13 @@ const COMPANIES = `#graphql
  * tier catalogs count (the company catalogs that take a percentage off), so a
  * test catalog never becomes a tier name.
  * @param {string[]} tierTitles titles of the tier catalogs
- * @returns {Promise<{updated: string[], noTier: string[]}>} company names
+ * @returns {Promise<{updated: string[], noTier: string[], failed: string[]}>} company names
  */
 export async function syncAllCompanyTiers(admin, tierTitles) {
   const tiers = new Set(tierTitles);
-  const result = { updated: [], noTier: [] };
+  const result = { updated: [], noTier: [], failed: [] };
   let after = null;
-  for (let page = 0; page < 20; page += 1) {
+  for (let page = 0; page < 100; page += 1) {
     const body = await (await admin.graphql(COMPANIES, { variables: { after } })).json();
     if (body?.errors?.length) throw new Error(body.errors.map((e) => e.message).join(", "));
     const block = body?.data?.companies;
@@ -76,8 +80,8 @@ export async function syncAllCompanyTiers(admin, tierTitles) {
       const tier = catalogs.find((c) => c.status === "ACTIVE" && tiers.has(c.title))?.title || "";
       if (!tier) result.noTier.push(company.name);
       if ((company.tier?.value || "") === tier) continue;
-      await setCompanyTier(admin, company.id, tier);
-      result.updated.push(`${company.name}: ${tier || "cleared"}`);
+      if (await setCompanyTier(admin, company.id, tier)) result.updated.push(`${company.name}: ${tier || "cleared"}`);
+      else result.failed.push(company.name);
     }
     if (!block?.pageInfo?.hasNextPage) break;
     after = block.pageInfo.endCursor;
