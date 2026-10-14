@@ -41,7 +41,7 @@ export function ShopifyFileUpload({ label, prefix, onUploaded }) {
       <s-drop-zone
         label={label}
         accept={ACCEPT}
-        disabled={uploading}
+        disabled={uploading ? true : undefined}
         error={
           rejected
             ? "Upload a PDF, SVG, PNG or JPEG file."

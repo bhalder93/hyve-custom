@@ -243,6 +243,23 @@ function getArtworkState(lineItem) {
   return artwork?.value?.trim() || "";
 }
 
+/**
+ * Which artwork paths the order took, as staff read them: "Uploaded",
+ * "Sending later", "Design it for me", or several for a mixed order (HYV-120).
+ */
+const ARTWORK_PATH_LABELS = {
+  "provided now": "Uploaded",
+  "artwork pending": "Sending later",
+  "design it for me": "Design it for me",
+};
+
+function artworkPathOf(lineItems) {
+  const paths = lineItems
+    .map((lineItem) => ARTWORK_PATH_LABELS[getArtworkState(lineItem).toLowerCase()])
+    .filter(Boolean);
+  return [...new Set(paths)].join(", ");
+}
+
 function analyzeLineItems(lineItems) {
   return lineItems.map((lineItem) => ({
     id: lineItem.id,
@@ -507,9 +524,20 @@ async function initializeMetafields(
     setRush,
     physicalSampleRequired,
     productionDueAt,
+    artworkPath = "",
   },
 ) {
   const metafields = [];
+
+  if (artworkPath) {
+    metafields.push({
+      ownerId: orderId,
+      namespace: "$app",
+      key: "artwork_path",
+      type: "single_line_text_field",
+      value: artworkPath,
+    });
+  }
 
   /* ---------------------------------------------------------------------- */
   /* Initial production status                                              */
@@ -1170,6 +1198,8 @@ export async function action({ request }) {
       physicalSampleRequired,
 
       productionDueAt,
+
+      artworkPath: artworkPathOf(lineItems),
     });
 
     /* -------------------------------------------------------------------- */

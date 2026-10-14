@@ -1,3 +1,4 @@
+import { formatDay, normalizeDateInput } from "../utils/date.js";
 /* eslint-disable react/prop-types */
 // app/routes/app.business-holidays.jsx
 
@@ -870,11 +871,12 @@ function HolidayEditor({
           )}
         </s-select>
 
-        <s-date-field
+        <s-text-field
           label="Holiday date"
+          placeholder="14 Oct 2026"
+          details="Use day, short month and year, for example 14 Oct 2026."
           value={
-            holiday.date ||
-            ""
+            formatDay(holiday.date, holiday.date || "")
           }
           error={
             errors?.date ||
@@ -886,9 +888,7 @@ function HolidayEditor({
             onChange(
               holiday.tempId,
               "date",
-              event
-                .currentTarget
-                .value,
+              normalizeDateInput(event.currentTarget.value),
             )
           }
         />
@@ -1694,8 +1694,7 @@ export default function BusinessHolidaysPage() {
 
                         <s-table-cell>
                           {
-                            holiday.date ||
-                            "-"
+                            formatDay(holiday.date, "—")
                           }
                         </s-table-cell>
 
@@ -1850,7 +1849,7 @@ export default function BusinessHolidaysPage() {
                 <s-text tone="neutral">
                   Date:{" "}
                   {
-                    deleteTarget.date
+                    formatDay(deleteTarget.date)
                   }
                 </s-text>
 

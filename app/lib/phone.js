@@ -10,8 +10,8 @@ import { parsePhoneNumberFromString } from "libphonenumber-js/min";
 
 /**
  * The number in international form (+85223456789), or "" when it isn't a
- * valid number. A local number ("2345 6789") is read as the country's;
- * without a country it must start with +.
+ * valid number. A local number ("2345 6789") is read as the country's; a
+ * valid international number may omit its leading +.
  *
  * @param {string} phone
  * @param {string} [countryCode] ISO code such as "HK"
@@ -36,25 +36,21 @@ export function phoneE164(phone, countryCode) {
   const raw = String(phone || "").trim();
   if (!raw) return "";
   const code = countryCode ? String(countryCode).toUpperCase() : undefined;
-
-  let parsed = parsePhoneNumberFromString(raw, code);
-  if (parsed?.isValid()) return parsed.number;
-
   const refined = refinePhone(raw);
-  if (refined && refined !== raw) {
-    parsed = parsePhoneNumberFromString(refined, code);
+  if (!refined) return "";
+
+  if (refined.startsWith("+")) {
+    const parsed = parsePhoneNumberFromString(refined);
     if (parsed?.isValid()) return parsed.number;
+    return "";
   }
 
-  if (refined.startsWith("00")) {
-    parsed = parsePhoneNumberFromString("+" + refined.slice(2));
-    if (parsed?.isValid()) return parsed.number;
-  }
+  // A valid calling-code prefix is international even when the user omits +.
+  const international = parsePhoneNumberFromString(`+${refined}`);
+  if (international?.isValid()) return international.number;
 
-  if (!refined.startsWith("+")) {
-    parsed = parsePhoneNumberFromString("+" + refined);
-    if (parsed?.isValid()) return parsed.number;
-  }
+  const local = parsePhoneNumberFromString(refined, code);
+  if (local?.isValid()) return local.number;
 
   return "";
 }

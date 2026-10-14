@@ -1,3 +1,4 @@
+import { TIMEZONE, formatDate as displayDate } from "../utils/date.js";
 /**
  * Shared conventions for the distributor portal.
  *
@@ -278,17 +279,9 @@ export function formatMoneyCompact(amount, currency) {
  * Singapore morning: an invoice due on the 26th read the 25th (HYV-100,
  * HYV-103, HYV-104).
  */
-export const BUSINESS_TIME_ZONE = "Asia/Singapore";
+export const BUSINESS_TIME_ZONE = TIMEZONE;
 
-/** "Jan 15, 2026", as the day falls in Singapore. */
+/** "21 Oct 2026", as the day falls in Singapore time. */
 export function formatDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: BUSINESS_TIME_ZONE,
-  });
+  return displayDate(value, "");
 }

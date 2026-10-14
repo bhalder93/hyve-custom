@@ -1,4 +1,4 @@
-import { EUROPE_COUNTRIES, bankAccountFor, defaultBankAccounts } from "./bank-details.server";
+import { defaultBankAccounts, normalizeBankAccounts } from "./bank-details.server";
 
 const NAMESPACE = "hyve";
 const KEY = "bank_details";
@@ -32,29 +32,11 @@ const SAVE_MUTATION = `#graphql
 `;
 
 /**
- * Normalizes accounts data ensuring each account has its heading and rows array.
- */
-function normalizeAccounts(stored, defaults) {
-  const result = {};
-  for (const [accKey, defAcc] of Object.entries(defaults)) {
-    const rawAcc = stored?.[accKey] || {};
-    result[accKey] = {
-      heading: rawAcc.heading || defAcc.heading,
-      rows: Array.isArray(rawAcc.rows)
-        ? rawAcc.rows.map(([l, v]) => [String(l || "").trim(), String(v || "").trim()]).filter(([l, v]) => l && v)
-        : defAcc.rows || [],
-    };
-  }
-  return result;
-}
-
-/**
  * Loads the active bank accounts from Shopify shop metafields.
  * Falls back to default hardcoded accounts when not customized yet.
  */
 export async function loadBankDetailsConfig(admin) {
-  const defaults = defaultBankAccounts();
-  if (!admin) return { accounts: defaults };
+  if (!admin) return { accounts: defaultBankAccounts() };
 
   try {
     const response = await admin.graphql(READ_QUERY);
@@ -62,13 +44,13 @@ export async function loadBankDetailsConfig(admin) {
     const rawJson = body?.data?.shop?.bankMetafield?.value;
     if (rawJson) {
       const parsed = JSON.parse(rawJson);
-      return { accounts: normalizeAccounts(parsed, defaults) };
+      return { accounts: normalizeBankAccounts(parsed) };
     }
   } catch (err) {
     console.warn("[bank-details] failed to load metafield:", err?.message || err);
   }
 
-  return { accounts: defaults };
+  return { accounts: defaultBankAccounts() };
 }
 
 /**
@@ -82,8 +64,7 @@ export async function saveBankDetailsConfig(admin, accounts) {
   const shopId = shopBody?.data?.shop?.id;
   if (!shopId) throw new Error("Could not fetch shop ID");
 
-  const defaults = defaultBankAccounts();
-  const normalized = normalizeAccounts(accounts, defaults);
+  const normalized = normalizeBankAccounts(accounts);
 
   const response = await admin.graphql(SAVE_MUTATION, {
     variables: {

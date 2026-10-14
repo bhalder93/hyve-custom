@@ -1,3 +1,4 @@
+import { formatDateTime } from "../utils/date.js";
 /* eslint-disable react/prop-types */
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useLoaderData, useFetcher, useRouteError } from "react-router";
@@ -416,20 +417,7 @@ export const action = async ({ request }) => {
    Main Component: Redesigned Dedicated Quote Details Page
    ========================================================================== */
 
-function formatDateTime(value) {
-  if (!value) return "—";
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(value));
-  } catch {
-    return "—";
-  }
-}
+
 
 export default function QuoteDetailPage() {
   const { quote: initialQuote, shop } = useLoaderData();

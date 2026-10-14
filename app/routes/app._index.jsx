@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/date.js";
 import { Link, useLoaderData, useRouteError } from "react-router";
 import { authenticate } from "../shopify.server";
 import { getAllDistributorApplications } from "../lib/distributor-metaobject.server";
@@ -93,18 +94,7 @@ export const loader = async ({ request }) => {
 };
 
 
-function formatDate(value) {
-  if (!value) return "—";
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }).format(new Date(value));
-  } catch {
-    return "—";
-  }
-}
+
 
 function statusTone(status) {
   const value = String(status).toLowerCase();

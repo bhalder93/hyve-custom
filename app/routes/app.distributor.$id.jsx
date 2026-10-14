@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/date.js";
 import { useState, useEffect, useMemo } from "react";
 
 import {
@@ -1858,39 +1859,7 @@ function normalizeWebsiteUrl(value) {
 
 
 
-function formatDate(value) {
 
-  if (!value) {
-
-    return "—";
-
-  }
-
-
-
-  const date = new Date(value);
-
-
-
-  if (Number.isNaN(date.getTime())) {
-
-    return String(value);
-
-  }
-
-
-
-  return new Intl.DateTimeFormat(undefined, {
-
-    year: "numeric",
-
-    month: "short",
-
-    day: "numeric",
-
-  }).format(date);
-
-}
 
 
 
@@ -2776,7 +2745,7 @@ export default function DistributorDetailPage() {
 
   const submittedDate =
 
-    application?.submitted_at || formatDate(application?.updatedAt) || "Recent";
+    formatDate(application?.submitted_at || application?.updatedAt, "Recent");
 
 
 

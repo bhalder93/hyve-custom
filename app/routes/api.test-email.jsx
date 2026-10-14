@@ -1,3 +1,4 @@
+import { formatTime, formatDateTime } from "../utils/date.js";
 /* global process */
 import { verifyMailer, sendMail, getDefaultFrom, defaultReplyTo } from "../lib/email/mailer.server";
 
@@ -131,13 +132,14 @@ async function runEmailTest(to = "", customSubject = "") {
       }
 
       const subject =
-        customSubject || `[Hyve Test] SMTP Email Test - ${new Date().toLocaleTimeString()}`;
+        customSubject || `[Hyve Test] SMTP Email Test - ${formatTime(new Date())}`;
       const timestamp = new Date().toISOString();
+      const timestampLabel = formatDateTime(timestamp);
 
       const sendResult = await sendMail({
         to,
         subject,
-        text: `Hello,\n\nThis is a test email sent from the Hyve Custom App API.\n\nSMTP Host: ${host}\nTimestamp: ${timestamp}\nStatus: Working\n\nBest regards,\nHyve Team`,
+        text: `Hello,\n\nThis is a test email sent from the Hyve Custom App API.\n\nSMTP Host: ${host}\nTimestamp (Singapore): ${timestampLabel}\nStatus: Working\n\nBest regards,\nHyve Team`,
         html: `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px;">
             <div style="background-color: #f0fdf4; border-left: 4px solid #16a34a; padding: 12px 16px; margin-bottom: 20px;">
@@ -160,8 +162,8 @@ async function runEmailTest(to = "", customSubject = "") {
                 <td style="padding: 8px 12px; color: #0f172a; border-bottom: 1px solid #e2e8f0;">${to}</td>
               </tr>
               <tr>
-                <td style="padding: 8px 12px; color: #64748b;">Timestamp:</td>
-                <td style="padding: 8px 12px; color: #0f172a;">${timestamp}</td>
+                <td style="padding: 8px 12px; color: #64748b;">Timestamp (Singapore):</td>
+                <td style="padding: 8px 12px; color: #0f172a;">${timestampLabel}</td>
               </tr>
             </table>
             <p style="color: #94a3b8; font-size: 12px; margin: 0;">

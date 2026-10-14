@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/date.js";
 /* eslint-disable react/prop-types */
 
 // app/routes/app.distributors.jsx
@@ -110,21 +111,7 @@ function wantsCredit(application) {
   );
 }
 
-function formatDate(value) {
-  if (!value) {
-    return "—";
-  }
 
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }).format(new Date(value));
-  } catch {
-    return "—";
-  }
-}
 
 /* ========================================================================== */
 /* Shopify helpers                                                            */

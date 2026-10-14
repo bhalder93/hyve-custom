@@ -15,16 +15,7 @@ import {
   setDefaultLocation,
 } from "../lib/company-addresses.server";
 
-/**
- * Customer Account Portal — Addresses Route.
- * Storefront: /apps/account/addresses -> <app>/proxy/addresses
- *
- * Implements full production-ready address management:
- *   - Fetches customer addresses via Shopify Admin GraphQL API
- *   - Renders aesthetic cards matching the mockup (SHIPPING / BILLING, DEFAULT pill, actions)
- *   - Handles Add, Edit, Delete, and Set Default mutations
- *   - Error boundary wrapping prevents 5xx proxy crashes
- */
+
 
 const ADMIN_TIMEOUT_MS = 4500;
 

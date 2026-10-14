@@ -53,18 +53,21 @@ function proformaIssued(node) {
 
 export function mapOrders(nodes = []) {
   return nodes.map((node) => {
-    // As the order stands after any edit; a review draft has no edits.
-    const lineItems = currentOrderLines(node);
+    const creditDeclined = (node?.tags || []).includes(CREDIT_DECLINED_TAG);
+    // As the order stands after any edit; a review draft has no edits. A
+    // declined order is cancelled and restocked, which leaves it at zero, so
+    // it shows what was ordered (HYV-162).
+    const lineItems = creditDeclined
+      ? (node?.lineItems?.nodes || []).filter((li) => li.quantity > 0)
+      : currentOrderLines(node);
     const fulfillment = (node?.fulfillments || [])[0] || null;
     const tracking = (fulfillment?.trackingInfo || [])[0] || null;
     // An order from a cart quote held for credit review reads as one in review
     // (HYV-162), and one declined there as Credit Declined, not On Hold.
-    const creditTags = node?.tags || [];
-    const creditDeclined = creditTags.includes(CREDIT_DECLINED_TAG);
-    const creditHeld = !creditDeclined && creditTags.includes(CREDIT_HOLD_TAG);
+    const creditHeld = !creditDeclined && (node?.tags || []).includes(CREDIT_HOLD_TAG);
     const statusKey = creditDeclined ? "credit-declined" : creditHeld ? "credit-review" : orderStatusKey(node);
-    const money = (node?.currentTotalPriceSet || node?.totalPriceSet)?.presentmentMoney || {};
-    const freight = (node?.currentShippingPriceSet || node?.totalShippingPriceSet)?.presentmentMoney || {};
+    const money = ((!creditDeclined && node?.currentTotalPriceSet) || node?.totalPriceSet)?.presentmentMoney || {};
+    const freight = ((!creditDeclined && node?.currentShippingPriceSet) || node?.totalShippingPriceSet)?.presentmentMoney || {};
     
     let latestSample = {};
     try {
@@ -473,7 +476,7 @@ function rowActions(order, statusKey) {
     );
   }
   if (["shipped", "ready-for-collection", "production-completed"].includes(statusKey) && order.id) {
-    // Reorder places a real order, so it posts rather than following a link.
+    // Reorder fills the cart, so it posts rather than following a link.
     actions.push(`
       <form method="post" action="/apps/account/orders/reorder" class="hyve-ord__reorder">
         <input type="hidden" name="order" value="${esc(order.id)}">
@@ -513,7 +516,8 @@ function metaLine(order, statusKey) {
     return `<p class="hyve-ord__meta">${icoClock()}<span>Submitted for review: Hyve checks your credit terms, then confirms the order${artwork}</span></p>`;
   }
   if (statusKey === "credit-declined") {
-    const why = order.declineReason ? `: ${esc(order.declineReason)}` : "";
+    // One full stop, whether or not the reason ends with one.
+    const why = order.declineReason ? `: ${esc(String(order.declineReason).trim().replace(/[.\s]+$/, ""))}` : "";
     return `<p class="hyve-ord__meta is-action">${icoClock()}<span>Not approved on payment terms${why}. Contact your account manager to arrange another way to pay.</span></p>`;
   }
   if (statusKey === "on-hold" && order.onHoldReason) {

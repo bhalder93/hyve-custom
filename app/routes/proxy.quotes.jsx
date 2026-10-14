@@ -1,3 +1,4 @@
+import { formatDay, normalizeDateInput, singaporeDateKey } from "../utils/date.js";
 import { authenticate } from "../shopify.server";
 import { listExpiredQuotes } from "../lib/expired-quotes.server";
 import { accountShell } from "../lib/account-shell.server";
@@ -163,7 +164,11 @@ export const action = async ({ request }) => {
     if (intent === "request_quote") {
       const items = String(formData.get("items") || "").trim();
       const quantity = Math.max(1, parseInt(formData.get("quantity") || "1", 10));
-      const targetDate = String(formData.get("targetDate") || "").trim();
+      const targetInput = normalizeDateInput(formData.get("targetDate"));
+      if (targetInput && (!/^\d{4}-\d{2}-\d{2}$/.test(targetInput) || singaporeDateKey(targetInput) !== targetInput)) {
+        return new Response(null, { status: 302, headers: { Location: "/apps/account/quotes?error=Enter+a+valid+date+like+14+Oct+2026" } });
+      }
+      const targetDate = formatDay(targetInput, "");
       const notes = String(formData.get("notes") || "").trim();
 
       if (!items) {

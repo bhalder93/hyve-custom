@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/date.js";
 /**
  * The two emails a distributor application sends: a confirmation to the
  * applicant, and a notification to Hyve. Both use the same branded frame as
@@ -18,12 +19,7 @@ export async function sendApplicationEmails(admin, application) {
 
   const company = application.companyName || "your company";
   const applicant = application.contactPerson || "";
-  const submitted = new Date().toLocaleDateString("en-SG", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "Asia/Singapore",
-  });
+  const submitted = formatDate(new Date());
 
   const confirmation = sendEmail({
     to: application.customerEmail,

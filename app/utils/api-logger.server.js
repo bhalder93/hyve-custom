@@ -1,3 +1,4 @@
+import { singaporeDateKey } from "./date.js";
 // app/utils/api-logger.server.js
 
 import fs from "node:fs/promises";
@@ -20,9 +21,7 @@ const LOG_DIR =
 /* -------------------------------------------------------------------------- */
 
 function getDateKey() {
-  return new Date()
-    .toISOString()
-    .slice(0, 10);
+  return singaporeDateKey();
 }
 
 function getLogFilePath() {

@@ -509,7 +509,7 @@ export { quoteReference };
 function addDays(iso, days) {
   if (!iso) return null;
   const d = new Date(iso);
-  d.setDate(d.getDate() + days);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString();
 }
 

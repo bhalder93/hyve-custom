@@ -11,7 +11,7 @@
  * all read the same accounts from here.
  */
 
-const ACCOUNT_NAME = "Hyve Promo Pte Ltd";
+export const ACCOUNT_NAME = "HYVE PROMO PTE. LTD.";
 
 export const DEFAULT_ACCOUNTS = {
   DBS_SGD: {
@@ -40,11 +40,25 @@ export const DEFAULT_ACCOUNTS = {
   },
   DBS_USD: {
     heading: "For Payment in USD",
-    rows: [],
+    rows: [
+      ["Bank Name", "DBS Bank Ltd"],
+      ["Bank Address", "12 Marina Boulevard, DBS Asia Central, Marina Bay Financial Centre Tower 3, SG 018982"],
+      ["SWIFT/BIC", "DBSSSGSG"],
+      ["Account Name", ACCOUNT_NAME],
+      ["Account Number", "8853796394"],
+      ["Bank Code", "7171"],
+      ["Branch Code", "072"],
+    ],
   },
   BANKING_CIRCLE: {
-    heading: "For Payment in Europe",
-    rows: [],
+    heading: "For Payment in EUR",
+    rows: [
+      ["Bank Name", "Banking Circle S.A."],
+      ["Account Name", ACCOUNT_NAME],
+      ["Account Number", "0059357820"],
+      ["Bank Code", "8900"],
+      ["SWIFT/BIC", "SXPYDKKK"],
+    ],
   },
 };
 
@@ -58,6 +72,33 @@ export function defaultBankAccounts() {
   return JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS));
 }
 
+/** Fill legacy empty/missing rows from defaults and enforce the legal account name. */
+export function normalizeBankAccounts(stored) {
+  return Object.fromEntries(
+    Object.entries(DEFAULT_ACCOUNTS).map(([accountKey, defaults]) => {
+      const configured = stored?.[accountKey] || {};
+      const rows = new Map(defaults.rows);
+
+      if (Array.isArray(configured.rows)) {
+        for (const [rawLabel, rawValue] of configured.rows) {
+          const label = String(rawLabel || "").trim();
+          const value = String(rawValue || "").trim();
+          if (!label || label === "Account Name") continue;
+          if (value) rows.set(label, value);
+          else if (!rows.has(label)) rows.delete(label);
+        }
+      }
+
+      if (rows.has("Account Name")) rows.set("Account Name", ACCOUNT_NAME);
+
+      return [accountKey, {
+        heading: String(configured.heading || defaults.heading).trim(),
+        rows: [...rows.entries()].filter(([, value]) => value),
+      }];
+    }),
+  );
+}
+
 /**
  * Resolves the appropriate bank account for a country, optionally using
  * custom accounts loaded dynamically from the app settings.
@@ -68,7 +109,7 @@ export function defaultBankAccounts() {
  */
 export function bankAccountFor(countryCode, customAccounts) {
   const country = String(countryCode || "").toUpperCase();
-  const accounts = customAccounts || DEFAULT_ACCOUNTS;
+  const accounts = normalizeBankAccounts(customAccounts);
 
   const account =
     country === "US"

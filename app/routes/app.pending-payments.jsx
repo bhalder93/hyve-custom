@@ -1,3 +1,5 @@
+import { singaporeDayDiff } from "../utils/date.js";
+import { formatDate, formatDateTime } from "../utils/date.js";
 /* eslint-disable react/prop-types */
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useLoaderData, useFetcher, useNavigate } from "react-router";
@@ -105,20 +107,7 @@ const QUERY = `#graphql
 `;
 
 function getDayDiff(dueAtDate) {
-  if (!dueAtDate) return null;
-  const now = new Date();
-  const startOfToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  ).getTime();
-  const startOfDueDate = new Date(
-    dueAtDate.getFullYear(),
-    dueAtDate.getMonth(),
-    dueAtDate.getDate(),
-  ).getTime();
-  const diffTime = startOfDueDate - startOfToday;
-  return Math.round(diffTime / (1000 * 60 * 60 * 24));
+  return singaporeDayDiff(dueAtDate);
 }
 
 function classifyPaymentStatus(schedule, daysDiff) {
@@ -139,37 +128,9 @@ function classifyPaymentStatus(schedule, daysDiff) {
   return { key: "future", label: `Due in ${daysDiff}d`, tone: "neutral" };
 }
 
-function formatDate(iso) {
-  if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return new Intl.DateTimeFormat("en-SG", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    }).format(d);
-  } catch {
-    return iso;
-  }
-}
 
-function formatDateTime(iso) {
-  if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return new Intl.DateTimeFormat("en-SG", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(d);
-  } catch {
-    return iso;
-  }
-}
+
+
 
 function formatMoney(amount, currency = "USD") {
   const num = Number(amount);
@@ -584,9 +545,7 @@ export const loader = async ({ request }) => {
       status: 200,
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="pending-payments-${cleanType}-${new Date()
-          .toISOString()
-          .slice(0, 10)}.csv"`,
+        "Content-Disposition": `attachment; filename="pending-payments-${cleanType}-${formatDate(new Date())}.csv"`,
       },
     });
   }
@@ -637,9 +596,7 @@ export const action = async ({ request }) => {
       const filteredOrders = filterOrdersByDueType(parsedOrders, dueType, q, customDays);
       const csvContent = buildOrdersCsv(filteredOrders);
       const cleanType = dueType.replace(/_/g, "-");
-      const filename = `pending-payments-${cleanType}-${new Date()
-        .toISOString()
-        .slice(0, 10)}.csv`;
+      const filename = `pending-payments-${cleanType}-${formatDate(new Date())}.csv`;
 
       return new Response(
         JSON.stringify({

@@ -1,84 +1,93 @@
 /**
- * Reorder: place the same items again as a real, unpaid order.
+ * Reorder: the same items back in the buyer's cart (HYV-85).
  *
- * The buyer ends up with an order, not a draft sitting in their account. It is
- * built through a draft order and completed immediately, because `orderCreate`
- * has no `purchasingEntity` field — an order created that way would not belong
- * to the buyer's company, so it would miss their B2B catalog pricing and their
- * payment terms. A draft carries the company through, and completing it turns
- * it into the order.
+ * The buyer then checks out as usual, picking the address, shipping and PO
+ * number, so nothing is placed or emailed until they do. Only the product
+ * lines come across, each with its options and saved artwork: the cart adds
+ * its own setup, rush and gift charges from those lines, and checkout adds
+ * import duty for the shipping picked, so neither charge line is copied.
  *
- * Only line items that still resolve to a variant carry over; a custom or
- * deleted line can't be bought again, so the caller is told what was dropped.
+ * A line that can no longer be bought (deleted or unavailable) is left out,
+ * and the caller is told how many.
  */
 
 import { orderBelongsTo } from "./portal.server";
-import { locationPaymentTerms } from "./purchasing-company.server";
+import { zonesFromAttributes } from "./artwork-zones.server";
 
 const SOURCE_QUERY = `#graphql
   query ReorderSource($id: ID!) {
     order(id: $id) {
       id
       name
-      email
       customer { id }
+      # Artwork uploaded after the order was placed is kept on the order.
+      customAttributes { key value }
       purchasingEntity {
         ... on PurchasingCompany {
-          company { id }
-          contact { id }
-          location {
-            id
-            buyerExperienceConfiguration { paymentTermsTemplate { id name } }
-          }
+          location { id }
         }
       }
       lineItems(first: 100) {
         nodes {
-          title
-          quantity
-          variant { id }
+          quantity: currentQuantity
+          variant { id availableForSale product { handle } }
           customAttributes { key value }
         }
       }
     }
   }`;
 
-const DRAFT_CREATE = `#graphql
-  mutation ReorderDraftCreate($input: DraftOrderInput!) {
-    draftOrderCreate(input: $input) {
-      draftOrder { id name }
-      userErrors { field message }
-    }
-  }`;
+/** The charge lines the cart and checkout add themselves. */
+const CHARGE_HANDLES = new Set(["additional-charges", "import-duties-taxes-included"]);
 
-const DRAFT_COMPLETE = `#graphql
-  mutation ReorderDraftComplete($id: ID!) {
-    draftOrderComplete(id: $id) {
-      draftOrder {
-        id
-        order { id name displayFinancialStatus statusPageUrl(audience: CUSTOMERVIEW) }
-      }
-      userErrors { field message }
-    }
-  }`;
+/** Checkout's and quotes' working fields, which the new cart sets again. */
+const WORKING_KEYS = new Set(["_hyve_quote", "_hyve_freight", "_variant_price_usd"]);
 
-const NOTIFY = `#graphql
-  mutation ReorderNotify($id: ID!) {
-    orderInvoiceSend(id: $id) {
-      order { id }
-      userErrors { field message }
-    }
-  }`;
+/**
+ * The line's properties for the cart. Two things are put back that the order
+ * line may not carry (HYV-85):
+ * - The decoration fee keys. A quote's lines leave `_imprint` and `_fcw` out
+ *   (its price was fixed), so they are rebuilt from the visible "Imprint
+ *   Locations" and "Full Colour Wrap" text the theme writes them from;
+ *   without them the cart charges no decoration fee.
+ * - Artwork sent after the order was placed, which is kept on the order under
+ *   the same "Artwork: <position>" key the line would have had. Once every
+ *   position has a file, the line reads as artwork provided.
+ */
+function cartProperties(line, orderAttributes) {
+  const props = Object.fromEntries(
+    (line.customAttributes || [])
+      .filter(({ key, value }) => key && !WORKING_KEYS.has(key) && value != null && value !== "")
+      .map(({ key, value }) => [key, value]),
+  );
+
+  const imprint = String(props["Imprint Locations"] || "");
+  if (imprint && !props._imprint) {
+    const split = imprint.indexOf(":");
+    const method = (split > -1 ? imprint.slice(0, split) : imprint).trim();
+    const locations = split > -1 ? imprint.slice(split + 1).split(",").map((part) => part.trim()).filter(Boolean) : [];
+    if (method && locations.length) props._imprint = JSON.stringify({ method, locations: locations.length });
+  }
+  if (props["Full Colour Wrap"] && !props._fcw) props._fcw = "true";
+
+  const zones = zonesFromAttributes(line.customAttributes || [], orderAttributes);
+  for (const zone of zones) {
+    if (zone.url && !props[zone.key]) props[zone.key] = zone.url;
+  }
+  if (zones.length && zones.every((zone) => zone.url) && props.Artwork) props.Artwork = "Provided now";
+
+  return props;
+}
 
 /**
  * @param {string} orderGid the order being repeated
  * @param {string} customerGid the signed-in buyer, who must own that order
  * @param {string[]} [locationGids] their company's locations: an order placed
  *   for a company they have left can't be repeated (HYV-76)
- * @returns {Promise<{ok:boolean, error?:string, name?:string, href?:string,
- *   skipped?:number, emailed?:boolean}>}
+ * @returns {Promise<{ok:boolean, error?:string, name?:string,
+ *   lines?:{id:number, quantity:number, properties:Object<string,string>}[], skipped?:number}>}
  */
-export async function reorder(admin, orderGid, customerGid, locationGids = []) {
+export async function reorderLines(admin, orderGid, customerGid, locationGids = []) {
   if (!admin || !orderGid || !customerGid) {
     return { ok: false, error: "We couldn't work out which order to repeat." };
   }
@@ -93,75 +102,21 @@ export async function reorder(admin, orderGid, customerGid, locationGids = []) {
     return { ok: false, error: "We couldn't find that order." };
   }
 
-  const all = order.lineItems?.nodes || [];
-  const lineItems = all
-    .filter((li) => li.variant?.id)
+  const products = (order.lineItems?.nodes || []).filter(
+    (li) => li.quantity > 0 && !CHARGE_HANDLES.has(li.variant?.product?.handle || ""),
+  );
+  const lines = products
+    .filter((li) => li.variant?.id && li.variant.availableForSale)
     .map((li) => ({
-      variantId: li.variant.id,
+      id: Number(String(li.variant.id).split("/").pop()),
       quantity: li.quantity,
-      // Artwork and personalisation live on the line, so they come across too.
-      ...(li.customAttributes?.length
-        ? { customAttributes: li.customAttributes.map(({ key, value }) => ({ key, value })) }
-        : {}),
+      properties: cartProperties(li, order.customAttributes || []),
     }));
 
-  if (!lineItems.length) {
+  if (!lines.length) {
     return { ok: false, error: "None of the items on that order can be bought again." };
   }
-
-  const company = order.purchasingEntity?.company?.id ? order.purchasingEntity : null;
-  // The company's own terms, as cart quotes take them: a schedule only for
-  // Net terms, and fixed-date terms left to sales (a Net-style schedule on
-  // them made Shopify refuse the reorder).
-  const paymentTerms = company ? await locationPaymentTerms(admin, company.location.id) : null;
-
-  const input = {
-    lineItems,
-    useCustomerDefaultAddress: true,
-    tags: ["reorder"],
-    note: `Reorder of ${order.name}`,
-    ...(company
-      ? {
-          purchasingEntity: {
-            purchasingCompany: {
-              companyId: company.company.id,
-              companyLocationId: company.location.id,
-              companyContactId: company.contact?.id,
-            },
-          },
-        }
-      : { purchasingEntity: { customerId: customerGid } }),
-    // The company's own terms, so the new order is due when their others are.
-    ...(paymentTerms ? { paymentTerms } : {}),
-  };
-
-  const created = await gql(admin, DRAFT_CREATE, { input });
-  const createError = created?.draftOrderCreate?.userErrors?.[0];
-  if (createError) return { ok: false, error: createError.message };
-
-  const draftId = created?.draftOrderCreate?.draftOrder?.id;
-  if (!draftId) return { ok: false, error: "We couldn't build that order." };
-
-  const completed = await gql(admin, DRAFT_COMPLETE, { id: draftId });
-  const completeError = completed?.draftOrderComplete?.userErrors?.[0];
-  if (completeError) return { ok: false, error: completeError.message };
-
-  const placed = completed?.draftOrderComplete?.draftOrder?.order;
-  if (!placed) return { ok: false, error: "The order was not placed." };
-
-  // The buyer gets the order by email with its payment link. A failure here
-  // doesn't undo a real order, so it's reported rather than thrown.
-  const notified = await gql(admin, NOTIFY, { id: placed.id });
-  const notifyError = notified?.orderInvoiceSend?.userErrors?.[0];
-  if (notifyError) console.warn("[reorder] email not sent:", notifyError.message);
-
-  return {
-    ok: true,
-    name: placed.name,
-    href: placed.statusPageUrl || "",
-    skipped: all.length - lineItems.length,
-    emailed: !notifyError,
-  };
+  return { ok: true, name: order.name, lines, skipped: products.length - lines.length };
 }
 
 async function gql(admin, query, variables) {

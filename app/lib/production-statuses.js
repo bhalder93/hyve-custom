@@ -16,8 +16,8 @@ export const STATUS_OPTIONS = [
   { label: "Artwork Received", value: "artwork-received" },
   { label: "Proof Sent", value: "proof-sent" },
   { label: "Proof Approved", value: "proof-approved" },
-  { label: "Sample Preparation", value: "sample-preparation" },
-  { label: "Sample Review", value: "sample-review" },
+  { label: "Physical Sample Preparation", value: "sample-preparation" },
+  { label: "Awaiting Sample Approval", value: "sample-review" },
   { label: "In Production", value: "in-production" },
   { label: "Production Complete", value: "production-complete" },
   // In place of Shipped for a customer-arranged freight (FOB) order, once its
@@ -38,8 +38,8 @@ export const STATUS_TRANSITIONS = {
 
   "proof-sent": ["proof-approved", "sample-preparation", "on-hold"],
 
-  // Sample Review is reached only by Dispatch Physical Sample on the order
-  // page, which records the sample the buyer's email links answer.
+  // Awaiting Sample Approval is reached only by Dispatch Physical Sample on
+  // the order page, which records the sample the buyer's email links answer.
   "proof-approved": ["sample-preparation", "in-production", "on-hold"],
 
   "sample-preparation": ["in-production", "on-hold"],
@@ -73,13 +73,22 @@ export const STATUS_TRANSITIONS = {
  *
  * @param {string} currentStatus the stored production status
  * @param {Array<{fromStatus:string, toStatus:string}>} [history] newest first
+ * @param {{noArtwork?: boolean}} [options] noArtwork: the order needs no
+ *   artwork (a blank order), so it goes straight to In Production from Order
+ *   Received, skipping the artwork and proof steps (HYV-120, Michael's F20)
  * @returns {string[]}
  */
-export function allowedMoves(currentStatus, history = []) {
+export function allowedMoves(currentStatus, history = [], { noArtwork = false } = {}) {
+  // A blank order with no status yet starts production; one at Order Received
+  // can also be held, and a hold there resumes to Order Received or straight
+  // into production, never into the proof steps.
+  if (noArtwork && !currentStatus) return ["in-production"];
+  if (noArtwork && currentStatus === "order-placed") return ["in-production", "on-hold"];
   if (!currentStatus) return ["order-placed"];
   if (currentStatus !== "on-hold") return STATUS_TRANSITIONS[currentStatus] ?? [];
 
   const heldFrom = history.find((entry) => entry?.toStatus === "on-hold")?.fromStatus || "";
+  if (noArtwork && heldFrom === "order-placed") return ["order-placed", "in-production"];
   const step = heldFrom && heldFrom !== "on-hold" && STATUS_TRANSITIONS[heldFrom] ? heldFrom : "proof-sent";
   const moves = [step, ...STATUS_TRANSITIONS[step].filter((status) => status !== "on-hold")];
   if (step === "production-complete" && !moves.includes("ready-for-collection")) {

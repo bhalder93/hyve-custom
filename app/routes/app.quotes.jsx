@@ -1,3 +1,4 @@
+import { formatDateTime as formatDate } from "../utils/date.js";
 
 /* eslint-disable react/prop-types */
 import { useState, useMemo, useCallback } from "react";
@@ -27,25 +28,7 @@ const TABS = [
   { id: STATUS_KEYS.EXPIRED, label: STAFF_QUOTE_LABELS.expired },
 ];
 
-function formatDate(dateStr) {
-  if (!dateStr) return "—";
 
-  try {
-    const date = new Date(dateStr);
-
-    if (Number.isNaN(date.getTime())) return dateStr;
-
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(date);
-  } catch {
-    return dateStr;
-  }
-}
 
 function formatMoney(amount, currency = "USD") {
   const num = Number(amount);

@@ -1,3 +1,7 @@
+## Date and time policy
+
+All displayed dates use `14 Oct 2026`; date and time displays use `14 Oct 2026, 14:30` in `Asia/Singapore` (UTC+8). Use `app/utils/date.js` for admin, portal, email and document formatting. Use `singaporeDayDiff` for calendar-day deadlines and `singaporeDateKey` for date inputs and comparisons. Shopify API values and persisted timestamps stay ISO 8601. Date-only values keep their calendar day; unzoned wall times are interpreted in Singapore. Run `npm run test:dates` for regression checks.
+
 # Shopify App Template - React Router
 
 This is a template for building a [Shopify app](https://shopify.dev/docs/apps/getting-started) using [React Router](https://reactrouter.com/). It was forked from the [Shopify Remix app template](https://github.com/Shopify/shopify-app-template-remix) and converted to React Router.

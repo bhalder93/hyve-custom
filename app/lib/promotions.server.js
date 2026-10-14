@@ -8,7 +8,7 @@
  * shows. Current promotions come first, then upcoming ones with their start
  * date, so distributors can plan ahead.
  */
-import { BUSINESS_TIME_ZONE } from "./portal.server";
+import { singaporeDateKey } from "../utils/date.js";
 
 const QUERY = `#graphql
   query DashboardPromotions {
@@ -43,7 +43,7 @@ export async function loadPromotions(admin, now = new Date()) {
   if (body?.errors?.length) throw new Error(body.errors[0]?.message || "Shopify rejected the request.");
 
   // Promotion dates are Hyve's calendar days.
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIME_ZONE }).format(now);
+  const today = singaporeDateKey(now);
 
   return (body.data?.metaobjects?.nodes || [])
     .filter((node) => node.capabilities?.publishable?.status === "ACTIVE")

@@ -3,6 +3,7 @@ import { portalChrome } from "../lib/account-data.server";
 import { loadOrderForAction } from "../lib/order-action.server";
 import { productionCalendar, productionDueDate } from "../lib/order-status.server";
 import { awaitingSampleDecision } from "../lib/sample-approval.server";
+import { syncSampleStatusTags } from "../lib/sample-status-tags.server";
 
 async function parseGraphQL(response, operationName = "GraphQL") {
   const data = await response.json();
@@ -197,26 +198,7 @@ export const action = async ({ request }) => {
         console.error("ClearOnHoldReason Error:", e);
       }
 
-      // Update tags - remove all hyve-status tags (including any stale hyve-status:on-hold)
-      const currentStatusTags = (order.tags || []).filter(t => t.startsWith("hyve-status:") || t === "hyve-status:on-hold" || t === "hyve-status:sample-review");
-      if (currentStatusTags.length) {
-        try {
-          await admin.graphql(
-            `#graphql mutation RemoveTags($id: ID!, $tags: [String!]!) { tagsRemove(id: $id, tags: $tags) { userErrors { message } } }`,
-            { variables: { id: orderGid, tags: currentStatusTags } }
-          );
-        } catch (e) {
-          console.error("RemoveTags Error:", e, e.graphQLErrors);
-        }
-      }
-      try {
-        await admin.graphql(
-          `#graphql mutation AddTags($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { message } } }`,
-          { variables: { id: orderGid, tags: ["hyve-status:in-production", "hyve-sample-approved"] } }
-        );
-      } catch (e) {
-        console.error("AddTags Error:", e, e.graphQLErrors);
-      }
+      await syncSampleStatusTags(admin, orderGid, order.tags, "in-production", ["hyve-sample-approved"]);
     } else {
       const heldAt = new Date().toISOString();
       metafields.push(
@@ -268,26 +250,7 @@ export const action = async ({ request }) => {
         console.error("CreateHistory Error:", e, e.graphQLErrors);
       }
 
-      // Update tags
-      const currentStatusTags = (order.tags || []).filter(t => t.startsWith("hyve-status:") || t === "hyve-status:sample-review" || t === "hyve-status:on-hold");
-      if (currentStatusTags.length) {
-        try {
-          await admin.graphql(
-            `#graphql mutation RemoveTags($id: ID!, $tags: [String!]!) { tagsRemove(id: $id, tags: $tags) { userErrors { message } } }`,
-            { variables: { id: orderGid, tags: currentStatusTags } }
-          );
-        } catch (e) {
-          console.error("RemoveTags Error:", e, e.graphQLErrors);
-        }
-      }
-      try {
-        await admin.graphql(
-          `#graphql mutation AddTags($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { message } } }`,
-          { variables: { id: orderGid, tags: ["hyve-status:sample-preparation"] } }
-        );
-      } catch (e) {
-        console.error("AddTags Error:", e, e.graphQLErrors);
-      }
+      await syncSampleStatusTags(admin, orderGid, order.tags, "sample-preparation");
     }
 
     try {

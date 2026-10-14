@@ -1,3 +1,4 @@
+import { formatDay, formatDateTime } from "../utils/date.js";
 /**
  * Order detail modal (J2).
  *
@@ -158,7 +159,7 @@ function timeline(order, chain, reachedIndex) {
         <span class="hyve-tl__dot">${state === "todo" ? "" : icoTick()}</span>
         <div>
           <span class="hyve-tl__label">${esc(s.label)}</span>
-          ${state === "current" && order.statusChangedAt ? `<span class="hyve-tl__time">${esc(order.statusChangedAt)}</span>` : ""}
+          ${state === "current" && order.statusChangedAt ? `<span class="hyve-tl__time">${esc(formatDateTime(order.statusChangedAt))}</span>` : ""}
         </div>
       </li>`;
   }).join("");
@@ -251,42 +252,7 @@ function shippingPanel(order) {
     </section>`;
 }
 
-function formatDay(value) {
-  if (!value) return "—";
 
-  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (match) {
-    const [, year, month, day] = match;
-    const months = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-    const mIdx = parseInt(month, 10) - 1;
-    if (mIdx >= 0 && mIdx < 12) {
-      return `${parseInt(day, 10)} ${months[mIdx]} ${year}`;
-    }
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "Asia/Singapore",
-  }).format(date);
-}
 
 function pickupPanel(order, pickupConfig) {
   // Only show this if there are collection details (meaning it was marked Ready for Collection with these inputs)

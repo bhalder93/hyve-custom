@@ -1,9 +1,9 @@
+import { formatDate } from "../utils/date.js";
 /**
  * Metaobject service for Distributor Applications.
  * Manages metaobject definition, creation, queries, and status updates.
  */
 
-import { BUSINESS_TIME_ZONE } from "./portal.server";
 
 export const METAOBJECT_TYPE = "$app:distributor_application";
 export const FALLBACK_METAOBJECT_TYPE = "distributor_application";
@@ -1051,15 +1051,7 @@ export async function createDistributorApplication(admin, fields = {}) {
     {
       key: "submitted_at",
 
-      value: new Date().toLocaleDateString("en-SG", {
-        year: "numeric",
-
-        month: "short",
-
-        day: "numeric",
-
-        timeZone: BUSINESS_TIME_ZONE,
-      }),
+      value: formatDate(new Date()),
     },
   ];
 

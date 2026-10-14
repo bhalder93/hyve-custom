@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { loadOrder } from "./order-action.server";
 import { productionCalendar, productionDueDate, recordStatusHistory, SOURCES } from "./order-status.server";
+import { syncSampleStatusTags } from "./sample-status-tags.server";
 
 const LINK_PATH = "/apps/account/sample-decision";
 
@@ -239,35 +240,13 @@ export async function recordEmailSampleDecision(admin, link, decision, rawMessag
     console.error("[sample-link] failed to clear on_hold_reason", delErr);
   }
 
-  // Update tags
-  const currentStatusTags = (order.tags || []).filter(
-    (t) => t.startsWith("hyve-status:") || t === "hyve-status:on-hold" || t === "hyve-status:sample-review",
+  await syncSampleStatusTags(
+    admin,
+    orderGid,
+    order.tags,
+    nextStatus,
+    decision === "approve" ? ["hyve-sample-approved"] : [],
   );
-
-  if (currentStatusTags.length) {
-    try {
-      await admin.graphql(
-        `#graphql mutation RemoveTags($id: ID!, $tags: [String!]!) { tagsRemove(id: $id, tags: $tags) { userErrors { message } } }`,
-        { variables: { id: orderGid, tags: currentStatusTags } },
-      );
-    } catch (tagErr) {
-      console.error("[sample-link] failed to remove tags", tagErr);
-    }
-  }
-
-  const tagsToAdd = [`hyve-status:${nextStatus}`];
-  if (decision === "approve") {
-    tagsToAdd.push("hyve-sample-approved");
-  }
-
-  try {
-    await admin.graphql(
-      `#graphql mutation AddTags($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { message } } }`,
-      { variables: { id: orderGid, tags: tagsToAdd } },
-    );
-  } catch (addTagErr) {
-    console.error("[sample-link] failed to add tags", addTagErr);
-  }
 
   // Record audit history
   const note = decision === "approve"

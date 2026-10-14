@@ -1,3 +1,4 @@
+import { formatDateTime } from "../utils/date.js";
 import { useEffect, useState } from "react";
 import { useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { authenticate } from "../shopify.server";
@@ -51,7 +52,7 @@ export const action = async ({ request }) => {
     : { ok: false, error: "A tier price update is already running. Wait for it to finish." };
 };
 
-const when = (iso) => (iso ? new Date(iso).toLocaleString() : "");
+const when = (iso) => formatDateTime(iso, "");
 
 export default function TierPrices() {
   const { catalogs, ladders, lastRun, running: serverRunning, loadError } = useLoaderData();

@@ -1,3 +1,5 @@
+import { formatDay, singaporeDateKey } from "./date.js";
+import { formatDateTime as formatDate } from "./date.js";
 // app/utils/email.server.js
 
 // One SMTP connection for the whole app, shared with the quote and team emails
@@ -29,23 +31,7 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function formatDate(value) {
-  if (!value) {
-    return "";
-  }
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return String(value);
-  }
-
-  return new Intl.DateTimeFormat("en-SG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Singapore",
-  }).format(date);
-}
 
 function getAttributeValue(lineItem, keyName) {
   const match = (lineItem.customAttributes || []).find(
@@ -527,7 +513,7 @@ export function brandedEmail({ title, greeting = null, body, details = [], detai
                         color:${BRAND.secondaryText};
                       "
                     >
-                      © ${new Date().getFullYear()} Hyve Promo. All rights reserved.
+                      © ${singaporeDateKey().slice(0, 4)} Hyve Promo. All rights reserved.
                     </div>
                   </td>
                 </tr>
@@ -752,7 +738,21 @@ export async function sendProofSentEmail({
     to: customerEmail,
     subject: `${customerStatusLabel("proof-sent")} - ${orderName}`,
     html,
-    text: `Your proof for ${orderName} is ready. View: ${proofUrl}\nApprove: ${approveUrl}\nRequest changes: ${changesUrl}\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    text: ` Hi ${customerName || "there"},
+
+${customerStatusLabel("proof-sent")} - ${orderName}
+
+Action required: Please review your Artwork Proof, then approve it or request changes using the links below. No sign-in needed.
+
+Artwork Proof: ${proofUrl}
+
+Approve Artwork Proof: ${approveUrl}
+
+Request Changes: ${changesUrl}
+
+Artwork Proof version: ${proofVersion || "1"}
+
+View your order: ${orderUrl || CUSTOMER_ORDERS_URL} `.trim(),
     replyTo: process.env.EMAIL_REPLY_TO,
   });
 }
@@ -832,8 +832,64 @@ export async function sendProofReminderEmail({
 }
 
 /* -------------------------------------------------------------------------- */
-/* MSG-05 Proof Approved                                                      */
+/* Artwork reminder: sent once, 24 hours after an order placed with artwork   */
+/* to follow, while it still has none (HYV-120)                               */
 /* -------------------------------------------------------------------------- */
+
+export async function sendArtworkReminderEmail({
+  customerEmail,
+  customerName,
+  orderName,
+  orderDate,
+  lineItems = [],
+  orderUrl,
+}) {
+  const html = customerLayout({
+    title: "Reminder: we're waiting for your artwork",
+    customerName,
+    orderName,
+    orderDate,
+    lineItems,
+    orderUrl,
+    body: `
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        You chose to send the artwork for order <strong>${escapeHtml(orderName)}</strong> later.
+        We can only prepare your Artwork Proof once it arrives, so production can't start yet.
+      </p>
+
+      <div style="margin:22px 0;">
+        <a
+          href="${escapeHtml(orderUrl || CUSTOMER_ORDERS_URL)}"
+          style="
+            display:inline-block;
+            padding:14px 22px;
+            background:#0f172a;
+            color:#ffffff;
+            text-decoration:none;
+            border-radius:10px;
+            font-size:14px;
+            font-weight:700;
+          "
+        >
+          Upload Artwork
+        </a>
+      </div>
+
+      <p style="margin:0; line-height:1.7; font-size:15px;">
+        Sign in to your account, open the order and upload a file for each item marked Artwork Pending.
+      </p>
+    `,
+  });
+
+  return sendEmail({
+    to: customerEmail,
+    subject: `Artwork reminder - ${orderName}`,
+    html,
+    text: `We're waiting for your artwork for ${orderName}. We can only prepare your Artwork Proof once it arrives.\n\nUpload it here: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    replyTo: process.env.EMAIL_REPLY_TO,
+  });
+}
+
 
 export async function sendProofApprovedEmail({
   customerEmail,
@@ -852,25 +908,17 @@ export async function sendProofApprovedEmail({
   }
 
   const productionDueDateOnly = productionDueAt
-    ? new Intl.DateTimeFormat("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      timeZone: "Asia/Singapore",
-    }).format(new Date(productionDueAt))
+    ? formatDay(productionDueAt)
     : null;
 
   const estimatedShipDateOnly = estimatedShipDate
-    ? new Intl.DateTimeFormat("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      timeZone: "Asia/Singapore",
-    }).format(new Date(estimatedShipDate))
+    ? formatDay(estimatedShipDate)
     : null;
 
   const html = customerLayout({
-    title: isSampleOrder ? "Approved — Sample Preparation" : customerStatusLabel("proof-approved"),
+    title: isSampleOrder
+      ? "Approved — Sample Preparation"
+      : customerStatusLabel("proof-approved"),
     customerName,
     orderName,
     orderDate,
@@ -882,12 +930,17 @@ export async function sendProofApprovedEmail({
       </p>
 
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
-        ${isSampleOrder
-        ? "<strong>Approved — Sample Preparation:</strong> We'll prepare your physical pre-production sample before bulk production begins."
-        : "Your order is now moving into production."}
+        ${
+          isSampleOrder
+            ? "<strong>Approved — Sample Preparation:</strong> We'll prepare your physical pre-production sample before bulk production begins."
+            : "Your order is now moving into production."
+        }
       </p>
 
-      ${productionDueDateOnly ? `<div
+      ${
+        productionDueDateOnly
+          ? `
+      <div
         style="
           padding:16px;
           background:#f8fafc;
@@ -904,7 +957,11 @@ export async function sendProofApprovedEmail({
             margin-bottom:6px;
           "
         >
-          ${isSampleOrder ? "Target completion date" : "Production target"}
+          ${
+            isSampleOrder
+              ? "Target completion date"
+              : "Production target"
+          }
         </div>
 
         <div
@@ -917,40 +974,93 @@ export async function sendProofApprovedEmail({
         >
           ${escapeHtml(productionDueDateOnly)}
         </div>
-      </div>` : ""}
+      </div>
+      `
+          : ""
+      }
 
-${estimatedShipDateOnly ? `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;"><strong>Estimated ship date:</strong> ${escapeHtml(estimatedShipDateOnly)}</p>` : ''}
+      ${
+        estimatedShipDateOnly
+          ? `
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        <strong>Estimated ship date:</strong>
+        ${escapeHtml(estimatedShipDateOnly)}
+      </p>
+      `
+          : ""
+      }
+
       <p style="margin:0; line-height:1.7; font-size:15px;">
-        ${isSampleOrder
-        ? "We will contact you with photos and details once your physical sample is dispatched."
-        : "We will contact you again when production is complete."}
+        ${
+          isSampleOrder
+            ? "We will contact you with photos and details once your physical sample is dispatched."
+            : "We will contact you again when production is complete."
+        }
       </p>
     `,
   });
 
-  return sendEmail({
-    to: customerEmail,
-    subject: `${isSampleOrder ? "Approved — Sample Preparation" : customerStatusLabel("proof-approved")} - ${orderName}`,
-    html,
-    text: isSampleOrder
-      ? `Your Artwork Proof for ${orderName} has been approved. Approved — Sample Preparation. We'll prepare your physical sample before production begins.\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`
-      : `Your Artwork Proof for ${orderName} has been approved. Production target: ${productionDueDateOnly}.\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
-  });
+  const text = `
+Hi ${customerName || "there"},
+
+${
+  isSampleOrder
+    ? "Approved — Sample Preparation"
+    : customerStatusLabel("proof-approved")
+} - ${orderName}
+
+Thank you. Your Artwork Proof has been approved.
+
+${
+  isSampleOrder
+    ? "Approved — Sample Preparation: We'll prepare your physical pre-production sample before bulk production begins."
+    : "Your order is now moving into production."
 }
 
-/* -------------------------------------------------------------------------- */
-/* MSG-07 Production Complete                                                 */
-/* -------------------------------------------------------------------------- */
+${
+  productionDueDateOnly
+    ? `${
+        isSampleOrder
+          ? "Target completion date"
+          : "Production target"
+      }: ${productionDueDateOnly}`
+    : ""
+}
+
+${
+  estimatedShipDateOnly
+    ? `Estimated ship date: ${estimatedShipDateOnly}`
+    : ""
+}
+
+${
+  isSampleOrder
+    ? "We will contact you with photos and details once your physical sample is dispatched."
+    : "We will contact you again when production is complete."
+}
+
+View your order: ${orderUrl || CUSTOMER_ORDERS_URL}
+  `
+    .trim()
+    .replace(/\n{3,}/g, "\n\n");
+
+  return sendEmail({
+    to: customerEmail,
+    subject: `${
+      isSampleOrder
+        ? "Approved — Sample Preparation"
+        : customerStatusLabel("proof-approved")
+    } - ${orderName}`,
+    html,
+    text,
+    replyTo: process.env.EMAIL_REPLY_TO,
+  });
+}
 
 const PHOTO_CID = "production-photo@hyve";
 const PHOTO_MAX_BYTES = 10 * 1024 * 1024;
 
-/**
- * The production photo as an inline attachment, when the link staff saved is
- * the image itself (a Shopify Files link, for one). A link to a page that
- * shows the image, such as a Drive share, can't be embedded, so that email
- * carries the link alone.
- */
+
 async function productionPhotoAttachment(url) {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
@@ -1060,15 +1170,30 @@ ${photo ? `
     to: customerEmail,
     subject: `${customerStatusLabel("production-complete")} - ${orderName}`,
     html,
-    text: `Production for ${orderName} is complete. View photo: ${productionPhotoUrl}\nApprove: ${approveUrl}\nRequest changes: ${changesUrl}\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    text:` Hi ${customerName || "there"},
+
+${customerStatusLabel("production-complete")} - ${orderName}
+
+Action required: Please review your Production Photo, then approve it or request changes using the links below. No sign-in needed.
+
+Production for your order is complete.
+
+Your order is now being prepared for shipment.
+
+Production Photo: ${productionPhotoUrl}
+
+Approve Production Photo: ${approveUrl}
+
+Request Changes: ${changesUrl}
+
+Production Photo version: ${productionPhotoVersion || "1"}
+
+View your order: ${orderUrl || CUSTOMER_ORDERS_URL} `.trim(),
     attachments: photo ? [photo] : undefined,
     replyTo: process.env.EMAIL_REPLY_TO,
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Physical Sample Ready                                                      */
-/* -------------------------------------------------------------------------- */
 
 export async function sendPhysicalSampleEmail({
   customerEmail,
@@ -1184,11 +1309,6 @@ export async function sendPhysicalSampleEmail({
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Ready For Collection                                                       */
-/* -------------------------------------------------------------------------- */
-
-/** A customer-arranged freight (FOB) order, in place of the Shipped email. */
 export async function sendReadyForCollectionEmail({
   customerEmail,
   customerName,
@@ -1198,7 +1318,61 @@ export async function sendReadyForCollectionEmail({
   orderUrl,
   collectionDetails = {},
   pickupConfig = {},
+  attachments = [],
 }) {
+  // What's attached, said only when it really is (HYV-160): the commercial
+  // invoice and the packing list, for the forwarder.
+  const attachedNames = [
+    attachments.some((a) => a.kind === "invoice") ? "commercial invoice" : "",
+    attachments.some((a) => a.kind === "packing-list") ? "packing list" : "",
+  ].filter(Boolean);
+  const attachedLine = attachedNames.length
+    ? `The ${attachedNames.join(" and ")} ${attachedNames.length > 1 ? "are" : "is"} attached.`
+    : "";
+  const readyDate = formatDay(collectionDetails.readyDate);
+  const pickupHours = [
+    ["Monday", pickupConfig.monday_hours],
+    ["Tuesday", pickupConfig.tuesday_hours],
+    ["Wednesday", pickupConfig.wednesday_hours],
+    ["Thursday", pickupConfig.thursday_hours],
+    ["Friday", pickupConfig.friday_hours],
+    ["Saturday", pickupConfig.saturday_hours],
+    ["Sunday", pickupConfig.sunday_hours],
+  ].filter(([, hours]) => hours);
+  const pickupHoursHtml = pickupHours
+    .map(([day, hours]) => `
+      <tr>
+        <td style="padding:4px 12px 4px 0; color:${BRAND.secondaryText};">${day}</td>
+        <td style="padding:4px 0; color:${BRAND.primaryText};">${escapeHtml(hours)}</td>
+      </tr>
+    `)
+    .join("");
+
+  const textLines = [
+    `Your order ${orderName} is ready for collection.`,
+    "",
+    "Collection Details",
+    `Ready Date: ${readyDate}`,
+    `Number of Cartons: ${collectionDetails.numberOfCartons || "—"}`,
+    `Gross Weight: ${collectionDetails.grossWeight ? `${collectionDetails.grossWeight} kg` : "—"}`,
+    `CBM: ${collectionDetails.cbm || "—"}`,
+    "",
+    "Pickup Location & Contact Details",
+    pickupConfig.pickup_address || "Pickup address is not available.",
+    ...(pickupConfig.contact_name ? [`Contact Name: ${pickupConfig.contact_name}`] : []),
+    ...(pickupConfig.contact_phone ? [`Contact Phone: ${pickupConfig.contact_phone}`] : []),
+    ...(pickupConfig.contact_email ? [`Contact Email: ${pickupConfig.contact_email}`] : []),
+    ...(pickupHours.length
+      ? ["", "Opening Hours", ...pickupHours.map(([day, hours]) => `${day}: ${hours}`)]
+      : []),
+    "",
+    "As freight for this order is customer-arranged, please coordinate collection with your nominated carrier.",
+    ...(attachedLine ? [attachedLine] : []),
+    "If your carrier needs collection details or assistance, please contact our customer service team.",
+    "",
+    `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+  ];
+
   const html = customerLayout({
     title: customerStatusLabel("ready-for-collection"),
     customerName,
@@ -1221,47 +1395,31 @@ export async function sendReadyForCollectionEmail({
         As freight for this order is customer-arranged, please coordinate collection with your nominated carrier.
       </p>
 
-      <div style="margin: 20px 0; padding: 16px; background-color: #f6f6f7; border-radius: 8px;">
-        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 16px; color: ${BRAND.primaryText};">Collection Details</h3>
-        <table style="width: 100%; font-size: 14px; color: ${BRAND.primaryText}; border-collapse: collapse;">
-          <tr>
-            <td style="padding: 4px 0; width: 40%; font-weight: 600;">Ready Date</td>
-            <td style="padding: 4px 0;">${escapeHtml(collectionDetails.readyDate || "—")}</td>
-          </tr>
-          <tr>
-            <td style="padding: 4px 0; font-weight: 600;">Number of Cartons</td>
-            <td style="padding: 4px 0;">${escapeHtml(collectionDetails.numberOfCartons || "—")}</td>
-          </tr>
-          <tr>
-            <td style="padding: 4px 0; font-weight: 600;">Gross Weight</td>
-            <td style="padding: 4px 0;">${escapeHtml(collectionDetails.grossWeight || "—")} Kg</td>
-          </tr>
-          <tr>
-            <td style="padding: 4px 0; font-weight: 600;">CBM</td>
-            <td style="padding: 4px 0;">${escapeHtml(collectionDetails.cbm || "—")}</td>
-          </tr>
+      <div style="margin:20px 0; padding:16px; background:#f6f6f7; border-radius:8px;">
+        <h3 style="margin:0 0 12px; font-size:16px; color:${BRAND.primaryText};">Collection Package Details</h3>
+        <table style="width:100%; font-size:14px; color:${BRAND.primaryText}; border-collapse:collapse;">
+          <tr><td style="padding:4px 0; width:40%; font-weight:600;">Ready Date</td><td style="padding:4px 0;">${escapeHtml(readyDate)}</td></tr>
+          <tr><td style="padding:4px 0; font-weight:600;">Number of Cartons</td><td style="padding:4px 0;">${escapeHtml(collectionDetails.numberOfCartons || "—")}</td></tr>
+          <tr><td style="padding:4px 0; font-weight:600;">Gross Weight</td><td style="padding:4px 0;">${escapeHtml(collectionDetails.grossWeight || "—")} Kg</td></tr>
+          <tr><td style="padding:4px 0; font-weight:600;">CBM</td><td style="padding:4px 0;">${escapeHtml(collectionDetails.cbm || "—")}</td></tr>
         </table>
       </div>
 
-      <div style="margin: 20px 0; padding: 16px; background-color: #f6f6f7; border-radius: 8px;">
-        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 16px; color: ${BRAND.primaryText};">Pickup Location</h3>
-        <div style="font-size: 14px; color: ${BRAND.primaryText}; line-height: 1.5;">
-          ${pickupConfig.pickup_address ? `<p style="margin: 0 0 8px;"><strong>Address:</strong><br/>${escapeHtml(pickupConfig.pickup_address).replace(/\n/g, '<br/>')}</p>` : ''}
-          ${pickupConfig.contact_name ? `<p style="margin: 0 0 8px;"><strong>Contact:</strong> ${escapeHtml(pickupConfig.contact_name)} ${pickupConfig.contact_phone ? `(${escapeHtml(pickupConfig.contact_phone)})` : ''}</p>` : ''}
-          ${pickupConfig.contact_email ? `<p style="margin: 0 0 8px;"><strong>Email:</strong> ${escapeHtml(pickupConfig.contact_email)}</p>` : ''}
-          <p style="margin: 0 0 4px;"><strong>Opening Hours:</strong></p>
-          <ul style="margin: 0; padding-left: 20px; color: ${BRAND.secondaryText};">
-            ${['monday_hours', 'tuesday_hours', 'wednesday_hours', 'thursday_hours', 'friday_hours', 'saturday_hours', 'sunday_hours'].map(day => {
-      const val = pickupConfig[day];
-      if (val) {
-        const dayName = day.split('_')[0].charAt(0).toUpperCase() + day.split('_')[0].slice(1);
-        return `<li>${dayName}: ${escapeHtml(val)}</li>`;
-      }
-      return '';
-    }).join('')}
-          </ul>
+      <div style="margin:20px 0; padding:16px; background:#f6f6f7; border-radius:8px;">
+        <h3 style="margin:0 0 12px; font-size:16px; color:${BRAND.primaryText};">Pickup Location &amp; Contact Details</h3>
+        <div style="font-size:14px; color:${BRAND.primaryText}; line-height:1.5;">
+          ${pickupConfig.pickup_address
+            ? `<p style="margin:0 0 8px;"><strong>Address:</strong><br/>${escapeHtml(pickupConfig.pickup_address).replace(/\r?\n/g, "<br/>")}</p>`
+            : `<p style="margin:0 0 8px; color:${BRAND.secondaryText};">Pickup address is not configured.</p>`}
+          ${pickupConfig.contact_name ? `<p style="margin:0 0 8px;"><strong>Contact:</strong> ${escapeHtml(pickupConfig.contact_name)}${pickupConfig.contact_phone ? ` (${escapeHtml(pickupConfig.contact_phone)})` : ""}</p>` : ""}
+          ${pickupConfig.contact_email ? `<p style="margin:0 0 8px;"><strong>Email:</strong> ${escapeHtml(pickupConfig.contact_email)}</p>` : ""}
+          ${pickupHoursHtml
+            ? `<p style="margin:8px 0 4px;"><strong>Opening Hours:</strong></p><table style="font-size:14px; border-collapse:collapse;">${pickupHoursHtml}</table>`
+            : ""}
         </div>
       </div>
+
+      ${attachedLine ? `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;">${escapeHtml(attachedLine)}</p>` : ""}
 
       <p style="margin:0; line-height:1.7; font-size:15px;">
         If your carrier needs collection details or assistance, please contact our customer service team.
@@ -1273,26 +1431,14 @@ export async function sendReadyForCollectionEmail({
     to: customerEmail,
     subject: `${customerStatusLabel("ready-for-collection")} - ${orderName}`,
     html,
-    text:
-      `Your order ${orderName} is ready for collection.\n\n` +
-      `Production has been completed. ` +
-      `As freight for this order is customer-arranged, ` +
-      `please coordinate collection with your nominated carrier.\n\n` +
-      `If your carrier needs collection details or assistance, ` +
-      `please contact our customer service team.\n\n` +
-      `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    text: textLines.join("\n"),
+    attachments: attachments.length
+      ? attachments.map(({ filename, content }) => ({ filename, content, contentType: "application/pdf" }))
+      : undefined,
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Invoice                                                                    */
-/* -------------------------------------------------------------------------- */
 
-/**
- * The invoice PDF once an order is paid (HYV-144). Shopify's order
- * confirmation can't carry an attachment, and companies need the invoice for
- * their books, so the app sends it on its own.
- */
 export async function sendInvoiceEmail({ customerEmail, customerName, orderName, orderDate, pdf, filename, orderUrl }) {
   if (!pdf) {
     throw new Error("Invoice PDF is required.");
@@ -1369,12 +1515,71 @@ export async function sendInternalSlaAlert({
       `Order: ${orderName}\n` +
       `Customer: ${customerName || "—"}\n` +
       `Status: ${status}\n` +
-      `Elapsed: ${elapsed || "—"}\n`,
+      `Elapsed: ${elapsed || "—"}\n` +
+      `Owner: ${assignedRole || "—"}\n`,
   });
 }
 
 /* -------------------------------------------------------------------------- */
-/* MSG-12 Order On Hold Alert (Customer Service)                              */
+/* Daily breach digest (Customer Service), HYV-132                            */
+/* -------------------------------------------------------------------------- */
+
+export async function sendBreachDigestEmail({ to, since, now, groups = [] }) {
+  const recipients = Array.isArray(to) ? to.join(",") : to;
+  const day = (value) =>
+    new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Singapore" }).format(value);
+  const count = groups.reduce((n, group) => n + group.orders.length, 0);
+  const subject = `[Hyve] Daily breach digest - ${day(now)} - ${count} order${count === 1 ? "" : "s"}`;
+
+  const sections = groups
+    .map(
+      (group) => `
+      <h3 style="margin:22px 0 8px; font-size:15px; color:${BRAND.primaryText};">${escapeHtml(group.status)} (${group.orders.length})</h3>
+      <table style="width:100%; border-collapse:collapse; font-size:14px; color:${BRAND.primaryText};">
+        ${group.orders
+          .map(
+            (order) => `
+          <tr>
+            <td style="padding:6px 0; border-bottom:1px solid ${BRAND.border}; width:30%; vertical-align:top;">
+              ${order.adminUrl ? `<a href="${escapeHtml(order.adminUrl)}" style="color:${BRAND.primaryText}; font-weight:700;">${escapeHtml(order.orderName)}</a>` : `<strong>${escapeHtml(order.orderName)}</strong>`}
+              <div style="color:${BRAND.secondaryText}; font-size:13px;">${escapeHtml(order.customerName || "—")}</div>
+            </td>
+            <td style="padding:6px 0; border-bottom:1px solid ${BRAND.border}; vertical-align:top;">${order.breaches.map((b) => escapeHtml(b)).join("<br/>")}</td>
+          </tr>`,
+          )
+          .join("")}
+      </table>`,
+    )
+    .join("");
+
+  const html = brandedEmail({
+    title: "Daily Breach Digest",
+    body: `
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        ${count
+          ? `Orders that missed a target between ${escapeHtml(day(since))} and ${escapeHtml(day(now))}, grouped by the status they are in now.`
+          : `No order missed a target between ${escapeHtml(day(since))} and ${escapeHtml(day(now))}.`}
+      </p>
+      ${sections}`,
+  });
+
+  const text = [
+    subject,
+    "",
+    ...(count
+      ? groups.flatMap((group) => [
+          `${group.status} (${group.orders.length})`,
+          ...group.orders.map((order) => `- ${order.orderName}${order.customerName ? ` (${order.customerName})` : ""}: ${order.breaches.join("; ")}${order.adminUrl ? ` ${order.adminUrl}` : ""}`),
+          "",
+        ])
+      : ["No order missed a target in the last 24 hours."]),
+  ].join("\n");
+
+  return sendEmail({ to: recipients, subject, html, text });
+}
+
+/* -------------------------------------------------------------------------- */
+/* MSG-17 Order On Hold Alert (Customer Service)                              */
 /* -------------------------------------------------------------------------- */
 
 export async function sendOrderOnHoldAlert({
@@ -1385,13 +1590,16 @@ export async function sendOrderOnHoldAlert({
   changedBy,
   note,
   adminUrl,
+  owner = "",
 }) {
   const recipients = Array.isArray(to) ? to.filter(Boolean).join(",") : to;
   if (!recipients) {
     throw new Error("No recipients specified for On Hold alert.");
   }
 
-  const subject = `[Hyve MSG-12] ${orderName} - Order Placed On Hold`;
+  // MSG-17 in the specification; MSG-12 is the proof not approved by day 10
+  // alert (HYV-127).
+  const subject = `[Hyve MSG-17] ${orderName} - Order placed on hold`;
 
   const details = [
     ["Order", escapeHtml(orderName)],
@@ -1408,7 +1616,7 @@ export async function sendOrderOnHoldAlert({
     details.push(["Note", escapeHtml(note)]);
   }
 
-  details.push(["Role", "Customer Service"]);
+  details.push(["Owner", escapeHtml(owner || "Customer Service")]);
 
   const html = brandedEmail({
     title: "Order Placed On Hold",
@@ -1463,12 +1671,7 @@ export async function sendEstimatedShipDateEmail({
     throw new Error("Estimated ship date is required.");
   }
 
-  const estimatedShipDateOnly = new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "Asia/Singapore",
-  }).format(new Date(estimatedShipDate));
+  const estimatedShipDateOnly = formatDay(estimatedShipDate);
 
   const html = customerLayout({
     title: "Estimated Ship Date Update",

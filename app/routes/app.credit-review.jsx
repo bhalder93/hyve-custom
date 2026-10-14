@@ -1,3 +1,4 @@
+import { formatDateTime as formatDate } from "../utils/date.js";
 /* eslint-disable react/prop-types */
 import { useEffect, useState } from "react";
 import { useFetcher, useLoaderData, useRouteError } from "react-router";
@@ -64,20 +65,7 @@ export const action = async ({ request }) => {
   return { ok: false, id, error: "Unknown action." };
 };
 
-function formatDate(value) {
-  if (!value) return "—";
-  try {
-    // Singapore time, as on the Production Orders pages, whatever the
-    // browser's own time zone (HYV-162).
-    return new Intl.DateTimeFormat("en-SG", {
-      dateStyle: "medium",
-      timeStyle: "short",
-      timeZone: "Asia/Singapore",
-    }).format(new Date(value));
-  } catch {
-    return "—";
-  }
-}
+
 
 // One fetcher for the page: a decided order leaves the list, and its row with
 // it, so the confirmation is shown from here.

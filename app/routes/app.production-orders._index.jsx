@@ -1,3 +1,5 @@
+import { singaporeDayDiff } from "../utils/date.js";
+import { formatDateTime as formatDate, formatDay } from "../utils/date.js";
 // app/routes/app.production-orders._index.jsx
 /* eslint-disable react/prop-types */
 
@@ -92,55 +94,9 @@ function statusTone(status) {
   }
 }
 
-function formatDate(value) {
-  if (!value) return "—";
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
 
-  return new Intl.DateTimeFormat("en-SG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Singapore",
-  }).format(date);
-}
 
-function formatDay(value) {
-  if (!value) return "—";
-
-  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (match) {
-    const [, year, month, day] = match;
-    const months = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-    const mIdx = parseInt(month, 10) - 1;
-    if (mIdx >= 0 && mIdx < 12) {
-      return `${parseInt(day, 10)} ${months[mIdx]} ${year}`;
-    }
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "Asia/Singapore",
-  }).format(date);
-}
 
 function formatMoney(amount, currency) {
   const numeric = Number(amount);
@@ -175,17 +131,7 @@ function getDueStatus(dueAt, status) {
   const dueDate = new Date(dueAt);
   if (Number.isNaN(dueDate.getTime())) return null;
 
-  const now = new Date();
-  const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dueDay = new Date(
-    dueDate.getFullYear(),
-    dueDate.getMonth(),
-    dueDate.getDate(),
-  );
-
-  const diffDays = Math.round(
-    (dueDay.getTime() - nowDay.getTime()) / (1000 * 60 * 60 * 24),
-  );
+  const diffDays = singaporeDayDiff(dueDate);
 
   if (diffDays < 0) {
     const overdueDays = Math.abs(diffDays);

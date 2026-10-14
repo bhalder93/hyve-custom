@@ -10,7 +10,7 @@
  */
 
 import { esc } from "./account-shell.server";
-import { BUSINESS_TIME_ZONE } from "./portal.server";
+import { formatDate, singaporeDayDiff } from "../utils/date.js";
 
 export const ROLES = {
   ADMIN: "Admin",
@@ -140,14 +140,14 @@ export function formatRelativeTime(dateVal) {
     const now = new Date();
     const diffMs = now - d;
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffHours / 24);
+    const diffDays = singaporeDayDiff(now, d);
 
     if (diffHours < 1) return "Now";
     if (diffHours === 1) return "1 hour ago";
     if (diffHours < 24) return `${diffHours} hours ago`;
     if (diffDays === 1) return "Yesterday";
     if (diffDays < 7) return `${diffDays} days ago`;
-    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: BUSINESS_TIME_ZONE }).format(d);
+    return formatDate(d, "Recently");
   } catch (e) {
     return "Recently";
   }

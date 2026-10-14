@@ -21,7 +21,7 @@
  * both must.
  */
 import { sendArtworkReceivedEmail, sendProofApprovedEmail, sendOrderOnHoldAlert } from "../utils/email.server";
-import { getCustomerServiceRecipients } from "../utils/metaobjects/notification-recipients.server";
+import { getCustomerServiceRecipients, getNotificationRecipients } from "../utils/metaobjects/notification-recipients.server";
 import { statusEmailWanted } from "./notification-preferences.server";
 import { loadCommercialSettings } from "./commercial-settings.server";
 import { syncLineItemArtworkReceived } from "./order-artwork.server";
@@ -303,7 +303,15 @@ export async function notifyCustomerServiceOrderOnHold(
       order.shippingAddress?.name ||
       "Customer";
 
+    // Who owns it, by name, as on the other alerts (HYV-127).
+    const people = await getNotificationRecipients(admin).catch(() => []);
+    const owner = (people || [])
+      .filter((r) => r.enabled && r.email?.trim() && String(r.role || "").toUpperCase() === "CUSTOMER_SERVICE" && r.name)
+      .map((r) => `${r.name} (Customer Service)`)
+      .join(", ");
+
     await sendOrderOnHoldAlert({
+      owner,
       to: recipients,
       orderName: order.name,
       customerName,
@@ -341,7 +349,7 @@ async function notifyCustomer(admin, order, status, productionDueAt) {
   let estimatedShipDate = order.estimatedShipDate?.value;
   if (!estimatedShipDate && productionDueAt) {
     const d = new Date(productionDueAt);
-    d.setDate(d.getDate() + 5);
+    d.setUTCDate(d.getUTCDate() + 5);
     estimatedShipDate = d.toISOString();
   }
 

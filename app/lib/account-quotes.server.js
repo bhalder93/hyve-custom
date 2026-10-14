@@ -401,8 +401,11 @@ export function quotesPage({ quotes = [], notice = null, error = null }) {
             <div class="hyve-form-group">
               <label class="hyve-form-label">Target Delivery Date</label>
               <input
-                type="date"
+                type="text"
                 name="targetDate"
+                placeholder="14 Oct 2026"
+                pattern="[0-9]{1,2} [A-Za-z]{3} [0-9]{4}"
+                title="Use day, short month and year, for example 14 Oct 2026"
                 class="hyve-form-input"
               />
             </div>

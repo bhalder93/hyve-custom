@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/date.js";
 import { authenticate } from "../shopify.server";
 
 import { accountShell } from "../lib/account-shell.server";
@@ -24,7 +25,6 @@ import { sendApplicationEmails } from "../lib/application-emails.server";
 
 import { supportedCurrencies } from "../lib/store-currencies.server";
 
-import { BUSINESS_TIME_ZONE } from "../lib/portal.server";
 import { addressErrors, addressFormatFor, cleanAddress } from "../lib/address-formats.server";
 
 
@@ -971,19 +971,7 @@ export const action = async ({ request }) => {
           "Pending Review",
 
         submitted_at:
-          new Date().toLocaleDateString(
-            "en-SG",
-            {
-              year: "numeric",
-
-              month: "short",
-
-              day: "numeric",
-
-              timeZone:
-                BUSINESS_TIME_ZONE,
-            },
-          ),
+          formatDate(new Date()),
       };
 
 

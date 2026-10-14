@@ -1,12 +1,15 @@
 // app/utils/sla-engine.server.js
 
 import {
+  sendArtworkReminderEmail,
+  sendBreachDigestEmail,
   sendInternalSlaAlert,
   sendProofReminderEmail,
 } from "./email.server";
 import { proofDecisionLinks } from "../lib/proof.server";
 import { productionStatusOf, recordStatusHistory, SOURCES } from "../lib/order-status.server";
-import { customerArrangesFreight } from "../lib/production-statuses";
+import { customerArrangesFreight, STATUS_OPTIONS } from "../lib/production-statuses";
+import { RECIPIENT_ROLES } from "./metaobjects/notification-recipients.server";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Constants                                 */
@@ -252,6 +255,17 @@ function throwUserErrors(
 export function isBlankOrder(
   order,
 ) {
+  // Decided when the order was created (orders/create): no line has artwork.
+  // The same answer here, so a blank order isn't alerted on (HYV-120).
+  if (
+    order
+      ?.artworkRequired
+      ?.value ===
+    "false"
+  ) {
+    return true;
+  }
+
   const lineItems =
     order?.lineItems?.nodes ||
     [];
@@ -399,19 +413,55 @@ function formatElapsedHours(
     return "Unknown";
   }
 
-  if (hours < 24) {
-    return `${Math.max(
-      0,
-      Math.floor(hours),
-    )} hours`;
-  }
+  // "5 hours", "1 day", "2 days 3 hours": as staff say it, not "1.0 days"
+  // (HYV-127).
+  const whole = Math.max(0, Math.floor(hours));
+  const plural = (n, unit) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+  if (whole < 24) return plural(whole, "hour");
+  const days = Math.floor(whole / 24);
+  const rest = whole % 24;
+  return rest ? `${plural(days, "day")} ${plural(rest, "hour")}` : plural(days, "day");
+}
 
-  const days =
-    hours / 24;
+/**
+ * The artwork paths an order's lines took, from the product page's "Artwork"
+ * choice: "provided now", "artwork pending" (sending later) or "design it for
+ * me" (HYV-120).
+ */
+function artworkPaths(order) {
+  return new Set(
+    (order?.lineItems?.nodes || [])
+      .map((line) => (line?.customAttributes || []).find((attr) => attr?.key === "Artwork")?.value)
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase()),
+  );
+}
 
-  return `${days.toFixed(
-    1,
-  )} days`;
+/** Roles that get the daily breach digest instead of per-order alerts (HYV-132). */
+const DIGEST_ROLES = [
+  "CUSTOMER_SERVICE",
+];
+
+/** The alert names staff read, by template code (HYV-127). */
+const ALERT_NAMES = {
+  "MSG-10": "Artwork not received after 24 hours",
+  "MSG-11": "Proof not sent after 48 hours",
+  "MSG-12": "Proof not approved by day 10",
+  "MSG-13": "Not in production after 24 hours",
+  "MSG-14": "Production not complete on target",
+  "MSG-15": "Not shipped after 48 hours",
+  "MSG-16": "No delivery scan after 48 hours",
+};
+
+/** A production status as Hyve Custom shows it: "Order Received", not "order-placed". */
+function statusLabel(value) {
+  return STATUS_OPTIONS.find((option) => option.value === value)?.label || value || "—";
+}
+
+/** Who owns the alert: the people it goes to, with their role. */
+function ownerLabel(recipients) {
+  const roleName = (role) => RECIPIENT_ROLES.find((r) => r.value === role)?.label || role;
+  return [...new Set(recipients.map((r) => (r.name ? `${r.name} (${roleName(r.role)})` : roleName(r.role))))].join(", ");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -916,6 +966,7 @@ async function appendBreachLog(
     "";
 
   const entry =
+    // ISO, not a display date: the daily digest reads it back (HYV-132).
     `[${new Date().toISOString()}] ${message}`;
 
   const value =
@@ -996,18 +1047,45 @@ async function sendInternalAlert({
   elapsed,
   message,
 }) {
-  const recipients =
-    await getNotificationRecipients(
-      admin,
-      rule.recipientRoles,
+  // Customer Service gets these in the morning digest instead (HYV-132);
+  // Artwork and Production keep the per-order email.
+  const roles =
+    rule.recipientRoles.filter(
+      (role) =>
+        !DIGEST_ROLES.includes(
+          role,
+        ),
     );
 
+  const recipients =
+    roles.length
+      ? await getNotificationRecipients(
+          admin,
+          roles,
+        )
+      : [];
+
+  // A Customer Service-only alert: nothing to email, but the breach is still
+  // tagged and logged, so the digest lists it.
+  if (!roles.length) {
+    return {
+      recipients: [],
+    };
+  }
+
+  // Artwork or Production with nobody set up: logged as an error, and the
+  // breach is still tagged and logged so Customer Service sees it in the
+  // morning digest rather than nobody hearing of it.
   if (!recipients.length) {
-    throw new Error(
-      `No enabled notification recipients configured for ${rule.recipientRoles.join(
+    console.error(
+      `[sla] No enabled notification recipients configured for ${roles.join(
         ", ",
-      )}.`,
+      )}; ${order.name} is in the Customer Service digest only.`,
     );
+
+    return {
+      recipients: [],
+    };
   }
 
   const emails =
@@ -1025,7 +1103,7 @@ async function sendInternalAlert({
       emails,
 
     subject:
-      `[Hyve ${rule.templateCode}] ${order.name} - ${rule.eventType}`,
+      `[Hyve ${rule.templateCode}] ${order.name} - ${ALERT_NAMES[rule.templateCode] || rule.eventType}`,
 
     orderName:
       order.name,
@@ -1036,15 +1114,17 @@ async function sendInternalAlert({
       "",
 
     status:
-      getCurrentStatus(
-        order,
+      statusLabel(
+        getCurrentStatus(
+          order,
+        ),
       ),
 
     elapsed,
 
     assignedRole:
-      rule.recipientRoles.join(
-        ", ",
+      ownerLabel(
+        recipients,
       ),
 
     adminUrl:
@@ -1127,7 +1207,25 @@ async function processStandardSla(
     };
   }
 
-  await sendInternalAlert({
+  // Artwork not received (HYV-120): Design it for me is with the design team,
+  // so an order with only that path has no clock. Uploaded at checkout and
+  // sending later both do.
+  const paths = rule.templateCode === "MSG-10" ? artworkPaths(order) : new Set();
+  if (
+    rule.templateCode === "MSG-10" &&
+    paths.has("design it for me") &&
+    !paths.has("artwork pending") &&
+    !paths.has("send artwork later") &&
+    !paths.has("provided now")
+  ) {
+    return {
+      skipped: true,
+      reason:
+        "Design it for me: with the design team",
+    };
+  }
+
+  const alert = await sendInternalAlert({
     admin,
 
     order,
@@ -1140,8 +1238,10 @@ async function processStandardSla(
       ),
 
     message:
-      `${order.name} has remained in ${getCurrentStatus(
-        order,
+      `${order.name} has remained in ${statusLabel(
+        getCurrentStatus(
+          order,
+        ),
       )} longer than the SLA target.`,
   });
 
@@ -1155,6 +1255,21 @@ async function processStandardSla(
       rule.breachTag,
     ],
   );
+
+  // The buyer's own reminder, once, alongside the alert, when artwork is
+  // still to come from them (HYV-120). Its failure doesn't undo the alert.
+  if (rule.templateCode === "MSG-10" && (paths.has("artwork pending") || paths.has("send artwork later"))) {
+    const customerEmail = getCustomerEmail(order);
+    if (customerEmail) {
+      await sendArtworkReminderEmail({
+        customerEmail,
+        customerName: order.customer?.displayName || "Customer",
+        orderName: order.name,
+        orderDate: order.createdAt,
+        lineItems: order?.lineItems?.nodes || [],
+      }).catch((error) => console.error(`[sla] artwork reminder failed for ${order.name}:`, error?.message || error));
+    }
+  }
 
   order.tags = [
     ...(
@@ -1174,6 +1289,8 @@ async function processStandardSla(
 
   return {
     breached: true,
+    // Counted as an alert only when an email went (HYV-132).
+    emailed: alert.recipients.length > 0,
   };
 }
 
@@ -1268,7 +1385,7 @@ async function processProductionDue(
     60 /
     60;
 
-  await sendInternalAlert({
+  const alert = await sendInternalAlert({
     admin,
 
     order,
@@ -1310,6 +1427,8 @@ async function processProductionDue(
 
   return {
     breached: true,
+    // Counted as an alert only when an email went (HYV-132).
+    emailed: alert.recipients.length > 0,
   };
 }
 
@@ -1717,7 +1836,7 @@ async function processProofSent(
     ],
   };
 
-  await sendInternalAlert({
+  const alert = await sendInternalAlert({
     admin,
 
     order,
@@ -1726,9 +1845,9 @@ async function processProofSent(
       holdRule,
 
     elapsed:
-      `${elapsedDays.toFixed(
-        1,
-      )} days`,
+      formatElapsedHours(
+        elapsedDays * 24,
+      ),
 
     message:
       `${order.name} has not received proof approval by day 10. The order has been placed On Hold.`,
@@ -1753,6 +1872,9 @@ async function processProofSent(
     order,
     `MSG-12: Proof not approved by day 10. Order moved to On Hold.`,
   );
+
+  result.emailed =
+    alert.recipients.length > 0;
 
   result.movedToOnHold =
     true;
@@ -1943,8 +2065,10 @@ async function processOrder(
       summary.ordersOnHold +=
         1;
 
-      summary.alertsSent +=
-        1;
+      if (result.emailed) {
+        summary.alertsSent +=
+          1;
+      }
     }
 
     if (
@@ -1974,8 +2098,10 @@ async function processOrder(
     if (
       result?.breached
     ) {
-      summary.alertsSent +=
-        1;
+      if (result.emailed) {
+        summary.alertsSent +=
+          1;
+      }
     } else {
       summary.skipped +=
         1;
@@ -2001,8 +2127,10 @@ async function processOrder(
     if (
       result?.breached
     ) {
-      summary.alertsSent +=
-        1;
+      if (result.emailed) {
+        summary.alertsSent +=
+          1;
+      }
     } else {
       summary.skipped +=
         1;
@@ -2037,8 +2165,10 @@ async function processOrder(
   if (
     result?.breached
   ) {
-    summary.alertsSent +=
-      1;
+    if (result.emailed) {
+      summary.alertsSent +=
+        1;
+    }
   } else {
     summary.skipped +=
       1;
@@ -2199,4 +2329,90 @@ export async function runSlaEngine(
   );
 
   return summary;
+}
+/* -------------------------------------------------------------------------- */
+/*                         Daily breach digest (HYV-132)                      */
+/* -------------------------------------------------------------------------- */
+
+const DIGEST_ORDERS_QUERY = `#graphql
+  query BreachDigestOrders($query: String!, $after: String) {
+    orders(first: 50, after: $after, query: $query, sortKey: UPDATED_AT, reverse: true) {
+      nodes {
+        id
+        name
+        tags
+        customer { displayName }
+        productionStatus: metafield(namespace: "$app", key: "production_status") { value }
+        breachLog: metafield(namespace: "$app", key: "breach_log") { value }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }`;
+
+/**
+ * One email a day to Customer Service with the breaches of the last 24 hours,
+ * grouped by the status each order is in now. Read from each order's breach
+ * log, which every alert writes with its time, so an order breached twice
+ * shows both. Sent even when there were none, so a quiet day reads as quiet
+ * rather than as a missing email.
+ * @returns {Promise<{sent:boolean, orders:number, breaches:number, to?:string[], reason?:string}>}
+ */
+export async function sendBreachDigest(admin, { now = new Date() } = {}) {
+  const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const breachTags = [
+    ...Object.values(SLA_RULES).map((rule) => rule.breachTag),
+    `${BREACH_TAG_PREFIX}proof-sent`,
+  ];
+  // Every order carrying a breach tag, newest first; which breaches fall in
+  // the last 24 hours is read from each order's own breach log below.
+  const query = breachTags.map((tag) => `tag:'${tag}'`).join(" OR ");
+
+  const orders = [];
+  let after = null;
+  for (let page = 0; page < 10; page += 1) {
+    const response = await admin.graphql(DIGEST_ORDERS_QUERY, { variables: { query, after } });
+    const data = await parseGraphQLResponse(response, "BreachDigestOrders");
+    const connection = data.data?.orders;
+    orders.push(...(connection?.nodes || []));
+    if (!connection?.pageInfo?.hasNextPage) break;
+    after = connection.pageInfo.endCursor;
+  }
+
+  const groups = new Map();
+  let breaches = 0;
+  for (const order of orders) {
+    const entries = String(order.breachLog?.value || "")
+      .split("\n")
+      .map((line) => line.match(/^\[([^\]]+)\]\s*(MSG-\d+)/))
+      .filter((match) => match && new Date(match[1]) >= since && new Date(match[1]) <= now)
+      .map((match) => ({ at: match[1], name: ALERT_NAMES[match[2]] || match[2], code: match[2] }));
+    if (!entries.length) continue;
+    breaches += entries.length;
+    const status = statusLabel(getCurrentStatus(order));
+    if (!groups.has(status)) groups.set(status, []);
+    groups.get(status).push({
+      orderName: order.name,
+      customerName: order.customer?.displayName || "",
+      breaches: entries.map((entry) => `${entry.code} ${entry.name}`),
+      adminUrl: process.env.SHOPIFY_APP_URL
+        ? `${process.env.SHOPIFY_APP_URL}/app/production-orders/${getNumericOrderId(order.id)}`
+        : "",
+    });
+  }
+
+  const recipients = await getNotificationRecipients(admin, DIGEST_ROLES);
+  const orderCount = [...groups.values()].reduce((n, rows) => n + rows.length, 0);
+  if (!recipients.length) return { sent: false, orders: orderCount, breaches, reason: "No Customer Service recipients" };
+
+  const to = [...new Set(recipients.map((recipient) => recipient.email))];
+  const statusOrder = STATUS_OPTIONS.map((option) => option.label);
+  await sendBreachDigestEmail({
+    to,
+    since,
+    now,
+    groups: [...groups.entries()]
+      .sort(([a], [b]) => statusOrder.indexOf(a) - statusOrder.indexOf(b))
+      .map(([status, rows]) => ({ status, orders: rows })),
+  });
+  return { sent: true, orders: orderCount, breaches, to };
 }

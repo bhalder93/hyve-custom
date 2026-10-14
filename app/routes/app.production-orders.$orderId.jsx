@@ -1,3 +1,5 @@
+import { singaporeDayDiff, singaporeDateKey, addCalendarDays } from "../utils/date.js";
+import { formatDateTime as formatDate, formatDay } from "../utils/date.js";
 // app/routes/app.production-orders.$orderId.jsx
 /* eslint-disable react/prop-types */
 
@@ -36,6 +38,7 @@ import {
   updateLineItemArtworkAttributesInPayload,
 } from "../lib/order-artwork.server";
 import { loadPickupConfig } from "../lib/pickup-config.server";
+import { loadInvoiceDocument } from "../lib/invoice-document.server";
 import { staffMemberLabel } from "../lib/staff-member.server";
 import { NOTIFICATIONS_PAUSED_TAG } from "../utils/sla-engine.server";
 import { statusEmailWanted } from "../lib/notification-preferences.server";
@@ -61,6 +64,7 @@ const STATUS_INTENTS = new Set([
   "resubmit_production_photo",
   "send_physical_sample",
   "admin_approve_physical_sample",
+  "admin_request_sample_changes",
   "approve_sample",
   "change_status",
 ]);
@@ -110,40 +114,13 @@ function statusTone(status) {
   }
 }
 
-function formatDate(value) {
-  if (!value) {
-    return "—";
-  }
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-SG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Singapore",
-  }).format(date);
-}
 
 /**
  * A due date as the day alone, in Singapore time. The time of day it carries
  * is only the time the proof was approved, which read as a deadline hour.
  */
-function formatDay(value) {
-  const date = value ? new Date(value) : null;
 
-  if (!date || Number.isNaN(date.getTime())) {
-    return "—";
-  }
-
-  return new Intl.DateTimeFormat("en-SG", {
-    dateStyle: "medium",
-    timeZone: "Asia/Singapore",
-  }).format(date);
-}
 
 function formatMoney(amount, currency) {
   const numeric = Number(amount);
@@ -174,6 +151,18 @@ function latestSampleStatus(order) {
   }
 }
 
+function physicalSampleStatusLabel(status) {
+  if (status === "sent") return "AWAITING CUSTOMER APPROVAL";
+  if (status === "changes_requested") return "CHANGES REQUESTED";
+  return status ? status.replaceAll("_", " ").toUpperCase() : "NOT SENT";
+}
+
+function physicalSampleStatusTone(status) {
+  if (status === "approved") return "success";
+  if (status === "sent" || status === "changes_requested") return "warning";
+  return "neutral";
+}
+
 function validateHttpUrl(value) {
   try {
     const url = new URL(value);
@@ -185,7 +174,7 @@ function validateHttpUrl(value) {
 }
 
 /** On Hold's moves depend on where it was held, so it takes the history (HYV-100). */
-function canTransition(currentStatus, nextStatus, history = []) {
+function canTransition(currentStatus, nextStatus, history = [], options = {}) {
   if (
     (currentStatus === "production-complete" || currentStatus === "on-hold") &&
     nextStatus === READY_FOR_COLLECTION_STATUS
@@ -193,7 +182,7 @@ function canTransition(currentStatus, nextStatus, history = []) {
     return true;
   }
 
-  return allowedMoves(currentStatus, history).includes(nextStatus);
+  return allowedMoves(currentStatus, history, options).includes(nextStatus);
 }
 
 function getCustomerEmail(order) {
@@ -275,6 +264,22 @@ export function getNextStepInfo(order, history = []) {
     };
   }
 
+  // A blank order needs no artwork, so it goes straight to production
+  // (HYV-120, Michael's F20).
+  if (currentStatus === "order-placed" && order.noArtwork) {
+    return {
+      nextStatus: "in-production",
+      nextLabel: "In Production",
+      actionVerb: "Start Production",
+      isWaitingCustomer: false,
+      waitingReason: null,
+      currentAction: "Order received. This order has no decoration, so there is no artwork or proof.",
+      stageTitle: "1. Order Received",
+      description: "No artwork is needed for this order. Start production when it is ready.",
+      canProceed: true,
+    };
+  }
+
   if (currentStatus === "order-placed") {
     const artworkNeeded = Boolean(order.artworkRequired);
     return {
@@ -332,8 +337,8 @@ export function getNextStepInfo(order, history = []) {
       isWaitingCustomer: true,
       waitingReason: `Physical sample v${version} has been sent to the customer. Bulk production cannot start until the customer inspects and approves the sample.`,
       currentAction: `Awaiting customer approval on Physical Sample v${version}.`,
-      stageTitle: "Sample Review",
-      description: "Bulk production cannot begin until the pre-production sample is approved by the customer.",
+      stageTitle: "Physical Sample Awaiting Approval",
+      description: "The physical sample has been sent. Bulk production cannot begin until the customer approves it.",
       canProceed: false,
     };
   }
@@ -341,12 +346,12 @@ export function getNextStepInfo(order, history = []) {
   if (currentStatus === "sample-preparation" || (isSampleOrder && currentStatus === "proof-approved" && order.physicalSampleStatus !== "approved" && !order.sampleApproved)) {
     return {
       nextStatus: "sample-review",
-      nextLabel: "Sample Review",
-      actionVerb: "Dispatch Sample",
+      nextLabel: "Awaiting Sample Approval",
+      actionVerb: "Dispatch Physical Sample",
       isWaitingCustomer: false,
       waitingReason: "This order requires a physical pre-production sample to be manufactured, sent, and approved by the customer before mass manufacturing can begin.",
       currentAction: "Physical sample required prior to mass production.",
-      stageTitle: "Sample Preparation",
+      stageTitle: "Physical Sample Preparation",
       description: "Prepare the physical sample, then send it with Dispatch Physical Sample below. Production has not started.",
       canProceed: false,
     };
@@ -1564,7 +1569,7 @@ async function sendCustomerStatusEmail({
       let estimatedShipDate = order.estimatedShipDate?.value;
       if (!estimatedShipDate && productionDueAt) {
         const d = new Date(productionDueAt);
-        d.setDate(d.getDate() + 5);
+        d.setUTCDate(d.getUTCDate() + 5);
         estimatedShipDate = d.toISOString();
       }
       const isSample = order.physicalSampleRequired?.value === "true" || hasPhysicalSample(order) || status === "sample-preparation";
@@ -1612,16 +1617,51 @@ async function sendCustomerStatusEmail({
 
     case READY_FOR_COLLECTION_STATUS: {
       const pickupConfig = await loadPickupConfig(admin);
+      const collectionDetails = { readyDate, numberOfCartons, grossWeight, cbm };
       return sendReadyForCollectionEmail({
         ...common,
-        collectionDetails: { readyDate, numberOfCartons, grossWeight, cbm },
+        collectionDetails,
         pickupConfig: pickupConfig.values || {},
+        attachments: await collectionDocuments(admin, orderId, collectionDetails),
       });
     }
 
     default:
       return null;
   }
+}
+
+/**
+ * The commercial invoice and the packing list, attached to the Ready For
+ * Collection email for the buyer's forwarder (HYV-160). The invoice is the
+ * order's own invoice, as the portal's Invoice button gives it. Either one
+ * that can't be built is left off, and the email says only what's attached.
+ */
+async function collectionDocuments(admin, orderId, collectionDetails) {
+  const attachments = [];
+  try {
+    const doc = await loadInvoiceDocument(admin, orderId, { system: true });
+    if (!doc) return attachments;
+    const reference = String(doc.reference || "").replace(/[^A-Za-z0-9._-]/g, "");
+    try {
+      const { buildInvoicePdf } = await import("../lib/invoice-pdf.server.jsx");
+      // Without the product photos: they made the email heavy and slow to
+      // build, and a forwarder doesn't need them.
+      const textOnly = { ...doc, rows: (doc.rows || []).map((row) => ({ ...row, image: "" })) };
+      attachments.push({ kind: "invoice", filename: `commercial-invoice-${reference}.pdf`, content: await buildInvoicePdf(textOnly) });
+    } catch (error) {
+      console.error("[ready-for-collection] commercial invoice not built:", error?.message || error);
+    }
+    try {
+      const { buildPackingListPdf } = await import("../lib/packing-list-pdf.server.jsx");
+      attachments.push({ kind: "packing-list", filename: `packing-list-${reference}.pdf`, content: await buildPackingListPdf(doc, collectionDetails) });
+    } catch (error) {
+      console.error("[ready-for-collection] packing list not built:", error?.message || error);
+    }
+  } catch (error) {
+    console.error("[ready-for-collection] order documents not loaded:", error?.message || error);
+  }
+  return attachments;
 }
 
 async function sendCurrentCustomerStatusEmail({
@@ -1819,6 +1859,9 @@ export async function loader({ request, params }) {
         productionDueAt,
 
         artworkRequired: order.artworkRequired?.value === "true",
+        // Set false only for a blank order; an order without the field keeps
+        // the artwork steps.
+        noArtwork: order.artworkRequired?.value === "false",
 
         rush: order.rush?.value === "true",
 
@@ -1956,7 +1999,7 @@ export async function action({ request, params }) {
       let estimatedShipDate = order.estimatedShipDate?.value;
       if (!estimatedShipDate && order.productionDueAt?.value) {
         const d = new Date(order.productionDueAt.value);
-        d.setDate(d.getDate() + 5);
+        d.setUTCDate(d.getUTCDate() + 5);
         estimatedShipDate = d.toISOString();
       }
 
@@ -1987,13 +2030,58 @@ export async function action({ request, params }) {
       };
     }
 
+    if (intent === "resend_ready_for_collection_email") {
+      const order = await getOrder(admin, orderId);
+      const currentStatus =
+        order.productionStatus?.value ||
+        (order.tags ?? []).find((tag) => tag.startsWith("hyve-status:"))?.replace("hyve-status:", "") ||
+        "";
+
+      if (currentStatus !== READY_FOR_COLLECTION_STATUS) {
+        return {
+          success: false,
+          formError: "The Ready for Collection email can only be resent while the order is Ready For Collection.",
+        };
+      }
+
+      const customerEmail = getCustomerEmail(order);
+      if (!customerEmail) {
+        return { success: false, formError: "Customer email is missing." };
+      }
+
+      const pickupConfig = await loadPickupConfig(admin);
+      const collectionDetails = {
+        readyDate: order.collectionReadyDate?.value || "",
+        numberOfCartons: order.collectionCartons?.value || "",
+        grossWeight: order.collectionGrossWeight?.value || "",
+        cbm: order.collectionCbm?.value || "",
+      };
+      await sendReadyForCollectionEmail({
+        customerEmail,
+        customerName: order.customer?.displayName || order.shippingAddress?.name || "Customer",
+        orderName: order.name,
+        orderDate: order.createdAt,
+        lineItems: order.lineItems?.nodes || [],
+        collectionDetails,
+        pickupConfig: pickupConfig.values || {},
+        // The same commercial invoice and packing list as the first email,
+        // with the figures as saved now (HYV-160).
+        attachments: await collectionDocuments(admin, orderId, collectionDetails),
+      });
+
+      return {
+        success: true,
+        message: `Ready for Collection email resent to ${customerEmail}.`,
+      };
+    }
+
     if (intent === "set_production_due_date") {
       const value = String(formData.get("productionDueAt") || "").trim();
       if (value && !/^\d{4}-\d{2}-\d{2}/.test(value)) {
         return { success: false, formError: "Enter the production due date as a date." };
       }
       const isoValue = value
-        ? (value.includes("T") ? new Date(value).toISOString() : new Date(`${value}T12:00:00.000Z`).toISOString())
+        ? (value.includes("T") ? new Date(value).toISOString() : new Date(`${value}T12:00:00+08:00`).toISOString())
         : null;
       const identifier = {
         ownerId: orderId,
@@ -2212,6 +2300,7 @@ export async function action({ request, params }) {
         success: true,
         message: `Artwork Proof v${proofVersion} approved. ${isSampleOrder ? "Moved to Sample Preparation." : `Production due ${formatDate(productionDueAt)}.`}${emailSent ? " Customer email sent." : ""}`,
         emailWarning,
+        emailRetryStatus: emailWarning ? approvedStatus : null,
       };
     }
 
@@ -2494,7 +2583,78 @@ export async function action({ request, params }) {
         success: true,
         message: `Production photo version ${nextProductionPhotoVersion} submitted for approval.`,
         emailWarning,
+        emailRetryStatus: emailWarning ? "production-complete" : null,
       };
+    }
+
+    if (intent === "retry_customer_status_email") {
+      const order = await getOrder(admin, orderId);
+      const status = String(formData.get("status") || "");
+      const currentStatus =
+        order.productionStatus?.value ||
+        (order.tags ?? []).find((tag) => tag.startsWith("hyve-status:"))?.replace("hyve-status:", "") ||
+        "";
+
+      if (!CUSTOMER_EMAIL_STATUSES.has(status) || currentStatus !== status) {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError: "The order status has changed. Refresh the page before retrying its email.",
+        };
+      }
+
+      try {
+        const result = await sendCurrentCustomerStatusEmail({
+          admin,
+          order,
+          orderId,
+          status,
+          proofUrl: order.proofUrl?.value || "",
+          proofVersion: Number(order.proofVersion?.value || 0),
+          productionDueAt: order.productionDueAt?.value || null,
+          productionPhotoUrl: order.productionPhotoUrl?.value || "",
+          productionPhotoVersion: Number(order.productionPhotoVersion?.value || 0),
+          readyDate: order.collectionReadyDate?.value || "",
+          numberOfCartons: order.collectionCartons?.value || "",
+          grossWeight: order.collectionGrossWeight?.value || "",
+          cbm: order.collectionCbm?.value || "",
+        });
+
+        if (result.sent) {
+          return {
+            success: true,
+            message: `Customer email for ${getStatusLabel(status)} sent successfully.`,
+          };
+        }
+
+        if (result.alreadySent) {
+          return {
+            success: true,
+            message: `The customer email for ${getStatusLabel(status)} was already sent.`,
+          };
+        }
+
+        if (result.optedOut) {
+          return {
+            success: true,
+            message: "The customer has turned off status emails, so no email was sent.",
+          };
+        }
+
+        return {
+          success: false,
+          fieldErrors: {},
+          formError: "This status does not have a customer email to resend.",
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to send the customer email.";
+        return {
+          success: true,
+          message: "The production status remains saved.",
+          emailWarning: `The customer email could not be sent: ${message}`,
+          emailRetryStatus: status,
+        };
+      }
     }
 
     if (intent === "retry_proof_email") {
@@ -2724,6 +2884,7 @@ export async function action({ request, params }) {
           ? `Physical Sample Version ${nextVersion} dispatched and "Physical Sample Ready For Review" email sent to ${customerEmail}.`
           : `Physical Sample Version ${nextVersion} dispatched.`,
         emailWarning,
+        emailRetryStatus: emailWarning && customerEmail ? "sample-review" : null,
       };
     }
 
@@ -2826,6 +2987,112 @@ export async function action({ request, params }) {
       return {
         success: true,
         message: `Physical Sample Version ${currentVersion} approved on behalf of customer.`,
+      };
+    }
+
+    if (intent === "admin_request_sample_changes") {
+      const order = await getOrder(admin, orderId);
+      const currentStatus = order.productionStatus?.value || "";
+      const changeNote = String(formData.get("physicalSampleDecisionNote") || "").trim();
+
+      if (currentStatus !== "sample-review") {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError: "Sample changes can only be requested while the customer review is pending.",
+        };
+      }
+
+      if (!changeNote) {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError: "Enter the changes required for the physical sample.",
+        };
+      }
+
+      let currentHistory = [];
+      try {
+        currentHistory = JSON.parse(order.physicalSampleHistory?.value || "[]") || [];
+      } catch {
+        currentHistory = [];
+      }
+
+      const latestSample = currentHistory.reduce(
+        (latest, entry) => (Number(entry.sampleVersion) > Number(latest?.sampleVersion) ? entry : latest),
+        null,
+      );
+      if (!latestSample || latestSample.status !== "sent") {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError: "There is no dispatched physical sample awaiting a decision.",
+        };
+      }
+
+      const changedAt = new Date().toISOString();
+      const changedBy = (await staffMemberLabel(request, sessionToken)) || "Shopify Admin";
+      const updatedHistory = currentHistory.map((entry) =>
+        entry === latestSample
+          ? {
+              ...entry,
+              status: "changes_requested",
+              response: changeNote,
+              responseDate: changedAt,
+              approvedBy: changedBy,
+              approvalSource: "admin",
+            }
+          : entry,
+      );
+
+      const response = await admin.graphql(
+        `#graphql
+          mutation RequestPhysicalSampleChanges($metafields: [MetafieldsSetInput!]!) {
+            metafieldsSet(metafields: $metafields) {
+              userErrors { field message code }
+            }
+          }
+        `,
+        {
+          variables: {
+            metafields: [{
+              ownerId: orderId,
+              namespace: "$app",
+              key: "physical_sample_history",
+              type: "json",
+              value: JSON.stringify(updatedHistory),
+            }],
+          },
+        },
+      );
+      const data = await parseGraphQL(response, "RequestPhysicalSampleChanges");
+      throwUserErrors(data.data?.metafieldsSet?.userErrors, "RequestPhysicalSampleChanges");
+
+      await setOrderMetafields(admin, {
+        orderId,
+        status: "sample-preparation",
+        changedAt,
+      });
+
+      const productionTags = (order.tags ?? []).filter((tag) => tag.startsWith("hyve-status:"));
+      await removeTags(admin, orderId, productionTags);
+      await addTags(admin, orderId, ["hyve-status:sample-preparation"]);
+
+      await createHistory(admin, {
+        orderId,
+        orderName: order.name,
+        fromStatus: currentStatus,
+        toStatus: "sample-preparation",
+        changedAt,
+        changedBy,
+        ipAddress,
+        userAgent,
+        note: `Changes requested to Physical Sample v${latestSample.sampleVersion}: ${changeNote}`,
+      });
+
+      return {
+        success: true,
+        message: `Changes requested for Physical Sample v${latestSample.sampleVersion}. Prepare and dispatch a revised sample.`,
       };
     }
 
@@ -2957,7 +3224,7 @@ export async function action({ request, params }) {
     const history =
       currentStatus === "on-hold" ? await getStatusHistory(admin, orderId) : [];
 
-    if (!canTransition(currentStatus, nextStatus, history)) {
+    if (!canTransition(currentStatus, nextStatus, history, { noArtwork: order.artworkRequired?.value === "false" })) {
       return {
         success: false,
 
@@ -3306,6 +3573,8 @@ ${collectionAudit}`
 
       emailWarning,
 
+      emailRetryStatus: emailWarning ? nextStatus : null,
+
       emailAlreadySent,
 
       fieldErrors: {},
@@ -3519,20 +3788,27 @@ function TimelineItem({ item, isLatest, currentOnHoldReason }) {
 
 function getWorkflowSteps(order) {
   const isCustomerFreight = Boolean(order?.customerArrangedFreight);
-  return [
+  const requiresPhysicalSample =
+    Boolean(order?.physicalSampleRequired || order?.hasPhysicalSample) ||
+    ["sample-preparation", "sample-review"].includes(order?.productionStatus);
+  const steps = [
     { key: "order-placed", label: "Order Received", stepNumber: 1 },
     { key: "artwork-received", label: "Artwork Received", stepNumber: 2 },
     { key: "proof-sent", label: "Proof Sent", stepNumber: 3 },
     { key: "proof-approved", label: "Proof Approved", stepNumber: 4 },
+    ...(requiresPhysicalSample
+      ? [{ key: "sample-preparation", label: "Physical Sample" }]
+      : []),
     { key: "in-production", label: "In Production", stepNumber: 5 },
     { key: "production-complete", label: "Production Complete", stepNumber: 6 },
     {
       key: isCustomerFreight ? "ready-for-collection" : "shipped",
       label: isCustomerFreight ? "Ready for Collection" : "Shipped",
-      stepNumber: 7,
     },
-    { key: "delivered", label: "Delivered", stepNumber: 8 },
+    { key: "delivered", label: "Delivered" },
   ];
+
+  return steps.map((step, index) => ({ ...step, stepNumber: index + 1 }));
 }
 
 function getDueStatus(dueAt, status) {
@@ -3544,11 +3820,7 @@ function getDueStatus(dueAt, status) {
   const dueDate = new Date(dueAt);
   if (Number.isNaN(dueDate.getTime())) return null;
 
-  const now = new Date();
-  const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dueDay = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
-
-  const diffDays = Math.round((dueDay.getTime() - nowDay.getTime()) / (1000 * 60 * 60 * 24));
+  const diffDays = singaporeDayDiff(dueDate);
 
   if (diffDays < 0) {
     return {
@@ -3589,7 +3861,10 @@ function ProductionStepper({ order, history = [] }) {
   const heldFrom =
     history?.find((h) => h?.toStatus === "on-hold")?.fromStatus || "proof-sent";
 
-  const effectiveStatus = isHeld ? heldFrom : currentStatus;
+  const statusForStep = isHeld ? heldFrom : currentStatus;
+  const effectiveStatus = statusForStep === "sample-review"
+    ? "sample-preparation"
+    : statusForStep;
   const currentStepIndex = steps.findIndex((s) => s.key === effectiveStatus);
   const activeIndex = currentStepIndex >= 0 ? currentStepIndex : 0;
 
@@ -3726,22 +4001,7 @@ function ProductionStepper({ order, history = [] }) {
 }
 
 function formatInputDatePreview(val) {
-  if (!val) return null;
-  const parts = String(val).trim().split("-");
-  if (parts.length === 3 && parts[0].length === 4) {
-    const y = Number(parts[0]);
-    const m = Number(parts[1]) - 1;
-    const d = Number(parts[2]);
-    const dt = new Date(y, m, d);
-    if (!Number.isNaN(dt.getTime())) {
-      return new Intl.DateTimeFormat("en-SG", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      }).format(dt);
-    }
-  }
-  return val;
+  return formatDay(val, null);
 }
 
 const MONTH_NAMES = [
@@ -3753,12 +4013,13 @@ const DAY_HEADERS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 function DatePickerInput({
   label = "Date",
   details,
-  value = "",
+  value: rawValue = "",
   error,
   onChange,
   onClear,
   inline = false,
 }) {
+  const value = rawValue ? singaporeDateKey(rawValue) : "";
   const containerRef = useRef(null);
   const [isOpen, setIsOpen] = useState(false);
 
@@ -3768,7 +4029,7 @@ function DatePickerInput({
       const parts = String(value).split("-");
       if (parts[0] && parts[0].length === 4) return Number(parts[0]);
     }
-    return new Date().getFullYear();
+    return Number(singaporeDateKey().slice(0, 4));
   });
 
   const [viewMonth, setViewMonth] = useState(() => {
@@ -3776,7 +4037,7 @@ function DatePickerInput({
       const parts = String(value).split("-");
       if (parts[1]) return Number(parts[1]) - 1;
     }
-    return new Date().getMonth();
+    return Number(singaporeDateKey().slice(5, 7)) - 1;
   });
 
   // Keep view aligned when value changes externally
@@ -3817,13 +4078,7 @@ function DatePickerInput({
     return formatInputDatePreview(value);
   }, [value]);
 
-  const todayStr = useMemo(() => {
-    const t = new Date();
-    const y = t.getFullYear();
-    const m = String(t.getMonth() + 1).padStart(2, "0");
-    const d = String(t.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  }, []);
+  const todayStr = singaporeDateKey();
 
   const handlePrevMonth = (e) => {
     e.stopPropagation();
@@ -3863,24 +4118,14 @@ function DatePickerInput({
   const handleSetTomorrow = (e) => {
     e?.preventDefault();
     e?.stopPropagation();
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const yyyy = tomorrow.getFullYear();
-    const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
-    const dd = String(tomorrow.getDate()).padStart(2, "0");
-    onChange?.(`${yyyy}-${mm}-${dd}`);
+    onChange?.(singaporeDateKey(addCalendarDays(new Date(), 1)));
     if (!inline) setIsOpen(false);
   };
 
   const handleSetDaysAhead = (days) => (e) => {
     e?.preventDefault();
     e?.stopPropagation();
-    const target = new Date();
-    target.setDate(target.getDate() + days);
-    const yyyy = target.getFullYear();
-    const mm = String(target.getMonth() + 1).padStart(2, "0");
-    const dd = String(target.getDate()).padStart(2, "0");
-    onChange?.(`${yyyy}-${mm}-${dd}`);
+    onChange?.(singaporeDateKey(addCalendarDays(new Date(), days)));
     if (!inline) setIsOpen(false);
   };
 
@@ -3894,13 +4139,13 @@ function DatePickerInput({
 
   // Calendar matrix calculations
   const { leadingBlanks, daysInMonth } = useMemo(() => {
-    const firstDay = new Date(viewYear, viewMonth, 1);
-    const leading = (firstDay.getDay() + 6) % 7; // Monday = 0
-    const count = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const firstDay = new Date(Date.UTC(viewYear, viewMonth, 1));
+    const leading = (firstDay.getUTCDay() + 6) % 7; // Monday = 0
+    const count = new Date(Date.UTC(viewYear, viewMonth + 1, 0)).getUTCDate();
     return { leadingBlanks: leading, daysInMonth: count };
   }, [viewYear, viewMonth]);
 
-  const currentYear = new Date().getFullYear();
+  const currentYear = Number(singaporeDateKey().slice(0, 4));
   const yearOptions = useMemo(() => {
     const yrs = [];
     for (let y = currentYear - 2; y <= currentYear + 6; y++) {
@@ -4188,23 +4433,7 @@ function DatePickerInput({
         </div>
 
         <div style={{ display: "flex", gap: "6px" }}>
-          {value && (
-            <button
-              type="button"
-              onClick={handleClear}
-              style={{
-                background: "none",
-                border: "none",
-                padding: "4px 6px",
-                fontSize: "11px",
-                fontWeight: 500,
-                color: "#d72c0d",
-                cursor: "pointer",
-              }}
-            >
-              Clear
-            </button>
-          )}
+          
           {!inline && (
             <button
               type="button"
@@ -4249,78 +4478,7 @@ function DatePickerInput({
         >
           {label}
         </label>
-        <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={handleSetToday}
-            style={{
-              background: "none",
-              border: "none",
-              padding: "0 2px",
-              fontSize: "11px",
-              color: "#005bd3",
-              cursor: "pointer",
-              fontWeight: 500,
-              textDecoration: "underline",
-            }}
-          >
-            Today
-          </button>
-          <span style={{ fontSize: "11px", color: "#8c9196" }}>·</span>
-          <button
-            type="button"
-            onClick={handleSetTomorrow}
-            style={{
-              background: "none",
-              border: "none",
-              padding: "0 2px",
-              fontSize: "11px",
-              color: "#005bd3",
-              cursor: "pointer",
-              fontWeight: 500,
-              textDecoration: "underline",
-            }}
-          >
-            Tomorrow
-          </button>
-          <span style={{ fontSize: "11px", color: "#8c9196" }}>·</span>
-          <button
-            type="button"
-            onClick={handleSetDaysAhead(5)}
-            style={{
-              background: "none",
-              border: "none",
-              padding: "0 2px",
-              fontSize: "11px",
-              color: "#005bd3",
-              cursor: "pointer",
-              fontWeight: 500,
-              textDecoration: "underline",
-            }}
-          >
-            +5d
-          </button>
-          {value && (
-            <>
-              <span style={{ fontSize: "11px", color: "#8c9196" }}>·</span>
-              <button
-                type="button"
-                onClick={handleClear}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: "0 2px",
-                  fontSize: "11px",
-                  color: "#d72c0d",
-                  cursor: "pointer",
-                  fontWeight: 500,
-                }}
-              >
-                Clear
-              </button>
-            </>
-          )}
-        </div>
+      
       </div>
 
       {details && (
@@ -4329,47 +4487,7 @@ function DatePickerInput({
         </span>
       )}
 
-      {/* Selected Date Confirmation */}
-      {value && formattedPreview && formattedPreview !== "—" ? (
-        <div
-          style={{
-            fontSize: "12px",
-            color: "#616161",
-            display: "flex",
-            alignItems: "center",
-            gap: "5px",
-            padding: "4px 8px",
-            backgroundColor: "#f0fdf4",
-            border: "1px solid #bbf7d0",
-            borderRadius: "6px",
-          }}
-        >
-          <span
-            style={{
-              display: "inline-block",
-              width: "6px",
-              height: "6px",
-              borderRadius: "50%",
-              backgroundColor: "#16a34a",
-              flexShrink: 0,
-            }}
-          />
-          <span>
-            {label ? `${label}: ` : "Selected date: "}<strong style={{ color: "#15803d" }}>{formattedPreview}</strong>
-          </span>
-        </div>
-      ) : (
-        <div
-          style={{
-            fontSize: "12px",
-            color: "#6d7175",
-            fontStyle: "italic",
-            padding: "4px 8px",
-          }}
-        >
-          No date selected (choose from the calendar below)
-        </div>
-      )}
+    
 
       {/* If inline, display the calendar directly. Otherwise render trigger button with popover */}
       {inline ? (
@@ -4517,6 +4635,7 @@ export default function ProductionOrderDetailsPage() {
   const [shipDate, setShipDate] = useState(order?.estimatedShipDate || "");
   const [physicalSampleFileUrl, setPhysicalSampleFileUrl] = useState("");
   const [physicalSampleNote, setPhysicalSampleNote] = useState("");
+  const [physicalSampleDecisionNote, setPhysicalSampleDecisionNote] = useState("");
   const [holdReasonInput, setHoldReasonInput] = useState("");
   const [isEditingCollection, setIsEditingCollection] = useState(false);
 
@@ -4561,6 +4680,7 @@ export default function ProductionOrderDetailsPage() {
       setProductionApprovalNote("");
       setPhysicalSampleFileUrl("");
       setPhysicalSampleNote("");
+      setPhysicalSampleDecisionNote("");
     }
     if (actionData?.formError) {
       shopify.toast.show(actionData.formError, { isError: true });
@@ -4571,6 +4691,12 @@ export default function ProductionOrderDetailsPage() {
   }, [actionData]);
 
   const busy = navigation.state !== "idle";
+  const dispatchingPhysicalSample =
+    busy && navigation.formData?.get("intent") === "send_physical_sample";
+  const retryingCustomerEmail =
+    busy && navigation.formData?.get("intent") === "retry_customer_status_email";
+  const resendingReadyForCollectionEmail =
+    busy && navigation.formData?.get("intent") === "resend_ready_for_collection_email";
 
   function clearFieldError(field) {
     setClientErrors((current) => ({
@@ -4680,6 +4806,7 @@ export default function ProductionOrderDetailsPage() {
         order.productionStatus,
         targetStatus,
         loaderData.history || [],
+        { noArtwork: order.noArtwork },
       )
     ) {
       errors.nextStatus = "This production status transition is not allowed.";
@@ -4775,6 +4902,17 @@ export default function ProductionOrderDetailsPage() {
     });
   }
 
+  function requestPhysicalSampleChanges() {
+    if (!physicalSampleDecisionNote.trim()) {
+      shopify.toast.show("Enter the changes required for the physical sample.", { isError: true });
+      return;
+    }
+
+    submitIntent("admin_request_sample_changes", {
+      physicalSampleDecisionNote: physicalSampleDecisionNote.trim(),
+    });
+  }
+
   function resubmitProductionPhoto() {
     if (!productionPhotoUrl || !validateHttpUrl(productionPhotoUrl)) {
       setClientErrors((current) => ({
@@ -4834,6 +4972,15 @@ export default function ProductionOrderDetailsPage() {
   );
   const totalItemsCount = order.lineItems?.nodes?.length || 0;
   const dueStatus = getDueStatus(order.productionDueAt, order.productionStatus);
+  const pickupHours = [
+    ["Monday", pickupConfig.monday_hours],
+    ["Tuesday", pickupConfig.tuesday_hours],
+    ["Wednesday", pickupConfig.wednesday_hours],
+    ["Thursday", pickupConfig.thursday_hours],
+    ["Friday", pickupConfig.friday_hours],
+    ["Saturday", pickupConfig.saturday_hours],
+    ["Sunday", pickupConfig.sunday_hours],
+  ].filter(([, hours]) => hours);
 
   return (
     <s-page heading={order.name} inlineSize="large">
@@ -4878,7 +5025,20 @@ export default function ProductionOrderDetailsPage() {
           tone="warning"
           heading="Status updated, but customer email was not sent"
         >
-          <s-paragraph>{actionData.emailWarning}</s-paragraph>
+          <s-stack direction="block" gap="small">
+            <s-paragraph>{actionData.emailWarning}</s-paragraph>
+            {actionData.emailRetryStatus && (
+              <s-button
+                variant="secondary"
+                disabled={retryingCustomerEmail ? true : undefined}
+                onClick={() => submitIntent("retry_customer_status_email", {
+                  status: actionData.emailRetryStatus,
+                })}
+              >
+                {retryingCustomerEmail ? "Sending..." : "Retry customer email"}
+              </s-button>
+            )}
+          </s-stack>
         </s-banner>
       )}
 
@@ -5221,14 +5381,13 @@ export default function ProductionOrderDetailsPage() {
                           <s-stack direction="block" gap="base">
                             <s-stack direction="inline" justifyContent="space-between" alignItems="center">
                               <s-heading>Freight Collection Specifications (FOB)</s-heading>
-                              {!isEditingCollection && (order.collectionReadyDate || order.collectionCartons) && (
-                                <s-button
-                                  variant="secondary"
-                                  onClick={() => setIsEditingCollection(true)}
-                                >
-                                  Edit Specifications
-                                </s-button>
-                              )}
+                              {/* <s-button
+                                variant="secondary"
+                                disabled={resendingReadyForCollectionEmail ? true : undefined}
+                                onClick={() => submitIntent("resend_ready_for_collection_email")}
+                              >
+                                {resendingReadyForCollectionEmail ? "Sending..." : "Resend Ready for Collection Email"}
+                              </s-button> */}
                             </s-stack>
 
                             {!isEditingCollection && (order.collectionReadyDate || order.collectionCartons) ? (
@@ -5643,8 +5802,8 @@ export default function ProductionOrderDetailsPage() {
                             </s-heading>
                           </s-stack>
 
-                          <s-badge tone={order.physicalSampleStatus === "approved" ? "success" : order.physicalSampleStatus === "changes_requested" ? "warning" : "info"}>
-                            {order.physicalSampleStatus ? order.physicalSampleStatus.replace("_", " ").toUpperCase() : "AWAITING SAMPLE"}
+                          <s-badge tone={physicalSampleStatusTone(order.physicalSampleStatus)}>
+                            {physicalSampleStatusLabel(order.physicalSampleStatus)}
                           </s-badge>
                         </s-stack>
 
@@ -5653,7 +5812,7 @@ export default function ProductionOrderDetailsPage() {
                             <s-stack direction="block" gap="base">
                               <s-heading>Send Physical Sample</s-heading>
                               <s-text tone="subdued">
-                                Record dispatch of a physical pre-production sample to the customer. The order will transition to Sample Review pending customer approval.
+                                Record dispatch of a physical pre-production sample to the customer. The order will then wait for customer approval.
                               </s-text>
 
                               <ShopifyFileUpload
@@ -5677,7 +5836,7 @@ export default function ProductionOrderDetailsPage() {
 
                               <s-button
                                 variant="primary"
-                                disabled={busy}
+                                disabled={dispatchingPhysicalSample ? true : undefined}
                                 onClick={() => {
                                   const formData = new FormData();
                                   formData.set("intent", "send_physical_sample");
@@ -5686,7 +5845,7 @@ export default function ProductionOrderDetailsPage() {
                                   submit(formData, { method: "post" });
                                 }}
                               >
-                                {busy ? "Processing..." : "Dispatch Physical Sample"}
+                                {dispatchingPhysicalSample ? "Processing..." : "Dispatch Physical Sample"}
                               </s-button>
                             </s-stack>
                           </s-box>
@@ -5697,8 +5856,14 @@ export default function ProductionOrderDetailsPage() {
                             <s-stack direction="block" gap="base">
                               <s-heading>Awaiting Customer Sample Approval</s-heading>
                               <s-text tone="subdued">
-                                Physical sample v{order.physicalSampleVersion} is waiting for customer review. If the customer approved offline, you can approve on their behalf.
+                                Physical sample v{order.physicalSampleVersion} is waiting for customer review. Record the customer&apos;s decision here if they responded outside the email.
                               </s-text>
+                              <s-text-area
+                                label="Change / approval note"
+                                placeholder="Enter the requested sample changes..."
+                                value={physicalSampleDecisionNote}
+                                onInput={(event) => setPhysicalSampleDecisionNote(event.currentTarget.value)}
+                              />
                               <s-stack direction="inline" gap="small" alignItems="center">
                                 <s-button
                                   variant="primary"
@@ -5708,7 +5873,13 @@ export default function ProductionOrderDetailsPage() {
                                 >
                                   {busy ? "Processing..." : "Approve on behalf of customer"}
                                 </s-button>
-
+                                <s-button
+                                  tone="critical"
+                                  disabled={busy}
+                                  onClick={requestPhysicalSampleChanges}
+                                >
+                                  Request Changes
+                                </s-button>
                               </s-stack>
                             </s-stack>
                           </s-box>
@@ -5868,12 +6039,11 @@ export default function ProductionOrderDetailsPage() {
                   ) : (
                     <s-text tone="subdued">No delivery address provided.</s-text>
                   )}
-
-                  {order.customerArrangedFreight &&
-                    (pickupConfig?.pickup_address ||
-                      pickupConfig?.contact_name ||
-                      pickupConfig?.contact_phone ||
-                      pickupConfig?.contact_email) && (
+                  {(pickupConfig?.pickup_address ||
+                    pickupConfig?.contact_name ||
+                    pickupConfig?.contact_phone ||
+                    pickupConfig?.contact_email ||
+                    pickupHours.length > 0) && (
                       <div
                         style={{
                           marginTop: "8px",
@@ -5930,6 +6100,13 @@ export default function ProductionOrderDetailsPage() {
                               </s-link>
                             </s-stack>
                           )}
+
+                          {pickupHours.map(([day, hours]) => (
+                            <s-stack key={day} direction="inline" justifyContent="space-between">
+                              <s-text tone="subdued" style={{ fontSize: 13 }}>{day}:</s-text>
+                              <s-text type="strong" style={{ fontSize: 13 }}>{hours}</s-text>
+                            </s-stack>
+                          ))}
                         </s-stack>
                       </div>
                     )}
@@ -5938,7 +6115,8 @@ export default function ProductionOrderDetailsPage() {
                     !pickupConfig?.pickup_address &&
                     !pickupConfig?.contact_name &&
                     !pickupConfig?.contact_phone &&
-                    !pickupConfig?.contact_email && (
+                    !pickupConfig?.contact_email &&
+                    pickupHours.length === 0 && (
                       <div
                         style={{
                           marginTop: "8px",
