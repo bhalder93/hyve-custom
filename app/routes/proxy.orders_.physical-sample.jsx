@@ -99,6 +99,20 @@ export const action = async ({ request }) => {
     const responseDate = new Date().toISOString();
     const respondedBy = chrome.customer?.name || chrome.customer?.email || "The buyer";
 
+    const ipAddress = (
+      request.headers.get("cf-connecting-ip") ||
+      request.headers.get("true-client-ip") ||
+      request.headers.get("x-shopify-client-ip") ||
+      request.headers.get("x-forwarded-for") ||
+      request.headers.get("x-real-ip") ||
+      ""
+    ).split(",")[0].trim().slice(0, 255);
+    const userAgent = (
+      String(form.get("client_user_agent") || "").trim() ||
+      request.headers.get("user-agent") ||
+      ""
+    ).trim().slice(0, 255);
+
     const newHistoryEntry = {
       sampleVersion: currentVersion,
       status,
@@ -106,6 +120,8 @@ export const action = async ({ request }) => {
       responseDate,
       approvedBy: respondedBy,
       approvalSource: "customer_portal",
+      ...(ipAddress ? { ipAddress } : {}),
+      ...(userAgent ? { userAgent } : {}),
     };
 
     currentHistory.unshift(newHistoryEntry);
@@ -144,9 +160,6 @@ export const action = async ({ request }) => {
         console.error("Failed to calculate production due date on sample approval:", err);
       }
 
-      const ipAddress = (request.headers.get("true-client-ip") || request.headers.get("x-shopify-client-ip") || request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "").split(",")[0].trim();
-      const userAgent = String(form.get("client_user_agent") || "").trim() || request.headers.get("user-agent") || "";
-
       let fileUrl = "";
       if (order.physicalSampleHistory?.value) {
         try {
@@ -164,7 +177,7 @@ export const action = async ({ request }) => {
         { key: "from_status", value: order.productionStatus?.value || "sample-review" },
         { key: "to_status", value: "in-production" },
         { key: "changed_at", value: inProdAt },
-        { key: "changed_by", value: chrome.customer?.name || chrome.customer?.email || "The buyer" },
+        { key: "changed_by", value: respondedBy },
         { key: "source", value: "CUSTOMER_PORTAL" },
         { key: "note", value: `Physical Sample Approved${fileUrl ? `\nIMAGE: ${fileUrl}` : ""}` },
         ...(ipAddress ? [{ key: "ip_address", value: ipAddress }] : []),
@@ -172,7 +185,7 @@ export const action = async ({ request }) => {
       ];
 
       try {
-        await admin.graphql(
+        const histRes = await admin.graphql(
           `#graphql
             mutation CreateHistory($metaobject: MetaobjectCreateInput!) {
               metaobjectCreate(metaobject: $metaobject) { userErrors { message } }
@@ -180,6 +193,10 @@ export const action = async ({ request }) => {
           `,
           { variables: { metaobject: { type: "$app:order_status_history", fields: historyFields } } }
         );
+        const histData = await histRes.json();
+        if (histData?.data?.metaobjectCreate?.userErrors?.length) {
+          console.error("CreateHistory Error:", histData.data.metaobjectCreate.userErrors);
+        }
       } catch (e) {
         console.error("CreateHistory Error:", e, e.graphQLErrors);
       }
@@ -198,7 +215,7 @@ export const action = async ({ request }) => {
         console.error("ClearOnHoldReason Error:", e);
       }
 
-      await syncSampleStatusTags(admin, orderGid, order.tags, "in-production", ["hyve-sample-approved"]);
+      await syncSampleStatusTags(admin, orderGid, order.tags, "in-production", ["hyve-sample-approved", "in-production"]);
     } else {
       const heldAt = new Date().toISOString();
       metafields.push(
@@ -220,9 +237,6 @@ export const action = async ({ request }) => {
         console.error("ClearOnHoldReason Error:", e);
       }
 
-      const ipAddress = (request.headers.get("true-client-ip") || request.headers.get("x-shopify-client-ip") || request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "").split(",")[0].trim();
-      const userAgent = String(form.get("client_user_agent") || "").trim() || request.headers.get("user-agent") || "";
-
       // Add a history item for the transition
       const historyFields = [
         { key: "order_id", value: orderGid },
@@ -230,7 +244,7 @@ export const action = async ({ request }) => {
         { key: "from_status", value: order.productionStatus?.value || "sample-review" },
         { key: "to_status", value: "sample-preparation" },
         { key: "changed_at", value: heldAt },
-        { key: "changed_by", value: chrome.customer?.name || chrome.customer?.email || "The buyer" },
+        { key: "changed_by", value: respondedBy },
         { key: "source", value: "CUSTOMER_PORTAL" },
         { key: "note", value: `Changes requested to Physical Sample: ${message}` },
         ...(ipAddress ? [{ key: "ip_address", value: ipAddress }] : []),
@@ -238,7 +252,7 @@ export const action = async ({ request }) => {
       ];
 
       try {
-        await admin.graphql(
+        const histRes = await admin.graphql(
           `#graphql
             mutation CreateHistory($metaobject: MetaobjectCreateInput!) {
               metaobjectCreate(metaobject: $metaobject) { userErrors { message } }
@@ -246,6 +260,10 @@ export const action = async ({ request }) => {
           `,
           { variables: { metaobject: { type: "$app:order_status_history", fields: historyFields } } }
         );
+        const histData = await histRes.json();
+        if (histData?.data?.metaobjectCreate?.userErrors?.length) {
+          console.error("CreateHistory Error:", histData.data.metaobjectCreate.userErrors);
+        }
       } catch (e) {
         console.error("CreateHistory Error:", e, e.graphQLErrors);
       }

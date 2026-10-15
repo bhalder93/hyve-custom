@@ -22,6 +22,18 @@ export const RECIPIENT_ROLES = [
     label: "Management",
     value: "MANAGEMENT",
   },
+  {
+    label: "Logistics",
+    value: "LOGISTICS",
+  },
+  {
+    label: "Supervisor",
+    value: "SUPERVISOR",
+  },
+  {
+    label: "Daily Digest",
+    value: "DIGEST",
+  },
 ];
 
 export async function getNotificationRecipients(admin) {

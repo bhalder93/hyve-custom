@@ -11,10 +11,11 @@ function linkSignature(orderId, version) {
   return createHmac("sha256", secret).update(`sample-decision|${orderId}|${version}`).digest("base64url");
 }
 
-export function readSampleLink(params) {
-  const orderId = String(params.get("order") || "");
-  const version = String(params.get("v") || "");
-  const given = Buffer.from(String(params.get("sig") || ""));
+export function readSampleLink(params, form = null) {
+  const orderId = String((form && form.get("order")) || (params && params.get("order")) || "");
+  const version = String((form && form.get("v")) || (params && params.get("v")) || "");
+  const sig = String((form && form.get("sig")) || (params && params.get("sig")) || "");
+  const given = Buffer.from(sig);
   if (!/^\d+$/.test(orderId) || !/^\d+$/.test(version)) return null;
 
   const expected = Buffer.from(linkSignature(orderId, version));
@@ -56,12 +57,13 @@ export async function sampleDecisionLinks(admin, orderGid, version) {
  * putting the order On Hold for another reason, or moving it on, ends the
  * wait. The caller checks the latest sample is the one sent.
  */
-export function awaitingSampleDecision(productionStatus, onHoldReason = "") {
-  if (productionStatus === "sample-review" || productionStatus === "proof-approved") return true;
+export function awaitingSampleDecision(productionStatus, onHoldReason = "", latestSampleStatus = "") {
+  if (latestSampleStatus === "sent") return true;
+  if (productionStatus === "sample-review" || productionStatus === "proof-approved" || productionStatus === "sample-preparation") return true;
   const reason = String(onHoldReason || "").trim().toLowerCase();
   return (
     productionStatus === "on-hold" &&
-    (reason.startsWith("physical sample") || reason === "waiting for physical sample approval")
+    (reason.startsWith("physical sample") || reason === "waiting for physical sample approval" || reason.includes("sample"))
   );
 }
 
@@ -93,21 +95,45 @@ export async function loadSampleFromLink(admin, link) {
     // ignore
   }
 
-  history.sort((a, b) => (b.sampleVersion || 0) - (a.sampleVersion || 0));
+  history.sort((a, b) => (Number(b.sampleVersion) || 0) - (Number(a.sampleVersion) || 0));
   const latestSample = history[0] || {};
 
   if (latestSample.status === "approved") {
-    return { ok: false, error: `The physical sample for ${order.name} has already been approved.` };
+    return {
+      ok: false,
+      alreadyDecided: true,
+      decision: "approve",
+      order,
+      sample: latestSample,
+      error: `The physical sample for ${order.name} has already been approved.`,
+    };
+  }
+  if (latestSample.status === "changes_requested") {
+    return {
+      ok: false,
+      alreadyDecided: true,
+      decision: "changes",
+      order,
+      sample: latestSample,
+      error: `Change request for ${order.name} (version ${latestSample.sampleVersion}) has already been received.`,
+    };
   }
   // Only the latest sample, while it waits for an answer: an older email's
   // link, or one already answered, can't move the order again.
   if (latestSample.status !== "sent" || String(latestSample.sampleVersion) !== String(link.version)) {
-    return { ok: false, error: `This link is for a physical sample of ${order.name} that has already been answered.` };
+    return {
+      ok: false,
+      alreadyDecided: true,
+      decision: latestSample.status === "approved" ? "approve" : "changes",
+      order,
+      sample: latestSample,
+      error: `This link is for a physical sample of ${order.name} that has already been answered.`,
+    };
   }
 
-  const productionStatus = order.productionStatus?.value || "";
+  const productionStatus = order.productionStatus?.value || (order.tags || []).find((t) => t.startsWith("hyve-status:"))?.replace("hyve-status:", "") || "";
   const onHoldReason = productionStatus === "on-hold" ? await onHoldReasonOf(admin, order.id) : "";
-  if (!awaitingSampleDecision(productionStatus, onHoldReason)) {
+  if (!awaitingSampleDecision(productionStatus, onHoldReason, latestSample.status)) {
     return { ok: false, error: `${order.name} isn't waiting for a physical sample decision.` };
   }
 
@@ -133,8 +159,14 @@ export async function recordEmailSampleDecision(admin, link, decision, rawMessag
 
   const { order, history } = found;
   const currentVersion = Number(link.version);
-  const recipient = order.customer?.defaultEmailAddress?.emailAddress || order.email;
-  const who = recipient ? `Sample email link (sent to ${recipient})` : "Sample email link";
+  const customerName =
+    order.customer?.displayName ||
+    order.shippingAddress?.name ||
+    "";
+  const customerEmail = order.customer?.defaultEmailAddress?.emailAddress || order.email || "";
+  const who = customerName
+    ? `${customerName}${customerEmail ? ` (${customerEmail})` : ""}`
+    : (customerEmail ? `Customer (${customerEmail})` : "Customer");
   const now = new Date().toISOString();
 
   const status = decision === "approve" ? "approved" : "changes_requested";
@@ -146,6 +178,8 @@ export async function recordEmailSampleDecision(admin, link, decision, rawMessag
     responseDate: now,
     approvedBy: who,
     approvalSource: "email_link",
+    ...(ipAddress ? { ipAddress: String(ipAddress).trim().slice(0, 255) } : {}),
+    ...(userAgent ? { userAgent: String(userAgent).trim().slice(0, 255) } : {}),
   };
 
   // Find existing version or unshift
@@ -240,30 +274,38 @@ export async function recordEmailSampleDecision(admin, link, decision, rawMessag
     console.error("[sample-link] failed to clear on_hold_reason", delErr);
   }
 
-  await syncSampleStatusTags(
-    admin,
-    orderGid,
-    order.tags,
-    nextStatus,
-    decision === "approve" ? ["hyve-sample-approved"] : [],
-  );
+  try {
+    await syncSampleStatusTags(
+      admin,
+      orderGid,
+      order.tags,
+      nextStatus,
+      decision === "approve" ? ["hyve-sample-approved", "in-production"] : [],
+    );
+  } catch (tagErr) {
+    console.error("[sample-link] failed to sync sample status tags:", tagErr);
+  }
 
-  // Record audit history
-  const note = decision === "approve"
-    ? `Physical Sample v${currentVersion} Approved via email link`
-    : `Changes requested to Physical Sample v${currentVersion}: ${message}`;
+  // Record audit history safely
+  try {
+    const note = decision === "approve"
+      ? `Physical Sample v${currentVersion} Approved via email link`
+      : `Changes requested to Physical Sample v${currentVersion}: ${message}`;
 
-  await recordStatusHistory(admin, {
-    order,
-    from: order.productionStatus?.value || "sample-review",
-    to: nextStatus,
-    changedAt: now,
-    changedBy: who,
-    source: SOURCES.proofEmail,
-    note,
-    ipAddress,
-    userAgent,
-  });
+    await recordStatusHistory(admin, {
+      order,
+      from: order.productionStatus?.value || "sample-review",
+      to: nextStatus,
+      changedAt: now,
+      changedBy: who,
+      source: SOURCES.proofEmail,
+      note,
+      ipAddress: String(ipAddress || "").trim().slice(0, 255),
+      userAgent: String(userAgent || "").trim().slice(0, 255),
+    });
+  } catch (histErr) {
+    console.error("[sample-link] failed to record status history:", histErr);
+  }
 
   return { ok: true, orderName: order.name, decision };
 }

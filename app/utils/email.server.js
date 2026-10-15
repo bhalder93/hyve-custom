@@ -4,8 +4,8 @@ import { formatDateTime as formatDate } from "./date.js";
 
 // One SMTP connection for the whole app, shared with the quote and team emails
 // so there is a single pooled transport and a single set of settings.
-import { getMailer, getDefaultFrom, defaultReplyTo, CUSTOMER_SERVICE_EMAIL } from "../lib/email/mailer.server";
-import { customerStatusLabel } from "../lib/portal.server";
+import { getMailer, getDefaultFrom, defaultReplyTo, CUSTOMER_SERVICE_EMAIL } from "../lib/email/mailer.server.js";
+import { customerStatusLabel } from "../lib/portal.server.js";
 
 
 const BRAND = {
@@ -349,7 +349,9 @@ function customerLayout({
  * @param {Array<[string, string]>} [opts.details] label and HTML value rows
  * @param {?string} [opts.detailsAction] HTML action button under the details
  */
-export function brandedEmail({ title, greeting = null, body, details = [], detailsAction = null }) {
+// internal: a staff email (alerts, digests, notices), without the customer
+// help footer (HYV-127).
+export function brandedEmail({ title, greeting = null, body, details = [], detailsAction = null, internal = false }) {
   const detailRows = details
     .map(
       ([label, value]) => `
@@ -485,6 +487,7 @@ export function brandedEmail({ title, greeting = null, body, details = [], detai
                       border-top:1px solid ${BRAND.border};
                     "
                   >
+                    ${internal ? "" : `
                     <div
                       style="
                         font-size:13px;
@@ -504,6 +507,7 @@ export function brandedEmail({ title, greeting = null, body, details = [], detai
                         ${BRAND.supportEmail}
                       </a>
                     </div>
+                    `}
 
                     <div
                       style="
@@ -885,7 +889,24 @@ export async function sendArtworkReminderEmail({
     to: customerEmail,
     subject: `Artwork reminder - ${orderName}`,
     html,
-    text: `We're waiting for your artwork for ${orderName}. We can only prepare your Artwork Proof once it arrives.\n\nUpload it here: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    // The same content as the HTML version: greeting, message, the order's
+    // items and details, and the link (HYV-120).
+    text: [
+      `Hi ${customerName || "there"},`,
+      "",
+      `Reminder: we're waiting for your artwork - ${orderName}`,
+      "",
+      `You chose to send the artwork for order ${orderName} later. We can only prepare your Artwork Proof once it arrives, so production can't start yet.`,
+      "",
+      `Upload Artwork: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+      "Sign in to your account, open the order and upload a file for each item marked Artwork Pending.",
+      "",
+      ...(lineItems.length
+        ? ["Order items", ...lineItems.map((item) => `- ${item.title}${item.variantTitle ? ` (${item.variantTitle})` : ""} x ${item.quantity}`), ""]
+        : []),
+      `Order: ${orderName}`,
+      `Order date: ${formatDate(orderDate)}`,
+    ].join("\n"),
     replyTo: process.env.EMAIL_REPLY_TO,
   });
 }
@@ -1490,6 +1511,7 @@ export async function sendInternalSlaAlert({
 
   // The same branded frame as every customer email (HYV-110).
   const html = brandedEmail({
+    internal: true,
     title: subject,
     body: `
       ${message ? `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;">${escapeHtml(message)}</p>` : ""}
@@ -1516,7 +1538,9 @@ export async function sendInternalSlaAlert({
       `Customer: ${customerName || "—"}\n` +
       `Status: ${status}\n` +
       `Elapsed: ${elapsed || "—"}\n` +
-      `Owner: ${assignedRole || "—"}\n`,
+      `Owner: ${assignedRole || "—"}\n` +
+      (message ? `\n${message}\n` : "") +
+      (adminUrl ? `Open the order: ${adminUrl}\n` : ""),
   });
 }
 
@@ -1553,6 +1577,7 @@ export async function sendBreachDigestEmail({ to, since, now, groups = [] }) {
     .join("");
 
   const html = brandedEmail({
+    internal: true,
     title: "Daily Breach Digest",
     body: `
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
@@ -1593,6 +1618,13 @@ export async function sendOrderOnHoldAlert({
   owner = "",
 }) {
   const recipients = Array.isArray(to) ? to.filter(Boolean).join(",") : to;
+  // The timeline note ends with "Hold Reason: …", which the alert already
+  // shows as Reason: left out here so it isn't printed twice (HYV-127).
+  const extraNote = String(note || "")
+    .split("\n")
+    .filter((line) => line.trim() && line.trim() !== `Hold Reason: ${String(onHoldReason || "").trim()}`)
+    .join("\n")
+    .trim();
   if (!recipients) {
     throw new Error("No recipients specified for On Hold alert.");
   }
@@ -1612,13 +1644,14 @@ export async function sendOrderOnHoldAlert({
     details.push(["Changed By", escapeHtml(changedBy)]);
   }
 
-  if (note && note.trim() && note.trim() !== onHoldReason?.trim()) {
-    details.push(["Note", escapeHtml(note)]);
+  if (extraNote && extraNote !== String(onHoldReason || "").trim()) {
+    details.push(["Note", escapeHtml(extraNote)]);
   }
 
   details.push(["Owner", escapeHtml(owner || "Customer Service")]);
 
   const html = brandedEmail({
+    internal: true,
     title: "Order Placed On Hold",
     body: `
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
@@ -1628,8 +1661,8 @@ export async function sendOrderOnHoldAlert({
         ? `<p style="margin:0 0 14px; line-height:1.7; font-size:14px; color:#475569;"><strong>Reason:</strong> ${escapeHtml(onHoldReason)}</p>`
         : ""
       }
-      ${note && note.trim() && note.trim() !== onHoldReason?.trim()
-        ? `<p style="margin:0 0 14px; line-height:1.7; font-size:14px; color:#475569;"><strong>Note:</strong> ${escapeHtml(note)}</p>`
+      ${extraNote && extraNote !== String(onHoldReason || "").trim()
+        ? `<p style="margin:0 0 14px; line-height:1.7; font-size:14px; color:#475569;"><strong>Note:</strong> ${escapeHtml(extraNote)}</p>`
         : ""
       }
       ${adminUrl
@@ -1650,7 +1683,9 @@ export async function sendOrderOnHoldAlert({
       `Status: On Hold\n` +
       `Reason: ${onHoldReason || "—"}\n` +
       (changedBy ? `Changed By: ${changedBy}\n` : "") +
-      (note && note.trim() && note.trim() !== onHoldReason?.trim() ? `Note: ${note}\n` : ""),
+      (extraNote && extraNote !== String(onHoldReason || "").trim() ? `Note: ${extraNote}\n` : "") +
+      `Owner: ${owner || "Customer Service"}\n` +
+      (adminUrl ? `Open the order: ${adminUrl}\n` : ""),
   });
 }
 

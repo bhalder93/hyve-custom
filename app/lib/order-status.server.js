@@ -21,7 +21,12 @@
  * both must.
  */
 import { sendArtworkReceivedEmail, sendProofApprovedEmail, sendOrderOnHoldAlert } from "../utils/email.server";
-import { getCustomerServiceRecipients, getNotificationRecipients } from "../utils/metaobjects/notification-recipients.server";
+import {
+  getCustomerServiceRecipients,
+  getNotificationRecipients,
+  RECIPIENT_ROLES,
+} from "../utils/metaobjects/notification-recipients.server";
+import { adminOrderUrl } from "./admin-links.server";
 import { statusEmailWanted } from "./notification-preferences.server";
 import { loadCommercialSettings } from "./commercial-settings.server";
 import { syncLineItemArtworkReceived } from "./order-artwork.server";
@@ -261,41 +266,49 @@ export async function writeProductionStatus(
  */
 export async function recordStatusHistory(admin, { order, from, to, changedAt, changedBy, source, note = "", ipAddress = "", userAgent = "" }) {
   const fields = [
-    { key: "order_id", value: order.id },
-    { key: "order_name", value: order.name },
-    { key: "from_status", value: from },
-    { key: "to_status", value: to },
-    { key: "changed_at", value: changedAt },
-    { key: "changed_by", value: changedBy },
-    { key: "source", value: source },
+    { key: "order_id", value: String(order.id) },
+    { key: "order_name", value: String(order.name) },
+    { key: "to_status", value: String(to) },
+    { key: "changed_at", value: String(changedAt) },
+    { key: "changed_by", value: String(changedBy || "Customer").slice(0, 255) },
+    { key: "source", value: String(source || SOURCES.proofEmail).slice(0, 255) },
   ];
-  if (String(note).trim()) fields.push({ key: "note", value: String(note).trim() });
-  if (ipAddress) fields.push({ key: "ip_address", value: ipAddress });
-  if (userAgent) fields.push({ key: "user_agent", value: userAgent });
+  if (String(from || "").trim()) fields.push({ key: "from_status", value: String(from).trim().slice(0, 255) });
+  if (String(note || "").trim()) fields.push({ key: "note", value: String(note).trim() });
+  if (String(ipAddress || "").trim()) fields.push({ key: "ip_address", value: String(ipAddress).trim().slice(0, 255) });
+  if (String(userAgent || "").trim()) fields.push({ key: "user_agent", value: String(userAgent).trim().slice(0, 255) });
   check(
     await gql(admin, HISTORY_CREATE, { metaobject: { type: "$app:order_status_history", fields } }),
     "metaobjectCreate",
   );
 }
 
+/** Who gets the MSG-17 On Hold alert (HYV-127). */
+const ON_HOLD_ROLES = ["CUSTOMER_SERVICE", "PRODUCTION", "SUPERVISOR"];
+
 /**
- * Notifies recipients with role Customer Service when an order is placed On Hold.
+ * Notifies Customer Service, Production and the supervisors when an order is
+ * placed On Hold.
  */
 export async function notifyCustomerServiceOrderOnHold(
   admin,
   { order, onHoldReason = "", changedBy = "", note = "" },
 ) {
   try {
-    const recipients = await getCustomerServiceRecipients(admin);
+    // Customer Service, Production and the supervisors (HYV-127).
+    const people = (await getNotificationRecipients(admin).catch(() => [])).filter(
+      (r) => r.enabled && r.email?.trim() && ON_HOLD_ROLES.includes(String(r.role || "").trim().toUpperCase()),
+    );
+    const recipients = people.length
+      ? [...new Set(people.map((r) => r.email.trim().toLowerCase()))]
+      : await getCustomerServiceRecipients(admin);
     if (!recipients || !recipients.length) {
-      console.warn(`[on-hold] No Customer Service recipients found for ${order.name}. Alert not sent.`);
-      return { ok: false, sent: false, reason: "No Customer Service recipients configured" };
+      console.warn(`[on-hold] No On Hold alert recipients found for ${order.name}. Alert not sent.`);
+      return { ok: false, sent: false, reason: "No On Hold alert recipients configured" };
     }
 
-    const numericOrderId = String(order.id || "").replace(/^gid:\/\/shopify\/Order\//, "").split("/").pop();
-    const adminUrl = process.env.SHOPIFY_APP_URL
-      ? `${process.env.SHOPIFY_APP_URL}/app/production-orders/${numericOrderId}`
-      : "";
+    // Opens the order inside the Shopify admin (HYV-127).
+    const adminUrl = await adminOrderUrl(admin, order.id);
 
     const customerName =
       order.customer?.displayName ||
@@ -303,12 +316,15 @@ export async function notifyCustomerServiceOrderOnHold(
       order.shippingAddress?.name ||
       "Customer";
 
-    // Who owns it, by name, as on the other alerts (HYV-127).
-    const people = await getNotificationRecipients(admin).catch(() => []);
-    const owner = (people || [])
-      .filter((r) => r.enabled && r.email?.trim() && String(r.role || "").toUpperCase() === "CUSTOMER_SERVICE" && r.name)
-      .map((r) => `${r.name} (Customer Service)`)
-      .join(", ");
+    // Who owns it, by name and role, as on the other alerts; supervisors are
+    // copied, not owners (HYV-127).
+    const roleOf = (r) => String(r.role || "").trim().toUpperCase();
+    const roleName = (role) => RECIPIENT_ROLES.find((item) => item.value === role)?.label || role;
+    const owner = [
+      ...new Set(
+        people.filter((r) => r.name && roleOf(r) !== "SUPERVISOR").map((r) => `${r.name} (${roleName(roleOf(r))})`),
+      ),
+    ].join(", ");
 
     await sendOrderOnHoldAlert({
       owner,

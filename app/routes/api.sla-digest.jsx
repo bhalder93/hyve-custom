@@ -3,10 +3,10 @@ import { unauthenticated } from "../shopify.server";
 import { sendBreachDigest } from "../utils/sla-engine.server";
 
 /**
- * Daily breach digest for Customer Service (HYV-132), called by a Shopify
- * Flow scheduled workflow at 09:00 Singapore time, the same way as /api/sla:
- * POST with `Authorization: Bearer <CRON_SECRET>`. It lists the breaches of
- * the last 24 hours; Customer Service no longer gets them one email per order.
+ * Daily breach digest (HYV-132), sent to the Daily Digest recipients and
+ * called by a Shopify Flow scheduled workflow at 09:00 Singapore time, the
+ * same way as /api/sla: POST with `Authorization: Bearer <CRON_SECRET>`. It
+ * lists the breaches of the last 24 hours, on top of the per-order alerts.
  */
 const json = (body, status) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });

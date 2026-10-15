@@ -11,7 +11,7 @@
 
 import { formatDate } from "./portal.server";
 import { quoteReference } from "./quote-labels";
-import { bankAccountFor } from "./bank-details.server";
+import { bankAccountFor, bankCountryFor } from "./bank-details.server";
 import { FOB_INCOTERM, incotermFromShipping } from "./incoterm";
 
 /** How long a quote stands. The scheduled sweep that withdraws quotes uses the
@@ -263,14 +263,14 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
       ? { name: shipping.name, phone: shipping.phone }
       : null;
 
-  const country =
-    draft.shippingAddress?.countryCodeV2 ||
-    draft.billingAddress?.countryCodeV2 ||
-    location?.shippingAddress?.countryCode ||
-    location?.billingAddress?.countryCode ||
-    draft.customer?.defaultAddress?.countryCodeV2 ||
-    CURRENCY_COUNTRY[currency] ||
-    "";
+  const country = bankCountryFor({
+    shippingCountry: draft.shippingAddress?.countryCodeV2,
+    billingCountry: draft.billingAddress?.countryCodeV2,
+    locationShippingCountry: location?.shippingAddress?.countryCode,
+    locationBillingCountry: location?.billingAddress?.countryCode,
+    customerCountry: draft.customer?.defaultAddress?.countryCodeV2,
+    fallbackCountry: CURRENCY_COUNTRY[currency],
+  });
 
   const attributes = draft.customAttributes || [];
   // Shipping method and date are on quotes sales prepare, not cart quotes,

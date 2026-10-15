@@ -830,11 +830,23 @@ export const MODAL_SCRIPT = `
   var open = null;
 
   // Capture real user-agent since Shopify App Proxy drops it
-  document.addEventListener("DOMContentLoaded", function() {
+  function fillUserAgents() {
     document.querySelectorAll('.js-user-agent').forEach(function(el) {
-      el.value = navigator.userAgent;
+      if (!el.value && typeof navigator !== "undefined") {
+        el.value = navigator.userAgent || "";
+      }
     });
-  });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", fillUserAgents);
+  } else {
+    fillUserAgents();
+  }
+
+  document.addEventListener("submit", function() {
+    fillUserAgents();
+  }, true);
 
   function close() {
     if (!open) return;
@@ -847,6 +859,7 @@ export const MODAL_SCRIPT = `
     var modal = id && document.getElementById(id);
     if (!modal) return false;
     close();
+    fillUserAgents();
     modal.hidden = false;
     document.body.style.overflow = 'hidden';
     open = modal;

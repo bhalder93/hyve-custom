@@ -8,7 +8,7 @@
  *
  * This file adds what that one does not do: attachments.
  */
-import { getMailer, getDefaultFrom, defaultReplyTo } from "./email/mailer.server";
+import { getMailer, getDefaultFrom, defaultReplyTo } from "./email/mailer.server.js";
 
 /**
  * @param {object} opts

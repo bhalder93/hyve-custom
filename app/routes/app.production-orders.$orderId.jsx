@@ -925,25 +925,30 @@ async function getStatusHistory(admin, orderId) {
 
   return (data.data?.metaobjects?.nodes ?? [])
     .filter((item) => item.orderId?.value === orderId)
-    .map((item) => ({
-      id: item.id,
+    .map((item) => {
+      const source = item.source?.value || "";
+      const isCustomerSource = source === "PROOF_EMAIL" || source === "CUSTOMER_PORTAL";
+      const defaultChangedBy = isCustomerSource ? "Customer" : "Shopify Admin";
+      return {
+        id: item.id,
 
-      fromStatus: item.fromStatus?.value || "",
+        fromStatus: item.fromStatus?.value || "",
 
-      toStatus: item.toStatus?.value || "",
+        toStatus: item.toStatus?.value || "",
 
-      changedAt: item.changedAt?.value || "",
+        changedAt: item.changedAt?.value || "",
 
-      changedBy: item.changedBy?.value || "Shopify Admin",
+        changedBy: item.changedBy?.value || defaultChangedBy,
 
-      source: item.source?.value || "",
+        source,
 
-      note: item.note?.value || "",
+        note: item.note?.value || "",
 
-      ipAddress: item.ipAddress?.value || "",
+        ipAddress: item.ipAddress?.value || "",
 
-      userAgent: item.userAgent?.value || "",
-    }))
+        userAgent: item.userAgent?.value || "",
+      };
+    })
     .sort(
       (a, b) =>
         new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime(),
@@ -1463,14 +1468,14 @@ async function createHistory(
   if (ipAddress?.trim()) {
     fields.push({
       key: "ip_address",
-      value: ipAddress.trim(),
+      value: ipAddress.trim().slice(0, 255),
     });
   }
 
   if (userAgent?.trim()) {
     fields.push({
       key: "user_agent",
-      value: userAgent.trim(),
+      value: userAgent.trim().slice(0, 255),
     });
   }
 
@@ -1957,8 +1962,19 @@ export async function action({ request, params }) {
 
     const intent = String(formData.get("intent") || "").trim();
 
-    const ipAddress = (request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "").split(",")[0].trim();
-    const userAgent = request.headers.get("user-agent") || "";
+    const ipAddress = (
+      request.headers.get("cf-connecting-ip") ||
+      request.headers.get("true-client-ip") ||
+      request.headers.get("x-shopify-client-ip") ||
+      request.headers.get("x-forwarded-for") ||
+      request.headers.get("x-real-ip") ||
+      ""
+    ).split(",")[0].trim().slice(0, 255);
+    const userAgent = (
+      String(formData.get("client_user_agent") || "").trim() ||
+      request.headers.get("user-agent") ||
+      ""
+    ).trim().slice(0, 255);
 
     // An order held for credit review moves only from Credit Review.
     if (STATUS_INTENTS.has(intent)) {
@@ -2781,6 +2797,8 @@ export async function action({ request, params }) {
         sentBy,
         fileUrl,
         response: note,
+        ...(ipAddress ? { ipAddress } : {}),
+        ...(userAgent ? { userAgent } : {}),
       };
 
       currentHistory.unshift(newHistoryEntry);
@@ -2914,6 +2932,8 @@ export async function action({ request, params }) {
         responseDate: approvedAt,
         approvedBy,
         approvalSource: "admin",
+        ...(ipAddress ? { ipAddress } : {}),
+        ...(userAgent ? { userAgent } : {}),
       };
 
       currentHistory.unshift(newHistoryEntry);
@@ -2969,8 +2989,8 @@ export async function action({ request, params }) {
       // Clear the on hold reason metafield
       await deleteOnHoldReason(admin, orderId);
 
-      await removeTags(admin, orderId, productionTags);
-      await addTags(admin, orderId, [`hyve-status:in-production`, `hyve-sample-approved`]);
+      await removeTags(admin, orderId, [...productionTags, "hyve-status:sample-review"]);
+      await addTags(admin, orderId, [`hyve-status:in-production`, `hyve-sample-approved`, `in-production`]);
 
       await createHistory(admin, {
         orderId,
@@ -2992,16 +3012,11 @@ export async function action({ request, params }) {
 
     if (intent === "admin_request_sample_changes") {
       const order = await getOrder(admin, orderId);
-      const currentStatus = order.productionStatus?.value || "";
+      const currentStatus =
+        order.productionStatus?.value ||
+        (order.tags ?? []).find((t) => t.startsWith("hyve-status:"))?.replace("hyve-status:", "") ||
+        "sample-review";
       const changeNote = String(formData.get("physicalSampleDecisionNote") || "").trim();
-
-      if (currentStatus !== "sample-review") {
-        return {
-          success: false,
-          fieldErrors: {},
-          formError: "Sample changes can only be requested while the customer review is pending.",
-        };
-      }
 
       if (!changeNote) {
         return {
@@ -3018,10 +3033,11 @@ export async function action({ request, params }) {
         currentHistory = [];
       }
 
-      const latestSample = currentHistory.reduce(
-        (latest, entry) => (Number(entry.sampleVersion) > Number(latest?.sampleVersion) ? entry : latest),
-        null,
+      const sortedHistory = [...currentHistory].sort(
+        (a, b) => (Number(b.sampleVersion) || 0) - (Number(a.sampleVersion) || 0)
       );
+      const latestSample = sortedHistory[0];
+
       if (!latestSample || latestSample.status !== "sent") {
         return {
           success: false,
@@ -3033,7 +3049,7 @@ export async function action({ request, params }) {
       const changedAt = new Date().toISOString();
       const changedBy = (await staffMemberLabel(request, sessionToken)) || "Shopify Admin";
       const updatedHistory = currentHistory.map((entry) =>
-        entry === latestSample
+        Number(entry.sampleVersion) === Number(latestSample.sampleVersion)
           ? {
               ...entry,
               status: "changes_requested",
@@ -3041,6 +3057,8 @@ export async function action({ request, params }) {
               responseDate: changedAt,
               approvedBy: changedBy,
               approvalSource: "admin",
+              ...(ipAddress ? { ipAddress } : {}),
+              ...(userAgent ? { userAgent } : {}),
             }
           : entry,
       );
@@ -3074,8 +3092,13 @@ export async function action({ request, params }) {
         changedAt,
       });
 
-      const productionTags = (order.tags ?? []).filter((tag) => tag.startsWith("hyve-status:"));
-      await removeTags(admin, orderId, productionTags);
+      // Clear any prior on_hold_reason
+      await deleteOnHoldReason(admin, orderId);
+
+      const productionTags = (order.tags ?? []).filter((tag) =>
+        tag.startsWith("hyve-status:") || tag === "hyve-status:sample-review" || tag === "hyve-status:on-hold"
+      );
+      await removeTags(admin, orderId, [...productionTags, "hyve-status:sample-review"]);
       await addTags(admin, orderId, ["hyve-status:sample-preparation"]);
 
       await createHistory(admin, {
@@ -3355,11 +3378,11 @@ export async function action({ request, params }) {
       await clearProductionApprovalDecision(admin, orderId);
     }
 
-    await removeTags(admin, orderId, productionTags);
+    await removeTags(admin, orderId, [...productionTags, "hyve-status:sample-review"]);
 
     const tagsToAdd = [`hyve-status:${nextStatus}`];
     if (nextStatus === "in-production" && (sampleRequired || hasPhysicalSample(order)) && latestSampleStatus(order) === "approved") {
-      tagsToAdd.push("hyve-sample-approved");
+      tagsToAdd.push("hyve-sample-approved", "in-production");
     }
     await addTags(admin, orderId, tagsToAdd);
 
@@ -3547,7 +3570,7 @@ ${collectionAudit}`
     }
 
     if (nextStatus === "on-hold" && emailSent) {
-      message += " Customer Service notified.";
+      message += " Customer Service, Production and Supervisors notified.";
     } else if (emailSent) {
       message += " Customer email sent.";
     }
@@ -3684,6 +3707,8 @@ function TimelineItem({ item, isLatest, currentOnHoldReason }) {
   const displayHoldReason = isHold
     ? (holdReason || (isLatest ? currentOnHoldReason : null) || currentOnHoldReason || null)
     : null;
+  const isCustomerSource = item.source === "PROOF_EMAIL" || item.source === "CUSTOMER_PORTAL";
+  const displayChangedBy = (isCustomerSource && item.changedBy === "Shopify Admin") ? "Customer" : (item.changedBy || (isCustomerSource ? "Customer" : "Shopify Admin"));
 
   return (
     <s-box paddingBlockEnd="base">
@@ -3713,7 +3738,7 @@ function TimelineItem({ item, isLatest, currentOnHoldReason }) {
             <s-stack direction="block" gap="none">
               <s-text tone="subdued">
                 <span style={{ fontSize: "13px" }}>
-                  Changed by <strong>{item.changedBy}</strong>
+                  Changed by <strong>{displayChangedBy}</strong>
                   {item.source ? ` via ${item.source.replace(/_/g, " ")}` : ""}
                   {item.ipAddress ? ` (IP: ${item.ipAddress})` : ""}
                 </span>
@@ -4932,6 +4957,9 @@ export default function ProductionOrderDetailsPage() {
     const formData = new FormData();
 
     formData.set("intent", intent);
+    if (typeof navigator !== "undefined" && navigator.userAgent) {
+      formData.set("client_user_agent", navigator.userAgent);
+    }
 
     for (const [key, value] of Object.entries(fields)) formData.set(key, value);
 
@@ -5175,7 +5203,7 @@ export default function ProductionOrderDetailsPage() {
                         <strong>Hold on reason:</strong> {order.onHoldReason || "No hold reason specified"}
                       </s-paragraph>
                       <s-paragraph tone="subdued">
-                        Production timeline and automatic SLA timers are suspended. Customer Service has been alerted. When ready, resume the order below.
+                        Production timeline and automatic SLA timers are suspended. Customer Service, Production and Supervisors have been alerted. When ready, resume the order below.
                       </s-paragraph>
                     </s-stack>
                   </s-banner>
@@ -5840,6 +5868,9 @@ export default function ProductionOrderDetailsPage() {
                                 onClick={() => {
                                   const formData = new FormData();
                                   formData.set("intent", "send_physical_sample");
+                                  if (typeof navigator !== "undefined" && navigator.userAgent) {
+                                    formData.set("client_user_agent", navigator.userAgent);
+                                  }
                                   formData.set("fileUrl", physicalSampleFileUrl);
                                   formData.set("note", physicalSampleNote);
                                   submit(formData, { method: "post" });
@@ -5871,14 +5902,18 @@ export default function ProductionOrderDetailsPage() {
                                   commandFor="physical-sample-approve-modal"
                                   command="--show"
                                 >
-                                  {busy ? "Processing..." : "Approve on behalf of customer"}
+                                  {busy && navigation.formData?.get("intent") === "admin_approve_physical_sample"
+                                    ? "Approving..."
+                                    : "Approve on behalf of customer"}
                                 </s-button>
                                 <s-button
                                   tone="critical"
                                   disabled={busy}
                                   onClick={requestPhysicalSampleChanges}
                                 >
-                                  Request Changes
+                                  {busy && navigation.formData?.get("intent") === "admin_request_sample_changes"
+                                    ? "Requesting changes..."
+                                    : "Request Changes"}
                                 </s-button>
                               </s-stack>
                             </s-stack>
@@ -5902,9 +5937,42 @@ export default function ProductionOrderDetailsPage() {
                                   </s-stack>
 
                                   <s-text tone="subdued" style={{ fontSize: "13px" }}>
-                                    Sent by <strong>{item.sentBy}</strong>
-                                    {item.responseDate && ` • Responded by ${item.approvedBy} on ${formatDate(item.responseDate)}`}
+                                    {item.status === "changes_requested" ? (
+                                      <>
+                                        Changes requested by <strong>{item.approvedBy || "Customer"}</strong>
+                                        {item.responseDate && ` on ${formatDate(item.responseDate)}`}
+                                        {item.sentBy && ` • Sample dispatched by ${item.sentBy}`}
+                                      </>
+                                    ) : item.status === "approved" ? (
+                                      <>
+                                        Approved by <strong>{item.approvedBy || "Customer"}</strong>
+                                        {item.responseDate && ` on ${formatDate(item.responseDate)}`}
+                                        {item.sentBy && ` • Sample dispatched by ${item.sentBy}`}
+                                      </>
+                                    ) : (
+                                      <>
+                                        Dispatched by <strong>{item.sentBy || "Shopify Admin"}</strong>
+                                        {item.sentAt && ` on ${formatDate(item.sentAt)}`}
+                                      </>
+                                    )}
                                   </s-text>
+
+                                  {(item.ipAddress || item.userAgent) && (
+                                    <s-stack direction="block" gap="none">
+                                      {item.ipAddress && (
+                                        <s-text tone="subdued" style={{ fontSize: "12px" }}>
+                                          IP: {item.ipAddress}
+                                        </s-text>
+                                      )}
+                                      {item.userAgent && (
+                                        <s-text tone="subdued">
+                                          <span style={{ fontSize: "11px", opacity: 0.7, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }} title={item.userAgent}>
+                                            {item.userAgent}
+                                          </span>
+                                        </s-text>
+                                      )}
+                                    </s-stack>
+                                  )}
 
                                   {item.response && (
                                     <s-box padding="small" background="subdued" borderRadius="base">
@@ -6434,7 +6502,7 @@ export default function ProductionOrderDetailsPage() {
         <s-stack direction="block" gap="base">
           <s-banner tone="warning">
             <s-paragraph>
-              Placing this order on hold pauses the production process and stops automatic SLA clocks. Customer Service will be notified and the hold reason will be displayed to the customer in their portal.
+              Placing this order on hold pauses the production process and stops automatic SLA clocks. Customer Service, Production and Supervisors will be notified and the hold reason will be displayed to the customer in their portal.
             </s-paragraph>
           </s-banner>
 
@@ -6506,6 +6574,9 @@ export default function ProductionOrderDetailsPage() {
           onClick={() => {
             const formData = new FormData();
             formData.set("intent", "admin_approve_physical_sample");
+            if (typeof navigator !== "undefined" && navigator.userAgent) {
+              formData.set("client_user_agent", navigator.userAgent);
+            }
             submit(formData, { method: "post" });
             try {
               shopify.modal.hide("physical-sample-approve-modal");
@@ -6514,7 +6585,9 @@ export default function ProductionOrderDetailsPage() {
             }
           }}
         >
-          {busy ? "Approving..." : "Approve physical sample"}
+          {busy && navigation.formData?.get("intent") === "admin_approve_physical_sample"
+            ? "Approving..."
+            : "Approve physical sample"}
         </s-button>
       </s-modal>
 

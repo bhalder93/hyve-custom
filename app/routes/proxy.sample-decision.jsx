@@ -21,6 +21,18 @@ export const loader = async ({ request }) => {
 
     const found = await loadSampleFromLink(admin, link);
     if (!found.ok) {
+      if (found.alreadyDecided) {
+        return liquid(
+          page(
+            done(
+              found.decision === "approve"
+                ? `The physical sample for ${found.order?.name || "your order"} has been approved. Bulk production is underway.`
+                : `We've already received your change request for ${found.order?.name || "your order"}. Our team is preparing the next sample.`,
+              found.decision === "approve" ? "Physical Sample Approved" : "Change Request Received",
+            ),
+          ),
+        );
+      }
       return liquid(page(problem(found.error)));
     }
 
@@ -37,25 +49,42 @@ export const action = async ({ request }) => {
   const params = new URL(request.url).searchParams;
 
   try {
-    const link = readSampleLink(params);
+    const form = await request.formData();
+    const link = readSampleLink(params, form);
     if (!link) {
       return liquid(page(problem("This link isn't valid. Please use the buttons in your Physical Sample email.")));
     }
 
-    const form = await request.formData();
     const decision = String(form.get("decision") || "");
 
     const ipAddress = (
+      request.headers.get("cf-connecting-ip") ||
       request.headers.get("true-client-ip") ||
       request.headers.get("x-shopify-client-ip") ||
       request.headers.get("x-forwarded-for") ||
       request.headers.get("x-real-ip") ||
       ""
-    ).split(",")[0].trim();
-    const userAgent = String(form.get("client_user_agent") || "").trim() || request.headers.get("user-agent") || "";
+    ).split(",")[0].trim().slice(0, 255);
+    const userAgent = (
+      String(form.get("client_user_agent") || "").trim() ||
+      request.headers.get("user-agent") ||
+      ""
+    ).trim().slice(0, 255);
 
     const result = await recordEmailSampleDecision(admin, link, decision, form.get("message"), ipAddress, userAgent);
     if (!result.ok) {
+      if (result.alreadyDecided) {
+        return liquid(
+          page(
+            done(
+              result.decision === "approve"
+                ? `The physical sample for ${result.order?.name || "your order"} has been approved. Bulk production is underway.`
+                : `We've already received your change request for ${result.order?.name || "your order"}. Our team is preparing the next sample.`,
+              result.decision === "approve" ? "Physical Sample Approved" : "Change Request Received",
+            ),
+          ),
+        );
+      }
       return liquid(page(problem(result.error)));
     }
 
@@ -65,6 +94,7 @@ export const action = async ({ request }) => {
           decision === "approve"
             ? `Thank you — the Physical Sample for ${result.orderName} is approved. We'll start production and email you as it progresses.`
             : `Thanks — we've passed your change request for ${result.orderName} to the team. We'll prepare the next physical sample.`,
+          decision === "approve" ? "Physical Sample Approved" : "Change Request Received",
         ),
       ),
     );
@@ -89,9 +119,12 @@ function isImageUrl(url) {
 
 function decisionForm(order, sample, params) {
   const version = params.get("v") || sample?.sampleVersion || "1";
+  const orderId = params.get("order") || String(order.id || "").split("/").pop();
+  const sig = params.get("sig") || "";
   const fileUrl = sample?.fileUrl || "";
   const note = sample?.response || "";
   const isImage = fileUrl ? isImageUrl(fileUrl) : false;
+  const preselectChanges = params.get("decision") === "changes";
 
   return `
     <h1 class="hyve-proof__title">Physical Sample Decision</h1>
@@ -120,15 +153,21 @@ function decisionForm(order, sample, params) {
 
     <p class="hyve-proof__text" style="margin-top: 12px; margin-bottom: 24px;">Please inspect the pre-production sample carefully before deciding.</p>
 
-    <form method="post" action="${esc(linkQuery(params))}" class="hyve-proof__form" style="padding: 20px; background: #f9fafb; border: 1px solid var(--hyve-border-strong); border-radius: 12px; margin-bottom: 24px;">
+    <form method="post" action="${esc(linkQuery(params))}" class="hyve-proof__form js-sample-form" style="padding: 20px; background: #f9fafb; border: 1px solid var(--hyve-border-strong); border-radius: 12px; margin-bottom: 24px;">
+      <input type="hidden" name="order" value="${esc(orderId)}">
+      <input type="hidden" name="v" value="${esc(version)}">
+      <input type="hidden" name="sig" value="${esc(sig)}">
       <input type="hidden" name="decision" value="approve">
       <input type="hidden" name="client_user_agent" value="" class="js-user-agent">
       <h2 style="font-size: 18px; margin: 0 0 8px 0; font-weight: 700;">Happy with the sample?</h2>
       <p class="hyve-proof__text" style="margin-bottom: 16px;">Approving releases your order into bulk production.</p>
-      <button type="submit" class="hyve-proof__btn">Approve Physical Sample</button>
+      <button type="submit" class="hyve-proof__btn js-btn-approve">Approve Physical Sample</button>
     </form>
 
-    <form method="post" action="${esc(linkQuery(params))}" class="hyve-proof__form" style="padding: 20px; background: #fff; border: 1px solid var(--hyve-border-strong); border-radius: 12px;">
+    <form id="js-changes-form" method="post" action="${esc(linkQuery(params))}" class="hyve-proof__form js-sample-form" style="padding: 20px; background: #fff; border: 1px solid ${preselectChanges ? "var(--hyve-900)" : "var(--hyve-border-strong)"}; border-radius: 12px;">
+      <input type="hidden" name="order" value="${esc(orderId)}">
+      <input type="hidden" name="v" value="${esc(version)}">
+      <input type="hidden" name="sig" value="${esc(sig)}">
       <input type="hidden" name="decision" value="changes">
       <input type="hidden" name="client_user_agent" value="" class="js-user-agent">
       <h2 style="font-size: 18px; margin: 0 0 8px 0; font-weight: 700;">Need changes?</h2>
@@ -136,21 +175,70 @@ function decisionForm(order, sample, params) {
       <label class="hyve-proof__label" for="hyve-sample-message">What needs changing?</label>
       <textarea id="hyve-sample-message" name="message" rows="5" maxlength="900" required class="hyve-proof__input"
         placeholder="For example: adjust the color tone or material finish..."></textarea>
-      <button type="submit" class="hyve-proof__btn" style="background: #fff; color: var(--hyve-900); border: 1px solid var(--hyve-900); align-self: flex-start; margin-top: 8px;">Send change request</button>
+      <button type="submit" class="hyve-proof__btn js-btn-changes" style="background: #fff; color: var(--hyve-900); border: 1px solid var(--hyve-900); align-self: flex-start; margin-top: 8px;">Send change request</button>
     </form>
     
     <script>
-      document.addEventListener("DOMContentLoaded", function() {
+      function fillUserAgent() {
         document.querySelectorAll('.js-user-agent').forEach(function(el) {
-          el.value = navigator.userAgent;
+          if (!el.value && typeof navigator !== "undefined") {
+            el.value = navigator.userAgent || "";
+          }
+        });
+      }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", fillUserAgent);
+      } else {
+        fillUserAgent();
+      }
+      document.addEventListener("submit", function(e) {
+        fillUserAgent();
+      }, true);
+
+      document.addEventListener("DOMContentLoaded", function() {
+        fillUserAgent();
+
+        ${preselectChanges ? `
+          var changesForm = document.getElementById('js-changes-form');
+          if (changesForm) {
+            changesForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            var textarea = document.getElementById('hyve-sample-message');
+            if (textarea) textarea.focus();
+          }
+        ` : ""}
+
+        document.querySelectorAll('.js-sample-form').forEach(function(form) {
+          form.addEventListener('submit', function(e) {
+            var btn = form.querySelector('button[type="submit"]');
+            if (!btn) return;
+
+            if (btn.hasAttribute('data-submitting')) {
+              e.preventDefault();
+              return false;
+            }
+
+            // Check validity first (e.g. required textarea)
+            if (!form.checkValidity()) {
+              return;
+            }
+
+            btn.setAttribute('data-submitting', 'true');
+            btn.classList.add('hyve-proof__btn--loading');
+            var decision = form.querySelector('input[name="decision"]')?.value;
+            if (decision === 'approve') {
+              btn.innerHTML = '<span class="hyve-btn-spinner"></span> Approving Physical Sample...';
+            } else {
+              btn.innerHTML = '<span class="hyve-btn-spinner"></span> Sending change request...';
+            }
+          });
         });
       });
     </script>`;
 }
 
-function done(message) {
+function done(message, title = "Thank you") {
   return `
-    <h1 class="hyve-proof__title">Thank you</h1>
+    <h1 class="hyve-proof__title">${esc(title)}</h1>
     <p class="hyve-proof__text">${esc(message)}</p>
     <a class="hyve-proof__switch" href="/apps/account/orders">View your orders</a>`;
 }
@@ -191,9 +279,21 @@ function page(content) {
       }
       .hyve-proof__btn {
         align-self: flex-start; border: 0; cursor: pointer; background: var(--hyve-gradient); color: #0A1414;
-        font: inherit; font-weight: 700; padding: 11px 22px; border-radius: 10px;
+        font: inherit; font-weight: 700; padding: 11px 22px; border-radius: 10px; display: inline-flex;
+        align-items: center; justify-content: center; gap: 8px; transition: opacity 0.2s, filter 0.2s;
       }
       .hyve-proof__btn:hover { filter: brightness(0.96); }
+      .hyve-proof__btn--loading {
+        opacity: 0.75; cursor: not-allowed !important; pointer-events: none;
+      }
+      .hyve-btn-spinner {
+        display: inline-block; width: 14px; height: 14px;
+        border: 2px solid currentColor; border-right-color: transparent;
+        border-radius: 50%; animation: hyve-spin 0.75s linear infinite;
+      }
+      @keyframes hyve-spin {
+        to { transform: rotate(360deg); }
+      }
       .hyve-proof__switch { align-self: flex-start; color: var(--hyve-500); font-size: 13px; }
     </style>`;
 }

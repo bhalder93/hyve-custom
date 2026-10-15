@@ -1,4 +1,4 @@
-import { defaultBankAccounts, normalizeBankAccounts } from "./bank-details.server";
+import { defaultBankAccounts, normalizeBankAccounts } from "./bank-details.server.js";
 
 const NAMESPACE = "hyve";
 const KEY = "bank_details";

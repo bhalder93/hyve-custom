@@ -71,6 +71,7 @@ export async function sendApplicationEmails(admin, application) {
           "Review it in the Hyve app, under Distributors.",
         ].join("\n"),
         html: brandedEmail({
+          internal: true,
           title: "New Distributor Application",
           body: `
             <p ${PARAGRAPH}>

@@ -13,7 +13,10 @@ async function runTagMutation(admin, operation, query, variables) {
 
 /** Keep order status tags aligned when a customer decides on a physical sample. */
 export async function syncSampleStatusTags(admin, orderGid, currentTags, nextStatus, extraTags = []) {
-  const statusTags = [...new Set((currentTags || []).filter((tag) => tag.startsWith("hyve-status:")))];
+  const statusTags = [...new Set([
+    "hyve-status:sample-review",
+    ...(currentTags || []).filter((tag) => tag.startsWith("hyve-status:")),
+  ])];
   const tagsToAdd = [...new Set([`hyve-status:${nextStatus}`, ...extraTags])];
 
   for (let attempt = 0; attempt < 2; attempt += 1) {

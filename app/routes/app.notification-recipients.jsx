@@ -17,17 +17,17 @@ const ROLE_OPTIONS = [
     value: "CUSTOMER_SERVICE",
     label: "Customer Service",
     description:
-      "Receives artwork, proof approval, On Hold and delivery scan alerts.",
+      "Receives artwork not received, proof not sent, proof not approved, delivery scan and On Hold alerts.",
   },
   {
     value: "ARTWORK_COORDINATOR",
     label: "Artwork Coordinator",
-    description: "Receives proof-not-sent artwork alerts.",
+    description: "Receives proof-not-sent alerts.",
   },
   {
     value: "PRODUCTION",
     label: "Production",
-    description: "Receives production, shipping and delivery SLA alerts.",
+    description: "Receives not-in-production, production late, not shipped and On Hold alerts.",
   },
   {
     value: "CREDIT_REVIEW",
@@ -39,6 +39,22 @@ const ROLE_OPTIONS = [
     value: "MANAGEMENT",
     label: "Management",
     description: "Optional management visibility. Not used by default.",
+  },
+  {
+    value: "LOGISTICS",
+    label: "Logistics",
+    description: "Receives not shipped and delivery scan alerts.",
+  },
+  {
+    value: "SUPERVISOR",
+    label: "Supervisor",
+    description: "Receives every order alert (MSG-10 to MSG-17).",
+  },
+  {
+    value: "DIGEST",
+    label: "Daily Digest",
+    description:
+      "Receives the 9:00 am daily breach digest. Add a person once more with this role to send them the digest too.",
   },
 ];
 

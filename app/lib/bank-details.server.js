@@ -99,6 +99,27 @@ export function normalizeBankAccounts(stored) {
   );
 }
 
+/** Prefer the shipping destination, then the billing/customer country. */
+export function bankCountryFor({
+  shippingCountry,
+  billingCountry,
+  locationShippingCountry,
+  locationBillingCountry,
+  customerCountry,
+  fallbackCountry,
+} = {}) {
+  return [
+    shippingCountry,
+    billingCountry,
+    locationShippingCountry,
+    locationBillingCountry,
+    customerCountry,
+    fallbackCountry,
+  ]
+    .map((country) => String(country || "").trim().toUpperCase())
+    .find(Boolean) || "";
+}
+
 /**
  * Resolves the appropriate bank account for a country, optionally using
  * custom accounts loaded dynamically from the app settings.

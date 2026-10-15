@@ -17,7 +17,7 @@
  */
 import { formatDate, orderBelongsTo } from "./portal.server";
 import { incotermFromShipping } from "./incoterm";
-import { bankAccountFor } from "./bank-details.server";
+import { bankAccountFor, bankCountryFor } from "./bank-details.server";
 import {
   COMPANY_ADDRESS,
   CURRENCY_COUNTRY,
@@ -49,6 +49,7 @@ const DOCUMENT_QUERY = `#graphql
         id
         displayName
         defaultPhoneNumber { phoneNumber }
+        defaultAddress { countryCodeV2 }
       }
       billingAddress { ${MAILING_ADDRESS} }
       shippingAddress { ${MAILING_ADDRESS} }
@@ -162,12 +163,14 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
       ? { name: shipping.name, phone: shipping.phone }
       : null;
 
-  const country =
-    order.billingAddress?.countryCodeV2 ||
-    order.shippingAddress?.countryCodeV2 ||
-    location?.billingAddress?.countryCode ||
-    CURRENCY_COUNTRY[currency] ||
-    "";
+  const country = bankCountryFor({
+    shippingCountry: order.shippingAddress?.countryCodeV2,
+    billingCountry: order.billingAddress?.countryCodeV2,
+    locationShippingCountry: location?.shippingAddress?.countryCode,
+    locationBillingCountry: location?.billingAddress?.countryCode,
+    customerCountry: order.customer?.defaultAddress?.countryCodeV2,
+    fallbackCountry: CURRENCY_COUNTRY[currency],
+  });
 
   const lines = currentOrderLines(order);
   const rows = [

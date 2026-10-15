@@ -25,42 +25,42 @@ export async function loader({ request }) {
 
         target: "24 hours",
 
-        action: "Customer reminder if sending artwork later; in the Customer Service digest",
+        action: "Alert Customer Service and Supervisors; customer reminder if sending artwork later",
       },
       {
         status: "Artwork Received",
 
         target: "48 hours",
 
-        action: "Alert Artwork Coordinator; in the Customer Service digest",
+        action: "Alert Artwork Coordinator, Customer Service and Supervisors",
       },
       {
         status: "Proof Sent",
 
         target: "Day 2 / 5 / 10",
 
-        action: "Customer reminders, then On Hold",
+        action: "Customer reminders, then On Hold and alert Customer Service and Supervisors",
       },
       {
         status: "Proof Approved",
 
         target: "24 hours",
 
-        action: "Alert Production",
+        action: "Alert Production and Supervisors",
       },
       {
         status: "In Production",
 
         target: "production_due_at",
 
-        action: "Alert Production",
+        action: "Alert Production and Supervisors",
       },
       {
         status: "Production Complete",
 
         target: "48 hours",
 
-        action: "Alert Production",
+        action: "Alert Production, Logistics and Supervisors",
       },
       {
         status: "Shipped",

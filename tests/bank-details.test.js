@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ACCOUNT_NAME,
+  bankCountryFor,
   bankAccountFor,
   normalizeBankAccounts,
 } from "../app/lib/bank-details.server.js";
@@ -43,6 +44,20 @@ test("US, Singapore and EU route to their configured bank accounts", () => {
   assert.equal(valueFor(denmark, "Account Number"), "0059357820");
   assert.equal(valueFor(denmark, "Bank Code"), "8900");
   assert.equal(valueFor(denmark, "SWIFT/BIC"), "SXPYDKKK");
+});
+
+test("bank country selection includes a company location shipping country", () => {
+  assert.equal(
+    bankCountryFor({ locationShippingCountry: "US", fallbackCountry: "VN" }),
+    "US",
+  );
+});
+
+test("bank country selection prefers shipping destination and normalizes codes", () => {
+  assert.equal(
+    bankCountryFor({ shippingCountry: " sg ", billingCountry: "US" }),
+    "SG",
+  );
 });
 
 test("custom account values are preserved except for the required legal account name", () => {

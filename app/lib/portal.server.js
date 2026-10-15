@@ -19,7 +19,7 @@ import { TIMEZONE, formatDate as displayDate } from "../utils/date.js";
  * place on an order whose freight the buyer arranges (FOB).
  */
 
-import { artworkSupplied } from "./artwork-zones.server";
+import { artworkSupplied } from "./artwork-zones.server.js";
 
 /**
  * A distributor is a customer who belongs to a B2B company.

@@ -49,6 +49,7 @@ export async function notifyQuoteRaised(admin, quote) {
         .filter((line) => line !== null)
         .join("\n"),
       html: brandedEmail({
+        internal: true,
         title: "New Quote",
         body: `
           <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">

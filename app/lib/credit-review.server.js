@@ -594,6 +594,7 @@ async function sendCreditReviewAlert(admin, node) {
     to: [...to].join(","),
     subject: `Credit review: ${row.name} — ${row.company || row.buyer || "a distributor"}`,
     html: brandedEmail({
+      internal: true,
       title: "Order Waiting For Credit Review",
       body: `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;"><strong>${escapeHtml(row.company || row.buyer)}</strong> ${
         row.kind === "order"

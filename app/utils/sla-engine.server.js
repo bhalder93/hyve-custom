@@ -10,6 +10,7 @@ import { proofDecisionLinks } from "../lib/proof.server";
 import { productionStatusOf, recordStatusHistory, SOURCES } from "../lib/order-status.server";
 import { customerArrangesFreight, STATUS_OPTIONS } from "../lib/production-statuses";
 import { RECIPIENT_ROLES } from "./metaobjects/notification-recipients.server";
+import { adminOrderUrl } from "../lib/admin-links.server";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Constants                                 */
@@ -64,6 +65,7 @@ const SLA_RULES = {
 
     recipientRoles: [
       "CUSTOMER_SERVICE",
+      "SUPERVISOR",
     ],
   },
 
@@ -82,6 +84,7 @@ const SLA_RULES = {
     recipientRoles: [
       "ARTWORK_COORDINATOR",
       "CUSTOMER_SERVICE",
+      "SUPERVISOR",
     ],
   },
 
@@ -99,6 +102,7 @@ const SLA_RULES = {
 
     recipientRoles: [
       "PRODUCTION",
+      "SUPERVISOR",
     ],
   },
 
@@ -114,6 +118,7 @@ const SLA_RULES = {
 
     recipientRoles: [
       "PRODUCTION",
+      "SUPERVISOR",
     ],
   },
 
@@ -131,6 +136,8 @@ const SLA_RULES = {
 
     recipientRoles: [
       "PRODUCTION",
+      "LOGISTICS",
+      "SUPERVISOR",
     ],
   },
 
@@ -148,7 +155,8 @@ const SLA_RULES = {
 
     recipientRoles: [
       "CUSTOMER_SERVICE",
-      "PRODUCTION",
+      "LOGISTICS",
+      "SUPERVISOR",
     ],
   },
 };
@@ -303,16 +311,6 @@ export function isProductionOrder(
 /*                                  Helpers                                   */
 /* -------------------------------------------------------------------------- */
 
-function getNumericOrderId(
-  gid,
-) {
-  return String(
-    gid || "",
-  )
-    .split("/")
-    .pop();
-}
-
 function getCurrentStatus(
   order,
 ) {
@@ -437,9 +435,9 @@ function artworkPaths(order) {
   );
 }
 
-/** Roles that get the daily breach digest instead of per-order alerts (HYV-132). */
+/** Who gets the daily breach digest (HYV-132), on top of the per-order alerts (HYV-127). */
 const DIGEST_ROLES = [
-  "CUSTOMER_SERVICE",
+  "DIGEST",
 ];
 
 /** The alert names staff read, by template code (HYV-127). */
@@ -458,10 +456,11 @@ function statusLabel(value) {
   return STATUS_OPTIONS.find((option) => option.value === value)?.label || value || "—";
 }
 
-/** Who owns the alert: the people it goes to, with their role. */
+/** Who owns the alert: the people it goes to, with their role. Supervisors are copied, not owners (HYV-127). */
 function ownerLabel(recipients) {
   const roleName = (role) => RECIPIENT_ROLES.find((r) => r.value === role)?.label || role;
-  return [...new Set(recipients.map((r) => (r.name ? `${r.name} (${roleName(r.role)})` : roleName(r.role))))].join(", ");
+  const owners = recipients.filter((r) => r.role !== "SUPERVISOR");
+  return [...new Set((owners.length ? owners : recipients).map((r) => (r.name ? `${r.name} (${roleName(r.role)})` : roleName(r.role))))].join(", ");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1047,40 +1046,23 @@ async function sendInternalAlert({
   elapsed,
   message,
 }) {
-  // Customer Service gets these in the morning digest instead (HYV-132);
-  // Artwork and Production keep the per-order email.
+  // Each alert goes to its owners and the supervisors (HYV-127).
   const roles =
-    rule.recipientRoles.filter(
-      (role) =>
-        !DIGEST_ROLES.includes(
-          role,
-        ),
-    );
+    rule.recipientRoles;
 
   const recipients =
-    roles.length
-      ? await getNotificationRecipients(
-          admin,
-          roles,
-        )
-      : [];
+    await getNotificationRecipients(
+      admin,
+      roles,
+    );
 
-  // A Customer Service-only alert: nothing to email, but the breach is still
-  // tagged and logged, so the digest lists it.
-  if (!roles.length) {
-    return {
-      recipients: [],
-    };
-  }
-
-  // Artwork or Production with nobody set up: logged as an error, and the
-  // breach is still tagged and logged so Customer Service sees it in the
-  // morning digest rather than nobody hearing of it.
+  // Nobody set up for these roles: logged as an error, and the breach is
+  // still tagged and logged so the morning digest lists it.
   if (!recipients.length) {
     console.error(
       `[sla] No enabled notification recipients configured for ${roles.join(
         ", ",
-      )}; ${order.name} is in the Customer Service digest only.`,
+      )}; ${order.name} is in the daily digest only.`,
     );
 
     return {
@@ -1127,13 +1109,12 @@ async function sendInternalAlert({
         recipients,
       ),
 
+    // Opens the order inside the Shopify admin (HYV-127).
     adminUrl:
-      process.env
-        .SHOPIFY_APP_URL
-        ? `${process.env.SHOPIFY_APP_URL}/app/production-orders/${getNumericOrderId(
-            order.id,
-          )}`
-        : "",
+      await adminOrderUrl(
+        admin,
+        order.id,
+      ),
 
     message,
   });
@@ -1833,6 +1814,7 @@ async function processProofSent(
 
     recipientRoles: [
       "CUSTOMER_SERVICE",
+      "SUPERVISOR",
     ],
   };
 
@@ -2350,9 +2332,9 @@ const DIGEST_ORDERS_QUERY = `#graphql
   }`;
 
 /**
- * One email a day to Customer Service with the breaches of the last 24 hours,
- * grouped by the status each order is in now. Read from each order's breach
- * log, which every alert writes with its time, so an order breached twice
+ * One email a day to the Daily Digest recipients with the breaches of the
+ * last 24 hours, grouped by the status each order is in now. Read from each
+ * order's breach log, which every alert writes with its time, so an order breached twice
  * shows both. Sent even when there were none, so a quiet day reads as quiet
  * rather than as a missing email.
  * @returns {Promise<{sent:boolean, orders:number, breaches:number, to?:string[], reason?:string}>}
@@ -2394,15 +2376,13 @@ export async function sendBreachDigest(admin, { now = new Date() } = {}) {
       orderName: order.name,
       customerName: order.customer?.displayName || "",
       breaches: entries.map((entry) => `${entry.code} ${entry.name}`),
-      adminUrl: process.env.SHOPIFY_APP_URL
-        ? `${process.env.SHOPIFY_APP_URL}/app/production-orders/${getNumericOrderId(order.id)}`
-        : "",
+      adminUrl: await adminOrderUrl(admin, order.id),
     });
   }
 
   const recipients = await getNotificationRecipients(admin, DIGEST_ROLES);
   const orderCount = [...groups.values()].reduce((n, rows) => n + rows.length, 0);
-  if (!recipients.length) return { sent: false, orders: orderCount, breaches, reason: "No Customer Service recipients" };
+  if (!recipients.length) return { sent: false, orders: orderCount, breaches, reason: "No Daily Digest recipients" };
 
   const to = [...new Set(recipients.map((recipient) => recipient.email))];
   const statusOrder = STATUS_OPTIONS.map((option) => option.label);
