@@ -1227,12 +1227,16 @@ export async function sendPhysicalSampleEmail({
   approveUrl,
   changesUrl,
   reviewUrl,
+  lineItems = [],
+  orderUrl,
 }) {
   const html = customerLayout({
     title: "Physical Sample Ready For Review",
     customerName,
     orderName,
     orderDate,
+    lineItems,
+    orderUrl,
     body: `
       <div
         style="
@@ -1321,11 +1325,41 @@ export async function sendPhysicalSampleEmail({
     `,
   });
 
+  const text = `
+Hi ${customerName || "there"},
+
+Physical Sample Ready For Review - ${orderName}
+
+Action required: ${
+  approveUrl && changesUrl
+    ? "Please review your Physical Sample, then approve it or request changes using the links below. No sign-in needed."
+    : "Please review your Physical Sample, then approve it or request changes in your account."
+}
+
+Your physical pre-production sample has been prepared and dispatched.
+
+${note ? `Sample Note: ${note}` : ""}
+
+${fileUrl ? `Physical Sample Photos / Docs: ${fileUrl}` : ""}
+
+${reviewUrl ? `Review & Approve (no sign-in required): ${reviewUrl}` : ""}
+
+${approveUrl ? `Approve Physical Sample: ${approveUrl}` : ""}
+
+${changesUrl ? `Request Changes: ${changesUrl}` : ""}
+
+Physical Sample version: v${sampleVersion || "1"}
+
+View your order: ${orderUrl || CUSTOMER_ORDERS_URL}
+  `
+    .trim()
+    .replace(/\n{3,}/g, "\n\n");
+
   return sendEmail({
     to: customerEmail,
     subject: `Physical Sample Ready For Review - ${orderName}`,
     html,
-    text: `Your physical sample for ${orderName} (v${sampleVersion || "1"}) is ready for review.\n\nReview & Approve (no sign-in required): ${reviewUrl || approveUrl}\nApprove: ${approveUrl || ""}\nRequest changes: ${changesUrl || ""}`,
+    text,
     replyTo: process.env.EMAIL_REPLY_TO,
   });
 }

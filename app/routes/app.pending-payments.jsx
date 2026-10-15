@@ -1,4 +1,4 @@
-import { singaporeDayDiff } from "../utils/date.js";
+import { singaporeDateKey, singaporeDayDiff } from "../utils/date.js";
 import { formatDate, formatDateTime } from "../utils/date.js";
 /* eslint-disable react/prop-types */
 import { useState, useCallback, useEffect, useRef } from "react";
@@ -22,6 +22,9 @@ const TABS = [
 
 const QUERY = `#graphql
   query PendingPaymentOrders($first: Int!, $after: String, $query: String) {
+    shop {
+      currencyCode
+    }
     orders(first: $first, after: $after, query: $query, sortKey: CREATED_AT, reverse: true) {
       pageInfo {
         hasNextPage
@@ -33,6 +36,7 @@ const QUERY = `#graphql
         createdAt
         poNumber
         displayFinancialStatus
+        statusPageUrl
         lastNotification: metafield(namespace: "$app", key: "last_payment_reminder_sent_at") {
           value
         }
@@ -41,18 +45,30 @@ const QUERY = `#graphql
         }
         # After any order edit, as on the invoice.
         totalPriceSet: currentTotalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
           presentmentMoney {
             amount
             currencyCode
           }
         }
         totalOutstandingSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
           presentmentMoney {
             amount
             currencyCode
           }
         }
         totalReceivedSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
           presentmentMoney {
             amount
             currencyCode
@@ -110,8 +126,8 @@ function getDayDiff(dueAtDate) {
   return singaporeDayDiff(dueAtDate);
 }
 
-function classifyPaymentStatus(schedule, daysDiff) {
-  if (schedule?.completedAt)
+function classifyPaymentStatus(schedule, daysDiff, outstandingAmount) {
+  if (schedule?.completedAt || (outstandingAmount !== undefined && Number(outstandingAmount) <= 0))
     return { key: "paid", label: "Paid", tone: "success" };
   if (daysDiff === null)
     return { key: "no_due_date", label: "Pending", tone: "warning" };
@@ -128,41 +144,44 @@ function classifyPaymentStatus(schedule, daysDiff) {
   return { key: "future", label: `Due in ${daysDiff}d`, tone: "neutral" };
 }
 
-
-
-
-
-function formatMoney(amount, currency = "USD") {
+function formatMoney(amount, currency = "SGD") {
   const num = Number(amount);
-  if (!Number.isFinite(num)) return `${currency} 0.00`;
-  try {
-    return new Intl.NumberFormat("en-SG", {
-      style: "currency",
-      currency: currency || "USD",
-    }).format(num);
-  } catch {
-    return `${currency} ${num.toFixed(2)}`;
-  }
+  if (!Number.isFinite(num)) return `${currency || "SGD"} 0.00`;
+  const formatted = num.toLocaleString("en-SG", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${currency || "SGD"} ${formatted}`;
 }
 
-function parseOrderNode(order) {
-  const numericId = order.id.split("/").pop();
+function parseOrderNode(order, storeCurrency = "SGD") {
+  const numericId = order.id ? order.id.split("/").pop() : "";
   const currency =
-    order.totalPriceSet?.presentmentMoney?.currencyCode || "USD";
+    order.totalOutstandingSet?.shopMoney?.currencyCode ||
+    order.totalPriceSet?.shopMoney?.currencyCode ||
+    storeCurrency ||
+    order.totalPriceSet?.presentmentMoney?.currencyCode ||
+    "SGD";
   const totalAmount = Number(
-    order.totalPriceSet?.presentmentMoney?.amount || 0,
+    order.totalPriceSet?.shopMoney?.amount ||
+    order.totalPriceSet?.presentmentMoney?.amount ||
+    0,
   );
   const outstandingAmount = Number(
-    order.totalOutstandingSet?.presentmentMoney?.amount || totalAmount,
+    order.totalOutstandingSet?.shopMoney?.amount ||
+    order.totalOutstandingSet?.presentmentMoney?.amount ||
+    totalAmount,
   );
   const paidAmount = Number(
-    order.totalReceivedSet?.presentmentMoney?.amount || 0,
+    order.totalReceivedSet?.shopMoney?.amount ||
+    order.totalReceivedSet?.presentmentMoney?.amount ||
+    0,
   );
 
   const schedule = order.paymentTerms?.paymentSchedules?.nodes?.[0] || null;
   const dueAtDate = schedule?.dueAt ? new Date(schedule.dueAt) : null;
   const daysDiff = getDayDiff(dueAtDate);
-  const status = classifyPaymentStatus(schedule, daysDiff);
+  const status = classifyPaymentStatus(schedule, daysDiff, outstandingAmount);
 
   const companyName =
     order.purchasingEntity?.company?.name ||
@@ -183,15 +202,19 @@ function parseOrderNode(order) {
     order.lastNotificationCustom?.value ||
     null;
   const lastNotifiedLabel = lastNotifiedAt
-    ? formatDateTime(lastNotifiedAt)
+    ? `${formatDateTime(lastNotifiedAt)} SGT`
     : null;
+
+  const invoiceUrl =
+    order.statusPageUrl ||
+    (numericId ? `https://hyve.promo/apps/account/invoices` : "");
 
   return {
     id: order.id,
     numericId,
     name: order.name,
     createdAt: order.createdAt,
-    createdAtLabel: formatDate(order.createdAt),
+    createdAtLabel: order.createdAt ? `${formatDateTime(order.createdAt)} SGT` : "—",
     lastNotifiedAt,
     lastNotifiedLabel,
     poNumber: order.poNumber || "—",
@@ -214,6 +237,7 @@ function parseOrderNode(order) {
     customerEmail,
     customerPhone,
     financialStatus: order.displayFinancialStatus || "PENDING",
+    invoiceUrl,
   };
 }
 
@@ -313,8 +337,8 @@ function filterOrders(orders, activeTab, searchQuery) {
 function buildOrdersCsv(orders) {
   const headers = [
     "Order Number",
-    "Created Date",
-    "Last Notification Sent",
+    "Created Date (SGT)",
+    "Last Notification Sent (SGT)",
     "Customer Name",
     "Company",
     "Email",
@@ -329,6 +353,7 @@ function buildOrdersCsv(orders) {
     "Total Amount",
     "Outstanding Balance",
     "Paid Amount",
+    "Direct Invoice URL",
     "Shopify Admin URL",
   ];
 
@@ -373,6 +398,7 @@ function buildOrdersCsv(orders) {
         Number(r.totalAmount || 0).toFixed(2),
         Number(r.outstandingAmount || 0).toFixed(2),
         Number(r.paidAmount || 0).toFixed(2),
+        r.invoiceUrl || "—",
         r.numericId
           ? `https://admin.shopify.com/store/hyve-promo/orders/${r.numericId}`
           : "—",
@@ -392,6 +418,7 @@ async function fetchAllPendingOrders(admin) {
   let hasNext = true;
   let cursor = null;
   let batches = 0;
+  let storeCurrency = "SGD";
 
   while (hasNext && batches < 10) {
     batches++;
@@ -407,6 +434,9 @@ async function fetchAllPendingOrders(admin) {
       const errorMsg = body.errors.map((e) => e.message).join(", ");
       throw new Error(`Shopify GraphQL error: ${errorMsg}`);
     }
+    if (body?.data?.shop?.currencyCode) {
+      storeCurrency = body.data.shop.currencyCode;
+    }
     const connection = body?.data?.orders;
     const nodes = connection?.nodes || [];
 
@@ -415,7 +445,7 @@ async function fetchAllPendingOrders(admin) {
     cursor = connection?.pageInfo?.endCursor || null;
   }
 
-  return allOrders;
+  return { orders: allOrders, storeCurrency };
 }
 
 export const loader = async ({ request }) => {
@@ -438,8 +468,11 @@ export const loader = async ({ request }) => {
   const pageSize = DEFAULT_PAGE_SIZE;
 
   let allOrders = [];
+  let storeCurrency = "SGD";
   try {
-    allOrders = await fetchAllPendingOrders(admin);
+    const fetchRes = await fetchAllPendingOrders(admin);
+    allOrders = fetchRes.orders || [];
+    storeCurrency = fetchRes.storeCurrency || "SGD";
   } catch (err) {
     console.error("[pending-payments] loader failed", err);
     return {
@@ -454,6 +487,7 @@ export const loader = async ({ request }) => {
       },
       counts: { all: 0, overdue: 0, today: 0, "7days": 0, future: 0 },
       amounts: { all: 0, overdue: 0, today: 0, "7days": 0, future: 0 },
+      storeCurrency,
       totals: { count: 0, totalOutstanding: 0 },
       activeTab,
       searchQuery,
@@ -461,7 +495,10 @@ export const loader = async ({ request }) => {
     };
   }
 
-  const parsedOrders = allOrders.map(parseOrderNode);
+  // Remove orders with 0.00 outstanding (strictly > 0 balance)
+  const parsedOrders = allOrders
+    .map((o) => parseOrderNode(o, storeCurrency))
+    .filter((o) => Number(o.outstandingAmount) > 0.0001);
 
   // Calculate tab counts and monetary totals across ALL pending orders
   let overdueCount = 0;
@@ -541,11 +578,12 @@ export const loader = async ({ request }) => {
     const exportOrders = filterOrdersByDueType(parsedOrders, dueType, searchQuery, customDays);
     const csvContent = buildOrdersCsv(exportOrders);
     const cleanType = String(dueType || "all").replace(/_/g, "-");
+    const dateKey = singaporeDateKey(new Date(), formatDate(new Date()));
     return new Response(csvContent, {
       status: 200,
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="pending-payments-${cleanType}-${formatDate(new Date())}.csv"`,
+        "Content-Disposition": `attachment; filename="pending-payments-${cleanType}-${dateKey}.csv"`,
       },
     });
   }
@@ -572,6 +610,7 @@ export const loader = async ({ request }) => {
     },
     counts,
     amounts,
+    storeCurrency,
     dueTypeMetrics,
     totals,
     activeTab,
@@ -591,12 +630,15 @@ export const action = async ({ request }) => {
       const customDays = parseInt(formData.get("customDays") || "0", 10);
       const q = String(formData.get("q") || "").trim();
 
-      const rawOrders = await fetchAllPendingOrders(admin);
-      const parsedOrders = rawOrders.map(parseOrderNode);
+      const { orders: rawOrders, storeCurrency } = await fetchAllPendingOrders(admin);
+      const parsedOrders = rawOrders
+        .map((o) => parseOrderNode(o, storeCurrency))
+        .filter((o) => Number(o.outstandingAmount) > 0.0001);
       const filteredOrders = filterOrdersByDueType(parsedOrders, dueType, q, customDays);
       const csvContent = buildOrdersCsv(filteredOrders);
       const cleanType = dueType.replace(/_/g, "-");
-      const filename = `pending-payments-${cleanType}-${formatDate(new Date())}.csv`;
+      const dateKey = singaporeDateKey(new Date(), formatDate(new Date()));
+      const filename = `pending-payments-${cleanType}-${dateKey}.csv`;
 
       return new Response(
         JSON.stringify({
@@ -630,8 +672,10 @@ export const action = async ({ request }) => {
       const tab = String(formData.get("tab") || "all").trim();
       const q = String(formData.get("q") || "").trim();
 
-      const rawOrders = await fetchAllPendingOrders(admin);
-      const parsedOrders = rawOrders.map(parseOrderNode);
+      const { orders: rawOrders, storeCurrency } = await fetchAllPendingOrders(admin);
+      const parsedOrders = rawOrders
+        .map((o) => parseOrderNode(o, storeCurrency))
+        .filter((o) => Number(o.outstandingAmount) > 0.0001);
       const filteredOrders = filterOrders(parsedOrders, tab, q);
 
       const targets = filteredOrders
@@ -647,6 +691,7 @@ export const action = async ({ request }) => {
           terms: o.termsName,
           countryCode: o.countryCode,
           currency: o.currency,
+          invoiceUrl: o.invoiceUrl,
         }));
 
       return new Response(
@@ -686,7 +731,8 @@ export const action = async ({ request }) => {
     const dueDate = String(formData.get("dueDate") || "").trim();
     const terms = String(formData.get("terms") || "").trim();
     const countryCode = String(formData.get("countryCode") || "").trim();
-    const currency = String(formData.get("currency") || "USD").trim();
+    const currency = String(formData.get("currency") || "SGD").trim();
+    let invoiceUrl = String(formData.get("invoiceUrl") || "").trim();
 
     if (!recipientEmail) {
       return {
@@ -696,6 +742,41 @@ export const action = async ({ request }) => {
     }
 
     try {
+      if (!invoiceUrl && (orderId || orderName)) {
+        try {
+          const queryStr = orderId
+            ? (orderId.startsWith("gid://") ? orderId : `gid://shopify/Order/${orderId}`)
+            : `name:${orderName}`;
+          const lookup = await admin.graphql(
+            orderId
+              ? `#graphql
+                  query FindOrderUrl($id: ID!) {
+                    order(id: $id) { id statusPageUrl }
+                  }
+                `
+              : `#graphql
+                  query FindOrderByName($query: String!) {
+                    orders(first: 1, query: $query) {
+                      nodes { id statusPageUrl }
+                    }
+                  }
+                `,
+            orderId ? { variables: { id: queryStr } } : { variables: { query: queryStr } },
+          );
+          const lBody = await lookup.json();
+          const foundNode = orderId ? lBody?.data?.order : lBody?.data?.orders?.nodes?.[0];
+          if (foundNode?.statusPageUrl) {
+            invoiceUrl = foundNode.statusPageUrl;
+          }
+        } catch (lookupErr) {
+          console.warn("[pending-payments] Could not lookup statusPageUrl:", lookupErr);
+        }
+      }
+
+      if (!invoiceUrl) {
+        invoiceUrl = "https://hyve.promo/apps/account/invoices";
+      }
+
       const bankConfig = await loadBankDetailsConfig(admin);
       let bank = bankAccountFor(countryCode || currency, bankConfig?.accounts);
 
@@ -754,6 +835,19 @@ export const action = async ({ request }) => {
       )}</strong>.
         </p>
 
+        <div style="margin: 18px 0 22px; padding: 16px 20px; background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 10px;">
+          <p style="margin: 0 0 12px; font-size: 14px; color: #166534; line-height: 1.5;">
+            You can view your order invoice, line item breakdown, and current payment status directly online:
+          </p>
+          <a
+            href="${escapeHtml(invoiceUrl)}"
+            target="_blank"
+            style="display: inline-block; padding: 11px 22px; background-color: #059669; color: #ffffff !important; text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 700;"
+          >
+            View / Settle Invoice Online &rarr;
+          </a>
+        </div>
+
         <p style="margin: 0 0 14px; line-height: 1.7; font-size: 15px; color: #111827;">
           To settle this balance via bank transfer / wire, please find our official bank remittance details below:
         </p>
@@ -780,13 +874,27 @@ export const action = async ({ request }) => {
           ["Outstanding Balance", escapeHtml(outstanding)],
           ["Payment Terms", escapeHtml(terms || "Standard")],
           ["Due Date", escapeHtml(dueDate || "On Receipt")],
+          ["Invoice Link", `<a href="${escapeHtml(invoiceUrl)}" style="color: #059669; text-decoration: underline; font-weight: 600;">View Invoice Online</a>`],
         ],
+        detailsAction: `
+          <div style="margin-top: 16px;">
+            <a
+              href="${escapeHtml(invoiceUrl)}"
+              target="_blank"
+              style="display: inline-block; padding: 11px 22px; background: #0f172a; color: #ffffff !important; text-decoration: none; border-radius: 8px; font-size: 13px; font-weight: 700;"
+            >
+              Open Invoice &amp; Order
+            </a>
+          </div>
+        `,
       });
 
       const textLines = [
         customerName ? `Hi ${customerName},` : "Hi,",
         "",
         `This is a friendly reminder regarding the outstanding balance for order ${orderName}.`,
+        "",
+        `Direct Invoice Link: ${invoiceUrl}`,
         "",
         `Order: ${orderName}`,
         `Outstanding Balance: ${outstanding}`,
@@ -912,6 +1020,7 @@ function StatusCard({
   badgeTone,
   count,
   amount,
+  currency = "SGD",
   accentColor,
   onClick,
 }) {
@@ -954,7 +1063,7 @@ function StatusCard({
               lineHeight: 1.2,
             }}
           >
-            {formatMoney(amount, "USD")}
+            {formatMoney(amount, currency)}
           </s-text>
           <s-text
             appearance="subdued"
@@ -982,6 +1091,7 @@ export default function PendingPaymentOrders() {
     },
     counts = { all: 0, overdue: 0, today: 0, "7days": 0, future: 0 },
     amounts = { all: 0, overdue: 0, today: 0, "7days": 0, future: 0 },
+    storeCurrency = "SGD",
     dueTypeMetrics = {},
     activeTab = "all",
     searchQuery: initialSearch = "",
@@ -1239,6 +1349,7 @@ export default function PendingPaymentOrders() {
         form.set("terms", t.terms);
         form.set("countryCode", t.countryCode);
         form.set("currency", t.currency);
+        form.set("invoiceUrl", t.invoiceUrl || "");
 
         const res = await fetch("/app/pending-payments", {
           method: "POST",
@@ -1432,6 +1543,7 @@ export default function PendingPaymentOrders() {
               badgeTone={card.badgeTone}
               count={card.count}
               amount={card.amount}
+              currency={storeCurrency}
               accentColor={card.accentColor}
               onClick={() => handleTabChange(card.id)}
             />
@@ -1694,6 +1806,15 @@ export default function PendingPaymentOrders() {
                         <s-text appearance="subdued">
                           {o.createdAtLabel}
                         </s-text>
+                        {o.invoiceUrl ? (
+                          <s-link
+                            href={o.invoiceUrl}
+                            target="_blank"
+                            style={{ fontSize: "11px", marginTop: "2px" }}
+                          >
+                            Direct Invoice &rarr;
+                          </s-link>
+                        ) : null}
                       </s-stack>
                     </s-table-cell>
 
@@ -1825,6 +1946,7 @@ export default function PendingPaymentOrders() {
                               form.set("terms", o.termsName);
                               form.set("countryCode", o.countryCode);
                               form.set("currency", o.currency);
+                              form.set("invoiceUrl", o.invoiceUrl || "");
                               notifyFetcher.submit(form, { method: "post" });
                             }}
                           >
@@ -1967,7 +2089,7 @@ export default function PendingPaymentOrders() {
                   <s-text>
                     Total outstanding balance:{" "}
                     <strong>
-                      {formatMoney(selectedExportAmount, "USD")}
+                      {formatMoney(selectedExportAmount, storeCurrency)}
                     </strong>
                   </s-text>
                 </s-stack>

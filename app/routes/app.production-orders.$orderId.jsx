@@ -2874,6 +2874,7 @@ export async function action({ request, params }) {
             customerName: order.customer?.displayName || order.shippingAddress?.name || "Customer",
             orderName: order.name,
             orderDate: order.createdAt,
+            lineItems: order.lineItems?.nodes || [],
             sampleVersion: nextVersion,
             fileUrl,
             note,
@@ -3051,15 +3052,15 @@ export async function action({ request, params }) {
       const updatedHistory = currentHistory.map((entry) =>
         Number(entry.sampleVersion) === Number(latestSample.sampleVersion)
           ? {
-              ...entry,
-              status: "changes_requested",
-              response: changeNote,
-              responseDate: changedAt,
-              approvedBy: changedBy,
-              approvalSource: "admin",
-              ...(ipAddress ? { ipAddress } : {}),
-              ...(userAgent ? { userAgent } : {}),
-            }
+            ...entry,
+            status: "changes_requested",
+            response: changeNote,
+            responseDate: changedAt,
+            approvedBy: changedBy,
+            approvalSource: "admin",
+            ...(ipAddress ? { ipAddress } : {}),
+            ...(userAgent ? { userAgent } : {}),
+          }
           : entry,
       );
 
@@ -4458,7 +4459,7 @@ function DatePickerInput({
         </div>
 
         <div style={{ display: "flex", gap: "6px" }}>
-          
+
           {!inline && (
             <button
               type="button"
@@ -4503,7 +4504,7 @@ function DatePickerInput({
         >
           {label}
         </label>
-      
+
       </div>
 
       {details && (
@@ -4512,7 +4513,7 @@ function DatePickerInput({
         </span>
       )}
 
-    
+
 
       {/* If inline, display the calendar directly. Otherwise render trigger button with popover */}
       {inline ? (
@@ -5216,9 +5217,9 @@ export default function ProductionOrderDetailsPage() {
                       <s-paragraph>
                         {nextStepInfo.waitingReason}
                       </s-paragraph>
-                      <s-paragraph tone="subdued">
+                      {/* <s-paragraph tone="subdued">
                         <strong>Status:</strong> The admin cannot manually advance to <strong>{nextStepInfo.nextLabel}</strong> until the customer submits their review. If changes or delays occur, you can place the order on hold with a specific reason.
-                      </s-paragraph>
+                      </s-paragraph> */}
                     </s-stack>
                   </s-banner>
                 )}

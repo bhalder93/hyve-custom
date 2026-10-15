@@ -22,6 +22,7 @@ export const PENDING_PAYMENTS_QUERY = `#graphql
         createdAt
         poNumber
         displayFinancialStatus
+        statusPageUrl
         lastNotification: metafield(namespace: "$app", key: "last_payment_reminder_sent_at") {
           value
         }
@@ -29,18 +30,30 @@ export const PENDING_PAYMENTS_QUERY = `#graphql
           value
         }
         totalPriceSet: currentTotalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
           presentmentMoney {
             amount
             currencyCode
           }
         }
         totalOutstandingSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
           presentmentMoney {
             amount
             currencyCode
           }
         }
         totalReceivedSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
           presentmentMoney {
             amount
             currencyCode
@@ -116,31 +129,37 @@ export function classifyPaymentStatus(schedule, daysDiff, outstandingAmount) {
   return { key: "future", label: `Due in ${daysDiff}d`, tone: "neutral" };
 }
 
-export function formatMoney(amount, currency = "USD") {
+export function formatMoney(amount, currency = "SGD") {
   const num = Number(amount);
-  if (!Number.isFinite(num)) return `${currency} 0.00`;
-  try {
-    return new Intl.NumberFormat("en-SG", {
-      style: "currency",
-      currency: currency || "USD",
-    }).format(num);
-  } catch {
-    return `${currency} ${num.toFixed(2)}`;
-  }
+  if (!Number.isFinite(num)) return `${currency || "SGD"} 0.00`;
+  const formatted = num.toLocaleString("en-SG", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${currency || "SGD"} ${formatted}`;
 }
 
 export function parseOrderNode(order, shopHandle = "hyve-promo") {
   const numericId = order.id ? order.id.split("/").pop() : "";
   const currency =
-    order.totalPriceSet?.presentmentMoney?.currencyCode || "USD";
+    order.totalOutstandingSet?.shopMoney?.currencyCode ||
+    order.totalPriceSet?.shopMoney?.currencyCode ||
+    order.totalPriceSet?.presentmentMoney?.currencyCode ||
+    "SGD";
   const totalAmount = Number(
-    order.totalPriceSet?.presentmentMoney?.amount || 0,
+    order.totalPriceSet?.shopMoney?.amount ||
+    order.totalPriceSet?.presentmentMoney?.amount ||
+    0,
   );
   const outstandingAmount = Number(
-    order.totalOutstandingSet?.presentmentMoney?.amount || totalAmount,
+    order.totalOutstandingSet?.shopMoney?.amount ||
+    order.totalOutstandingSet?.presentmentMoney?.amount ||
+    totalAmount,
   );
   const paidAmount = Number(
-    order.totalReceivedSet?.presentmentMoney?.amount || 0,
+    order.totalReceivedSet?.shopMoney?.amount ||
+    order.totalReceivedSet?.presentmentMoney?.amount ||
+    0,
   );
 
   const schedule = order.paymentTerms?.paymentSchedules?.nodes?.[0] || null;
@@ -167,7 +186,7 @@ export function parseOrderNode(order, shopHandle = "hyve-promo") {
     order.lastNotificationCustom?.value ||
     null;
   const lastNotifiedLabel = lastNotifiedAt
-    ? formatDateTime(lastNotifiedAt)
+    ? `${formatDateTime(lastNotifiedAt)} SGT`
     : null;
 
   const adminUrl = numericId
@@ -179,7 +198,7 @@ export function parseOrderNode(order, shopHandle = "hyve-promo") {
     numericId,
     name: order.name,
     createdAt: order.createdAt,
-    createdAtLabel: formatDate(order.createdAt),
+    createdAtLabel: order.createdAt ? `${formatDateTime(order.createdAt)} SGT` : "—",
     lastNotifiedAt,
     lastNotifiedLabel,
     poNumber: order.poNumber || "—",
