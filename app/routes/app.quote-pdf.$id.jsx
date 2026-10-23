@@ -12,6 +12,14 @@ export const loader = async ({ request, params }) => {
   const id = String(params?.id || "").replace(/\D/g, "");
   if (!id) return new Response("Draft order ID is required.", { status: 400 });
 
+  const accept = request.headers.get("accept") || "";
+  if (accept.includes("text/html") && !accept.includes("application/pdf")) {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: `/app/quote/${id}` },
+    });
+  }
+
   const doc = await loadQuoteDocument(admin, `gid://shopify/DraftOrder/${id}`, { staff: true });
   if (!doc) return new Response("Quote not found.", { status: 404 });
 

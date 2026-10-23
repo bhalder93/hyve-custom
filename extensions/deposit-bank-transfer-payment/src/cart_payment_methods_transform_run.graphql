@@ -1,0 +1,18 @@
+query CartPaymentMethodsTransformRunInput {
+  cart {
+    buyerIdentity {
+      purchasingCompany {
+        # Set by Hyve Custom on a location with a 30% deposit (HYV-150).
+        location {
+          deposit: metafield(namespace: "hyve", key: "deposit_percentage") {
+            value
+          }
+        }
+      }
+    }
+  }
+  paymentMethods {
+    id
+    name
+  }
+}

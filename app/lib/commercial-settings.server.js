@@ -12,6 +12,11 @@
  *                             artwork sent later is due, shown to the buyer as
  *                             the "by" date on an order waiting for it
  *                             (HYV-102); blank for no deadline
+ *   no_ddp_countries          countries a retail order ships to without duties
+ *                             included: no import duties line at checkout, and
+ *                             the cart, checkout and quote say so (HYV-200);
+ *                             two-letter codes, e.g. "CN,TH,VN,ID"; blank for
+ *                             none. Distributors aren't affected.
  *
  * Each is stored once, on the store, and read from there by everything that
  * acts on it. The two amounts are in shop currency (USD), read by the cart
@@ -79,9 +84,31 @@ export const COMMERCIAL_SETTINGS = [
     description: "Business days after an order is placed that artwork sent later is due, weekends and China holidays excluded. The buyer sees the date on an order waiting for artwork. Leave blank for no deadline.",
     placeholder: "",
   },
+  {
+    key: "no_ddp_countries",
+    section: "duties",
+    kind: "countries",
+    optional: true,
+    name: "Countries without duties included",
+    description:
+      "Two-letter country codes, separated by commas, e.g. CN, TH, VN, ID. Retail orders to these countries get no import duties line, and the cart, checkout and quote say duties are not included. Distributors are not affected. Blank includes duties everywhere.",
+    placeholder: "",
+    // Bruce, Oct 15: not ready to ship duties included to these yet (HYV-200).
+    // Set once, when the setting is first created; Hyve changes it from then on.
+    initial: "CN,TH,VN,ID",
+  },
 ];
 
-const METAFIELD_TYPES = { money: "number_decimal", days: "number_integer" };
+const METAFIELD_TYPES = { money: "number_decimal", days: "number_integer", countries: "single_line_text_field" };
+
+/** "cn, th vn" -> ["CN", "TH", "VN"]; null when an entry isn't a two-letter code. */
+export function parseCountries(raw) {
+  const codes = String(raw || "")
+    .split(/[\s,]+/)
+    .map((code) => code.trim().toUpperCase())
+    .filter(Boolean);
+  return codes.every((code) => /^[A-Z]{2}$/.test(code)) ? [...new Set(codes)] : null;
+}
 
 const READ_QUERY = `#graphql
   query CommercialSettings {
@@ -141,6 +168,7 @@ async function gql(admin, query, variables) {
 export async function loadCommercialSettings(admin) {
   let data = await gql(admin, READ_QUERY);
   const defined = new Set((data.metafieldDefinitions?.nodes || []).map((node) => node.key));
+  const created = [];
 
   for (const setting of COMMERCIAL_SETTINGS) {
     if (defined.has(setting.key)) continue;
@@ -157,15 +185,22 @@ export async function loadCommercialSettings(admin) {
     });
     const error = result.metafieldDefinitionCreate?.userErrors?.[0];
     if (error && error.code !== "TAKEN") throw new Error(`${setting.name}: ${error.message}`);
+    if (!error) created.push(setting);
   }
 
   const valuesOf = (shop) =>
     Object.fromEntries(COMMERCIAL_SETTINGS.map(({ key }) => [key, shop[key]?.value ?? ""]));
   const unset = COMMERCIAL_SETTINGS.filter((setting) => !setting.optional && valuesOf(data.shop)[setting.key] === "");
-  if (unset.length) {
+  // An optional setting with a starting value gets it once, when it's first
+  // created, so a later blank (Hyve's choice) stays blank.
+  const starting = created.filter((setting) => setting.initial && valuesOf(data.shop)[setting.key] === "");
+  if (unset.length || starting.length) {
     await saveCommercialSettings(
       admin,
-      Object.fromEntries(unset.map((setting) => [setting.key, setting.placeholder])),
+      Object.fromEntries([
+        ...unset.map((setting) => [setting.key, setting.placeholder]),
+        ...starting.map((setting) => [setting.key, setting.initial]),
+      ]),
       data.shop.id,
     );
     data = await gql(admin, READ_QUERY);
@@ -189,6 +224,16 @@ export async function saveCommercialSettings(admin, values, shopId) {
     const raw = String(values[setting.key]).trim();
     if (setting.optional && raw === "") {
       cleared.push({ ownerId: id, namespace: NAMESPACE, key: setting.key });
+      continue;
+    }
+    if (setting.kind === "countries") {
+      const codes = parseCountries(raw);
+      if (!codes) return { ok: false, error: `${setting.name}: use two-letter country codes separated by commas, e.g. CN, TH, VN, ID.` };
+      if (!codes.length) {
+        cleared.push({ ownerId: id, namespace: NAMESPACE, key: setting.key });
+        continue;
+      }
+      metafields.push({ ownerId: id, namespace: NAMESPACE, key: setting.key, type: METAFIELD_TYPES.countries, value: codes.join(",") });
       continue;
     }
     const amount = Number(raw);

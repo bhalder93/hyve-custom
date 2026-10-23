@@ -22,6 +22,7 @@ import { authenticate } from "../shopify.server";
 import { ensureCommercialDefinitions } from "../lib/commercial-metafields.server";
 
 import { completeB2BOnboarding } from "../lib/b2b-onboarding.server";
+import { distributorCurrency } from "../lib/company-currency.server";
 import { setCompanyTier } from "../lib/company-tier.server";
 import { addressErrors, addressFormatFor, internationalPhone, shopifyAddressInput } from "../lib/address-formats.server";
 import { ADDRESS_FORMATS } from "../lib/address-formats.data";
@@ -686,6 +687,8 @@ export const loader = async ({ request, params }) => {
     assignedCatalogTitle: assignedCatalog?.title || "",
 
     addressDetails,
+    // What approval sets: SGD for a Singapore address, USD otherwise (HYV-195).
+    currency: distributorCurrency(addressDetails.countryCode),
     shop,
     taxDuplicates,
     likelyCompanyMatches,
@@ -1443,8 +1446,6 @@ export const action = async ({ request, params }) => {
 
         taxRegistrationNumber: application?.tax_registration_number || null,
 
-        preferredCurrency: application?.preferred_currency || null,
-
       });
 
       onboardingSteps = onboardingSteps.concat(onboarding.steps);
@@ -1898,6 +1899,7 @@ export default function DistributorDetailPage() {
     assignedCatalogTitle = "",
 
     addressDetails = {},
+    currency = "",
     shop = "",
     taxDuplicates = [],
     likelyCompanyMatches = [],
@@ -3167,11 +3169,11 @@ export default function DistributorDetailPage() {
 
                     <s-text color="subdued" type="small">
 
-                      Preferred Currency
+                      Currency
 
                     </s-text>
 
-                    <s-text>{application?.preferred_currency || "—"}</s-text>
+                    <s-text>{currency || "—"}</s-text>
 
                   </s-stack>
 
@@ -3838,7 +3840,7 @@ export default function DistributorDetailPage() {
 
                           >
 
-                            <s-option value="">None (Due on receipt / Prepayment)</s-option>
+                            <s-option value="">None (30% deposit, balance before shipment)</s-option>
 
                             {paymentTermsTemplates.map((term) => (
 

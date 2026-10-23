@@ -65,6 +65,12 @@ const QUOTE_QUERY = `#graphql
           variantTitle
           quantity
           customAttributes { key value }
+          variant {
+            inventoryItem {
+              harmonizedSystemCode
+              countryCodeOfOrigin
+            }
+          }
           discountedTotalSet { presentmentMoney { amount currencyCode } }
         }
       }

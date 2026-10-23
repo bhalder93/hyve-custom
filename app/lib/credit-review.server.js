@@ -23,13 +23,19 @@
  * from one of these companies is put On Hold for credit review as it arrives
  * (webhooks.orders.create) and listed here too: Approve releases it to Order
  * Received, Decline cancels it and tells the buyer.
+ *
+ * Since HYV-198 an order is held only when it takes the location over its
+ * credit limit or the location has an overdue balance (credit-check.server.js).
+ * Checkout marks such an order and it arrives On Hold here; every other order
+ * goes straight through. Locations still on "submit orders for review" keep
+ * their drafts until the Distributors page moves them to these rules.
  */
 import { DRAFT_ORIGIN_FIELDS, submittedForReview } from "./account-quotes.server";
 import { formatDate, formatMoney } from "./portal.server";
 import { SOURCES, productionStatusOf, writeProductionStatus } from "./order-status.server";
 
 export const CREDIT_DECLINED_TAG = "credit-declined";
-/** On an order held for credit review: it came from a cart quote's link. */
+/** On an order held for credit review: over the credit limit, an overdue balance, or a cart quote's link. */
 export const CREDIT_HOLD_TAG = "credit-review-hold";
 const HOLD_REASON = "Credit review: Hyve checks your payment terms, then confirms the order";
 export const CREDIT_REVIEW_ROLE = "CREDIT_REVIEW";
@@ -231,7 +237,7 @@ export function reviewRow(node) {
   const repFrom = [location, ...(company?.locations?.nodes || [])].find((l) => l?.salesRepEmail?.value || l?.salesRep?.value);
   return {
     id: node.id,
-    // "order" for one held after checking out from a cart quote's link.
+    // "order" for a placed order held On Hold (over the limit, overdue, or from a cart quote's link).
     kind: isOrder(node.id) ? "order" : "draft",
     numericId: String(node.id).replace(/^gid:\/\/shopify\/(DraftOrder|Order)\//, ""),
     name: node.name,
@@ -273,21 +279,24 @@ async function loadHeldOrder(admin, orderGid) {
 }
 
 /**
- * Puts an order on hold for credit review when it came from a cart quote's
- * link and its company submits orders for review (HYV-162). Called by
- * webhooks.orders.create once the order has its first status. Staff quotes
- * aren't held: whether they should be is still Hyve's to decide.
+ * Puts an order on hold for credit review when checkout marked it as over the
+ * credit limit or placed with an overdue balance (HYV-198), or when it came
+ * from a cart quote's link for a location still on "submit orders for review"
+ * (HYV-162). Called by webhooks.orders.create once the order has its first
+ * status.
  * @returns {Promise<{held:boolean, reason?:string}>}
  */
-export async function holdOrderForCreditReview(admin, orderGid) {
+export async function holdOrderForCreditReview(admin, orderGid, { flagged = false } = {}) {
   const order = await loadHeldOrder(admin, orderGid);
   if (!order) return { held: false, reason: "order not found" };
   if ((order.tags || []).includes(CREDIT_HOLD_TAG)) return { held: false, reason: "already held" };
-  if (!order.purchasingEntity?.location?.buyerExperienceConfiguration?.checkoutToDraft) {
-    return { held: false, reason: "company doesn't submit orders for review" };
-  }
-  const source = (order.customAttributes || []).find((attr) => attr.key === "Source")?.value;
-  if (source !== "Cart quote") return { held: false, reason: "not from a cart quote" };
+  // The checkout mark comes from the orders/create payload: the order's
+  // `_hyve_` working fields are taken off it before this runs (HYV-176).
+  const attribute = (key) => (order.customAttributes || []).find((attr) => attr.key === key)?.value;
+  const draftReviewQuote =
+    Boolean(order.purchasingEntity?.location?.buyerExperienceConfiguration?.checkoutToDraft) &&
+    attribute("Source") === "Cart quote";
+  if (!flagged && !draftReviewQuote) return { held: false, reason: "within credit" };
   const from = productionStatusOf(order);
   // Order Received, or Ready For Collection for a blank quote order.
   if (from !== "order-placed" && from !== "ready-for-collection") {
@@ -303,7 +312,9 @@ export async function holdOrderForCreditReview(admin, orderGid) {
     onHoldReason: HOLD_REASON,
     changedBy: "Credit review",
     source: SOURCES.creditReview,
-    note: "Placed from a cart quote by a company whose orders are reviewed. Held until Hyve approves it in Credit Review.",
+    note: flagged
+      ? "Over the credit limit or placed with an overdue balance. Held until Hyve approves it in Credit Review."
+      : "Placed from a cart quote by a company whose orders are reviewed. Held until Hyve approves it in Credit Review.",
   });
 
   const alert = await sendCreditReviewAlert(admin, { ...order, tags: [...(order.tags || []), CREDIT_HOLD_TAG] }).catch((error) => ({
@@ -505,7 +516,7 @@ export async function sendMissedCreditReviewAlerts(admin) {
       result.errors.push(`${node.name}: ${error?.message || error}`);
     }
   }
-  // Orders held from a quote link: their alert goes from orders/create, once.
+  // Placed orders held On Hold: their alert goes from orders/create, once.
   const held = ((await run(admin, HELD_ORDERS_QUERY))?.orders?.nodes || []).filter(
     (node) =>
       heldForReview(node) &&
@@ -598,7 +609,7 @@ async function sendCreditReviewAlert(admin, node) {
       title: "Order Waiting For Credit Review",
       body: `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;"><strong>${escapeHtml(row.company || row.buyer)}</strong> ${
         row.kind === "order"
-          ? `placed order <strong>${escapeHtml(row.name)}</strong> from a quote on ${escapeHtml(row.terms || "payment terms")}. It's on hold until approved.`
+          ? `placed order <strong>${escapeHtml(row.name)}</strong> on ${escapeHtml(row.terms || "payment terms")}. It's on hold until approved.`
           : `submitted order <strong>${escapeHtml(row.name)}</strong> on ${escapeHtml(row.terms || "payment terms")}.`
       } Approve or decline it in ${escapeHtml(shopName)} admin → Apps → Hyve Custom → Credit Review.</p>`,
       details: [

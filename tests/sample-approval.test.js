@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import process from "node:process";
 import { syncSampleStatusTags } from "../app/lib/sample-status-tags.server.js";
 
 test("sample approval removes the review tag and adds production approval tags", async () => {
@@ -27,6 +28,34 @@ test("sample approval removes the review tag and adds production approval tags",
   assert.deepEqual(mutations[1].variables.tags, [
     "hyve-status:in-production",
     "hyve-sample-approved",
+  ]);
+});
+
+test("sample tag sync normalizes numeric orderId and handles string tags gracefully", async () => {
+  const mutations = [];
+  const admin = {
+    async graphql(query, { variables }) {
+      mutations.push({ query, variables });
+      const operation = query.includes("tagsRemove") ? "tagsRemove" : "tagsAdd";
+      return { json: async () => ({ data: { [operation]: { userErrors: [] } } }) };
+    },
+  };
+
+  await syncSampleStatusTags(
+    admin,
+    "123456",
+    "hyve-status:sample-review, hyve-rush",
+    "in-production",
+    ["hyve-sample-approved", "in-production"],
+  );
+
+  assert.equal(mutations[0].variables.id, "gid://shopify/Order/123456");
+  assert.deepEqual(mutations[0].variables.tags, ["hyve-status:sample-review"]);
+  assert.equal(mutations[1].variables.id, "gid://shopify/Order/123456");
+  assert.deepEqual(mutations[1].variables.tags, [
+    "hyve-status:in-production",
+    "hyve-sample-approved",
+    "in-production",
   ]);
 });
 
@@ -89,6 +118,9 @@ test("sendPhysicalSampleEmail includes greeting, order details, links and view o
       approveUrl: "https://example.com/approve",
       changesUrl: "https://example.com/changes",
       reviewUrl: "https://example.com/review",
+      lineItems: [
+        { title: "Custom Embroidered Cap", variantTitle: "Black", quantity: 50 },
+      ],
     });
 
     assert.ok(sentMail, "sendMail should have been called");
@@ -104,6 +136,10 @@ test("sendPhysicalSampleEmail includes greeting, order details, links and view o
     assert.ok(sentMail.text.includes("Approve Physical Sample: https://example.com/approve"));
     assert.ok(sentMail.text.includes("Request Changes: https://example.com/changes"));
     assert.ok(sentMail.text.includes("Physical Sample version: v2"));
+    assert.ok(sentMail.text.includes("Order items"));
+    assert.ok(sentMail.text.includes("- Custom Embroidered Cap (Black) x 50"));
+    assert.ok(sentMail.text.includes("Order: #1099"));
+    assert.ok(sentMail.text.includes("Order date:"));
     assert.ok(sentMail.text.includes("View your order: https://hyve.promo/apps/account/orders"));
   } finally {
     nodemailer.default.createTransport = originalCreateTransport;

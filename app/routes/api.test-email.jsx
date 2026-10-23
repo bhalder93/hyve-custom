@@ -1,6 +1,12 @@
 import { formatTime, formatDateTime } from "../utils/date.js";
 /* global process */
-import { verifyMailer, sendMail, getDefaultFrom, defaultReplyTo } from "../lib/email/mailer.server";
+import {
+  verifyMailer,
+  sendMail,
+  getDefaultFrom,
+  defaultReplyTo,
+  isMicrosoftGraphConfigured,
+} from "../lib/email/mailer.server";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -90,33 +96,45 @@ export const action = async ({ request }) => {
 };
 
 async function runEmailTest(to = "", customSubject = "") {
+  const isMsGraph = isMicrosoftGraphConfigured();
   const host = process.env.SMTP_HOST || "";
   const port = Number(process.env.SMTP_PORT || 587);
   const user = process.env.SMTP_USER || "";
   const from = getDefaultFrom();
   const replyTo = defaultReplyTo();
 
+  const isConfigured = isMsGraph
+    ? Boolean(
+        process.env.MS_TENANT_ID &&
+        process.env.MS_CLIENT_ID &&
+        process.env.MS_CLIENT_SECRET,
+      )
+    : Boolean(host && user && process.env.SMTP_PASS);
+
   const configSummary = {
-    host: host || "(missing)",
-    port,
-    user: user || "(missing)",
+    provider: isMsGraph ? "Microsoft 365 (Graph API)" : "SMTP",
+    host: isMsGraph ? "graph.microsoft.com" : host || "(missing)",
+    port: isMsGraph ? 443 : port,
+    user: isMsGraph ? (process.env.MS_FROM_EMAIL || process.env.EMAIL_FROM_ADDRESS || "(missing)") : (user || "(missing)"),
     from,
     replyTo,
-    isConfigured: Boolean(host && user && process.env.SMTP_PASS),
+    isConfigured,
   };
 
   if (!configSummary.isConfigured) {
     return {
       ok: false,
       status: "unconfigured",
-      error: "SMTP configuration is incomplete. Missing SMTP_HOST, SMTP_USER, or SMTP_PASS.",
+      error: isMsGraph
+        ? "Microsoft 365 configuration is incomplete. Missing MS_TENANT_ID, MS_CLIENT_ID, or MS_CLIENT_SECRET."
+        : "SMTP configuration is incomplete. Missing SMTP_HOST, SMTP_USER, or SMTP_PASS.",
       smtp: configSummary,
       timestamp: new Date().toISOString(),
     };
   }
 
   try {
-    // 1. Verify SMTP connection and authentication
+    // 1. Verify connection and authentication (MS Graph or SMTP)
     await verifyMailer();
 
     // 2. If recipient provided, send a real test email
@@ -131,8 +149,9 @@ async function runEmailTest(to = "", customSubject = "") {
         };
       }
 
+      const providerLabel = isMsGraph ? "Microsoft 365" : "SMTP";
       const subject =
-        customSubject || `[Hyve Test] SMTP Email Test - ${formatTime(new Date())}`;
+        customSubject || `[Hyve Test] ${providerLabel} Email Test - ${formatTime(new Date())}`;
       const timestamp = new Date().toISOString();
       const timestampLabel = formatDateTime(timestamp);
 

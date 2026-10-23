@@ -148,14 +148,38 @@ export const action = async ({ request }) => {
   const loggedInCustomerId = url.searchParams.get("logged_in_customer_id") || null;
 
   let payload = {};
-  try {
-    payload = await request.json();
-  } catch (_) {
-    payload = {};
+  const contentType = request.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      payload = await request.json();
+    } catch (_) {
+      payload = {};
+    }
+  } else {
+    try {
+      const formData = await request.formData();
+      payload = Object.fromEntries(formData.entries());
+    } catch (_) {
+      payload = {};
+    }
   }
 
-  const intent = payload.intent || null; // 'email' | 'share' | 'pdf'
+  const intent = payload.intent || null; // 'email' | 'share' | 'pdf' | 'add_physical_sample'
   const email = (payload.email || "").trim() || null;
+
+  if (intent === "add_physical_sample" || intent === "remove_physical_sample") {
+    if (!admin) {
+      return Response.json({ ok: false, error: "Store session unavailable." }, { status: 500 });
+    }
+    const { setPhysicalSampleOnQuote } = await import("../lib/account-quotes.server");
+    const result = await setPhysicalSampleOnQuote(admin, {
+      quoteId: String(payload.quoteId || payload.quote_id || "").trim(),
+      customerId: loggedInCustomerId,
+      email,
+      sample: intent === "add_physical_sample",
+    });
+    return Response.json(result, { status: result.ok ? 200 : 422 });
+  }
 
   if (!["email", "share", "pdf"].includes(intent)) {
     return Response.json({ ok: false, error: "Invalid intent." }, { status: 400 });
@@ -454,5 +478,14 @@ async function quoteEmailHtml({ shopName, ref, payUrl, hasPdf, validUntil }) {
 // Safety for direct GETs (still signature-verified).
 export const loader = async ({ request }) => {
   await authenticate.public.appProxy(request);
+  const url = new URL(request.url);
+  const isJson = (request.headers.get("accept") || "").includes("application/json");
+  if (!isJson) {
+    const quoteId = url.searchParams.get("id") || url.searchParams.get("draft") || url.searchParams.get("viewQuote");
+    const redirectUrl = quoteId
+      ? `/apps/account/quotes?viewQuote=${encodeURIComponent(quoteId)}`
+      : `/apps/account/quotes`;
+    return new Response(null, { status: 302, headers: { Location: redirectUrl } });
+  }
   return Response.json({ ok: true, message: "POST to create a quote." });
 };

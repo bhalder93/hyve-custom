@@ -4,6 +4,8 @@ import { authenticate } from "../shopify.server";
 import { loadInvoiceDocument } from "../lib/invoice-document.server";
 import { sendInvoiceEmail } from "../utils/email.server";
 import { checkAndAddFobShippingIfStorefrontQuote } from "../lib/order-fob-shipping.server";
+import { orderLocationGid, refreshLocationCredit } from "../lib/credit-check.server";
+import { releaseWhenPaid } from "../lib/deposit.server";
 
 /** On an order once its invoice has gone out, so a retried webhook can't send it twice. */
 const INVOICE_SENT_TAG = "hyve-notified:invoice";
@@ -20,7 +22,22 @@ export async function action({ request }) {
   const { admin, payload, shop } = await authenticate.webhook(request);
 
   try {
+    // A payment frees that much of the company's credit, and may clear an
+    // overdue balance (HYV-198).
+    const creditLocation = admin ? orderLocationGid(payload) : null;
+    if (creditLocation) {
+      await refreshLocationCredit(admin, creditLocation).catch((error) =>
+        console.error("[orders/paid] credit refresh failed", payload?.name, error?.message || error),
+      );
+    }
+
     const orderGid = payload?.admin_graphql_api_id;
+    // A deposit order fully paid can now be shipped (HYV-150).
+    if (admin && orderGid) {
+      await releaseWhenPaid(admin, orderGid).catch((error) =>
+        console.error("[orders/paid] fulfilment hold not released", payload?.name, error?.message || error),
+      );
+    }
     const email = payload?.email || payload?.contact_email || payload?.customer?.email || "";
     const tags = String(payload?.tags || "")
       .split(",")

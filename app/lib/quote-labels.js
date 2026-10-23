@@ -25,3 +25,20 @@ export const STAFF_QUOTE_TONES = {
   declined: "critical",
   expired: "neutral",
 };
+
+/** Format 2-letter country code to country name (e.g. 'CN' -> 'China'), or pass through string */
+export function formatCountryOfOrigin(codeOrName) {
+  if (!codeOrName) return "";
+  const str = String(codeOrName).trim();
+  if (!str) return "";
+  if (str.length === 2) {
+    try {
+      const name = new Intl.DisplayNames(["en"], { type: "region" }).of(str.toUpperCase());
+      if (name) return name;
+    } catch {
+      // ignore
+    }
+  }
+  return str;
+}
+

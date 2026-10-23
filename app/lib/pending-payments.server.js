@@ -142,27 +142,31 @@ export function formatMoney(amount, currency = "SGD") {
 export function parseOrderNode(order, shopHandle = "hyve-promo") {
   const numericId = order.id ? order.id.split("/").pop() : "";
   const currency =
+    order.totalOutstandingSet?.presentmentMoney?.currencyCode ||
+    order.totalPriceSet?.presentmentMoney?.currencyCode ||
     order.totalOutstandingSet?.shopMoney?.currencyCode ||
     order.totalPriceSet?.shopMoney?.currencyCode ||
-    order.totalPriceSet?.presentmentMoney?.currencyCode ||
     "SGD";
   const totalAmount = Number(
-    order.totalPriceSet?.shopMoney?.amount ||
     order.totalPriceSet?.presentmentMoney?.amount ||
+    order.totalPriceSet?.shopMoney?.amount ||
     0,
   );
   const outstandingAmount = Number(
-    order.totalOutstandingSet?.shopMoney?.amount ||
     order.totalOutstandingSet?.presentmentMoney?.amount ||
+    order.totalOutstandingSet?.shopMoney?.amount ||
     totalAmount,
   );
   const paidAmount = Number(
-    order.totalReceivedSet?.shopMoney?.amount ||
     order.totalReceivedSet?.presentmentMoney?.amount ||
+    order.totalReceivedSet?.shopMoney?.amount ||
     0,
   );
 
-  const schedule = order.paymentTerms?.paymentSchedules?.nodes?.[0] || null;
+  // The schedule still to pay: a 30% deposit order (HYV-150) has its deposit
+  // settled first and the balance after it.
+  const schedules = order.paymentTerms?.paymentSchedules?.nodes || [];
+  const schedule = schedules.find((s) => !s.completedAt) || schedules[0] || null;
   const dueAtDate = schedule?.dueAt ? new Date(schedule.dueAt) : null;
   const daysDiff = getDayDiff(dueAtDate);
   const status = classifyPaymentStatus(schedule, daysDiff, outstandingAmount);
@@ -454,7 +458,7 @@ export async function resolveRecipients(admin, requestedTo) {
 export function calculateTotalsByCurrency(orders) {
   const totals = {};
   for (const o of orders) {
-    const curr = o.currency || "USD";
+    const curr = o.currency || "SGD";
     totals[curr] = (totals[curr] || 0) + Number(o.outstandingAmount || 0);
   }
   return totals;
@@ -680,6 +684,16 @@ export async function sendPendingPaymentsCsvEmail({
     emailSent: true,
     csvSent: true,
   };
+}
+
+/**
+ * Called by Shopify Flow, the same way as /api/sla: `Authorization: Bearer
+ * <CRON_SECRET>`. Without it anyone could pull the unpaid-orders CSV, email it
+ * anywhere, or send reminders to every buyer.
+ */
+export function cronAuthorized(request) {
+  const secret = process.env.CRON_SECRET;
+  return Boolean(secret) && request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
 export const CORS_HEADERS = {
@@ -952,29 +966,56 @@ export async function sendCustomerOrderPaymentReminder(admin, order, { bankConfi
   }
 
   const orderName = order.name;
-  const outstanding = order.outstandingAmountLabel || formatMoney(order.outstandingAmount, order.currency);
+  const paymentAmount =
+    order.outstandingAmountLabel ||
+    formatMoney(order.outstandingAmount, order.currency);
+  const totalAmount =
+    order.totalAmountLabel ||
+    (order.totalAmount ? formatMoney(order.totalAmount, order.currency) : "");
+  const invoiceAmount = totalAmount || paymentAmount;
   const dueDate = order.dueAtLabel || "On Receipt";
   const terms = order.termsName || "Standard";
   const countryCode = order.countryCode || "";
-  const currency = order.currency || "USD";
+  const currency = order.currency || "SGD";
   const customerName = order.customerName || "";
 
   const config = bankConfig || (await loadBankDetailsConfig(admin));
-  let bank = bankAccountFor(countryCode || currency, config?.accounts);
+  const currUpper = String(currency || "SGD").trim().toUpperCase();
+  let bank = bankAccountFor(countryCode, config?.accounts, currUpper);
 
+  // Ensure bank details match the invoice currency exactly
   if (!bank || !Array.isArray(bank.rows) || bank.rows.length === 0) {
-    const isSgd =
-      (currency || "").toUpperCase() === "SGD" ||
-      (countryCode || "").toUpperCase() === "SG";
-    if (isSgd) {
+    if (currUpper === "SGD") {
       bank = config?.accounts?.DBS_SGD?.rows?.length
         ? config.accounts.DBS_SGD
         : DEFAULT_ACCOUNTS.DBS_SGD;
+    } else if (currUpper === "EUR") {
+      bank = config?.accounts?.BANKING_CIRCLE?.rows?.length
+        ? config.accounts.BANKING_CIRCLE
+        : DEFAULT_ACCOUNTS.BANKING_CIRCLE;
     } else {
-      bank = config?.accounts?.CFSB_USD?.rows?.length
-        ? config.accounts.CFSB_USD
-        : DEFAULT_ACCOUNTS.CFSB_USD;
+      const isUs = String(countryCode || "").trim().toUpperCase() === "US";
+      if (isUs) {
+        bank = config?.accounts?.CFSB_USD?.rows?.length
+          ? config.accounts.CFSB_USD
+          : DEFAULT_ACCOUNTS.CFSB_USD;
+      } else {
+        bank = config?.accounts?.DBS_USD?.rows?.length
+          ? config.accounts.DBS_USD
+          : DEFAULT_ACCOUNTS.DBS_USD;
+      }
     }
+  }
+
+  // Guarantee the remittance heading strictly matches the invoice presentment currency
+  if (currUpper === "SGD") {
+    bank = { ...bank, heading: "For Payment in SGD" };
+  } else if (currUpper === "EUR") {
+    bank = { ...bank, heading: "For Payment in EUR" };
+  } else if (currUpper === "USD") {
+    bank = { ...bank, heading: "For Payment in USD" };
+  } else {
+    bank = { ...bank, heading: bank.heading || `For Payment in ${currUpper}` };
   }
 
   const bankRowsHtml = `
@@ -998,8 +1039,14 @@ export async function sendCustomerOrderPaymentReminder(admin, order, { bankConfi
           )
           .join("")}
         <tr>
-          <td style="padding: 8px 0 2px 0; color: #6B7280; font-weight: 500; border-top: 1px dashed #E5E7EB; vertical-align: top;">Payment Reference:</td>
-          <td style="padding: 8px 0 2px 0; color: #059669; font-weight: 700; font-size: 15px; border-top: 1px dashed #E5E7EB; vertical-align: top;">${escapeHtml(
+          <td style="padding: 8px 0 2px 0; color: #6B7280; font-weight: 500; border-top: 1px dashed #E5E7EB; vertical-align: top;">Payment Amount:</td>
+          <td style="padding: 8px 0 2px 0; color: #111827; font-weight: 700; font-size: 15px; border-top: 1px dashed #E5E7EB; vertical-align: top;">${escapeHtml(
+            paymentAmount,
+          )}</td>
+        </tr>
+        <tr>
+          <td style="padding: 5px 0 2px 0; color: #6B7280; font-weight: 500; vertical-align: top;">Payment Reference:</td>
+          <td style="padding: 5px 0 2px 0; color: #059669; font-weight: 700; font-size: 15px; vertical-align: top;">${escapeHtml(
             orderName,
           )}</td>
         </tr>
@@ -1007,11 +1054,13 @@ export async function sendCustomerOrderPaymentReminder(admin, order, { bankConfi
     </div>
   `;
 
-  const subject = `Payment Reminder: Invoice / Order ${orderName} (${outstanding} Outstanding)`;
+  const subject = `Payment Reminder: Invoice / Order ${orderName} (${paymentAmount} Outstanding)`;
 
   const emailBody = `
     <p style="margin: 0 0 14px; line-height: 1.7; font-size: 15px; color: #111827;">
-      This is a friendly reminder regarding the outstanding balance for order <strong>${escapeHtml(
+      This is a friendly reminder regarding the outstanding balance of <strong>${escapeHtml(
+        paymentAmount,
+      )}</strong> for order <strong>${escapeHtml(
         orderName,
       )}</strong>.
     </p>
@@ -1039,7 +1088,12 @@ export async function sendCustomerOrderPaymentReminder(admin, order, { bankConfi
     body: emailBody,
     details: [
       ["Order", escapeHtml(orderName)],
-      ["Outstanding Balance", escapeHtml(outstanding)],
+      ...(invoiceAmount && invoiceAmount !== paymentAmount
+        ? [
+            ["Invoice Amount", escapeHtml(invoiceAmount)],
+            ["Payment Amount Due", escapeHtml(paymentAmount)],
+          ]
+        : [["Invoice / Payment Amount", escapeHtml(paymentAmount)]]),
       ["Payment Terms", escapeHtml(terms || "Standard")],
       ["Due Date", escapeHtml(dueDate || "On Receipt")],
     ],
@@ -1048,15 +1102,21 @@ export async function sendCustomerOrderPaymentReminder(admin, order, { bankConfi
   const textLines = [
     customerName ? `Hi ${customerName},` : "Hi,",
     "",
-    `This is a friendly reminder regarding the outstanding balance for order ${orderName}.`,
+    `This is a friendly reminder regarding the outstanding balance of ${paymentAmount} for order ${orderName}.`,
     "",
     `Order: ${orderName}`,
-    `Outstanding Balance: ${outstanding}`,
+    ...(invoiceAmount && invoiceAmount !== paymentAmount
+      ? [
+          `Invoice Amount: ${invoiceAmount}`,
+          `Payment Amount Due: ${paymentAmount}`,
+        ]
+      : [`Payment Amount: ${paymentAmount}`]),
     `Payment Terms: ${terms || "Standard"}`,
     `Due Date: ${dueDate || "On Receipt"}`,
     "",
     `--- ${bank.heading || "Bank Transfer Remittance Details"} ---`,
     ...bank.rows.map(([label, val]) => `${label}: ${val}`),
+    `Payment Amount: ${paymentAmount}`,
     `Payment Reference: ${orderName}`,
     "",
     `Please include payment reference ${orderName} in your wire notes.`,

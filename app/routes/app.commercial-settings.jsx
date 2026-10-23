@@ -13,7 +13,8 @@ import {
  * the cart page, the checkout charges block and the checkout rule read; and
  * the standard and rush production times (HYV-133), which the product page,
  * cart and quote promise and every production due date is counted from; and
- * the artwork deadline (HYV-102), the "by" date on an order waiting for artwork.
+ * the artwork deadline (HYV-102), the "by" date on an order waiting for artwork;
+ * and the countries retail orders ship to without duties included (HYV-200).
  */
 
 export const loader = async ({ request }) => {
@@ -133,6 +134,29 @@ export default function CommercialSettings() {
             artwork. Blank shows no date.
           </s-paragraph>
           {inSection("artwork").map((setting) => field(setting, daysProps(setting)))}
+        </s-stack>
+      </s-section>
+
+      <s-section heading="Duties">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>
+            Retail orders to these countries ship without import duties included: checkout adds no duties line, and
+            the cart, checkout and quote tell the buyer duties may be charged on delivery.
+          </s-paragraph>
+          {inSection("duties").map((setting) => (
+            <s-text-field
+              key={setting.key}
+              label={setting.name}
+              details={setting.description}
+              value={draft[setting.key] ?? ""}
+              onInput={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  [setting.key]: event?.currentTarget?.value ?? event?.target?.value ?? "",
+                }))
+              }
+            />
+          ))}
         </s-stack>
       </s-section>
     </s-page>

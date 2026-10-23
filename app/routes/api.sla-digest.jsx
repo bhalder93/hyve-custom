@@ -1,6 +1,8 @@
 import process from "node:process";
 import { unauthenticated } from "../shopify.server";
 import { sendBreachDigest } from "../utils/sla-engine.server";
+import { getAllDistributorApplications } from "../lib/distributor-metaobject.server";
+import { forEachDistributorLocation, refreshLocationCredit } from "../lib/credit-check.server";
 
 /**
  * Daily breach digest (HYV-132), sent to the Daily Digest recipients and
@@ -27,6 +29,20 @@ export async function action({ request }) {
     const { admin } = await unauthenticated.admin(shop);
     const result = await sendBreachDigest(admin);
     console.log("[sla-digest]", JSON.stringify({ ...result, to: result.to?.length || 0 }));
+
+    // Once a day: an invoice that fell due overnight makes its company's next
+    // order go to credit review (HYV-198).
+    try {
+      const applications = await getAllDistributorApplications(admin);
+      const credit = await forEachDistributorLocation(
+        admin,
+        applications.map((application) => application.company_id),
+        refreshLocationCredit,
+      );
+      console.log("[sla-digest] credit refreshed", credit.done, credit.failed.length ? credit.failed : "");
+    } catch (creditError) {
+      console.error("[sla-digest] credit refresh failed", creditError?.message || creditError);
+    }
     return json({ success: true, ...result, to: undefined }, 200);
   } catch (error) {
     console.error("[sla-digest] failed", error);

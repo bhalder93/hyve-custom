@@ -4,7 +4,8 @@
  *
  *   name                       the company's own name in Shopify
  *   tax_registration_number    printed on its invoices (invoice-document)
- *   preferred_currency         the currency it buys in
+ *   preferred_currency         the currency it buys in, set from its country
+ *                              (company-currency.server.js), shown read-only
  *   preferred_shipping_method  EXW, FOB Ningbo or DDP
  *   courier_account            its own courier account, for EXW collection
  *   forwarder_name / _account  its sea freight forwarder, for FOB Ningbo
@@ -12,14 +13,14 @@
  * Shown in Settings. Only a company admin changes it; buyers see it read-only.
  */
 import { canManageTeam } from "./account-team.server";
-import { supportedCurrencies } from "./store-currencies.server";
 
 export const SHIPPING_METHODS = ["FOB Ningbo", "DDP"];
 // export const SHIPPING_METHODS = ["EXW", "FOB Ningbo", "DDP"];
 
 const FIELDS = [
   { key: "tax_registration_number", form: "taxNumber" },
-  { key: "preferred_currency", form: "preferredCurrency" },
+  // Set from the company's country, never from the form (HYV-195).
+  { key: "preferred_currency", form: "preferredCurrency", readOnly: true },
   { key: "preferred_shipping_method", form: "preferredShipping" },
   { key: "courier_account", form: "courierAccount" },
   { key: "forwarder_name", form: "forwarderName" },
@@ -76,12 +77,7 @@ export async function loadCompanyProfile(admin, numericCustomerId) {
 
   const profile = { companyId: company.id, name: company.name || "" };
   for (const { form } of FIELDS) profile[form] = company[form]?.value || "";
-  const [canManage, currencies] = await Promise.all([
-    canManageTeam(admin, numericCustomerId),
-    supportedCurrencies(admin),
-  ]);
-  profile.canManage = canManage;
-  profile.currencies = currencies;
+  profile.canManage = await canManageTeam(admin, numericCustomerId);
   return profile;
 }
 
@@ -112,7 +108,8 @@ export async function saveCompanyProfile(admin, numericCustomerId, form) {
 
   const toSet = [];
   const toClear = [];
-  for (const { key, form: field } of FIELDS) {
+  for (const { key, form: field, readOnly } of FIELDS) {
+    if (readOnly) continue;
     const next = value(field);
     if (next === current[field]) continue;
     if (next) {
@@ -131,12 +128,6 @@ export async function saveCompanyProfile(admin, numericCustomerId, form) {
     const cleared = await gql(admin, PROFILE_CLEAR, { metafields: toClear });
     const error = cleared.metafieldsDelete?.userErrors?.[0]?.message;
     if (error) return { ok: false, error };
-  }
-  // A new currency moves every address to it at checkout (HYV-183). The
-  // details are saved either way.
-  if (value("preferredCurrency") !== current.preferredCurrency) {
-    const { keepCompanyCurrency } = await import("./company-currency.server");
-    await keepCompanyCurrency(admin, current.companyId);
   }
   return { ok: true };
 }

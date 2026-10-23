@@ -194,7 +194,9 @@ export async function recordEmailSampleDecision(admin, link, decision, rawMessag
     updatedHistory.unshift(newHistoryEntry);
   }
 
-  const orderGid = order.id;
+  const orderGid = String(order?.id || link?.orderGid || "").startsWith("gid://shopify/Order/")
+    ? String(order?.id || link?.orderGid)
+    : `gid://shopify/Order/${String(order?.id || link?.orderGid || "").replace(/\D/g, "")}`;
   const nextStatus = decision === "approve" ? "in-production" : "sample-preparation";
 
   const metafields = [
@@ -284,6 +286,24 @@ export async function recordEmailSampleDecision(admin, link, decision, rawMessag
     );
   } catch (tagErr) {
     console.error("[sample-link] failed to sync sample status tags:", tagErr);
+    try {
+      if (decision === "approve") {
+        await admin.graphql(
+          `#graphql mutation FallbackAddSampleTags($id: ID!, $tags: [String!]!) {
+            tagsAdd(id: $id, tags: $tags) { userErrors { field message } }
+          }`,
+          { variables: { id: orderGid, tags: ["hyve-status:in-production", "hyve-sample-approved", "in-production"] } },
+        );
+        await admin.graphql(
+          `#graphql mutation FallbackRemoveSampleTags($id: ID!, $tags: [String!]!) {
+            tagsRemove(id: $id, tags: $tags) { userErrors { field message } }
+          }`,
+          { variables: { id: orderGid, tags: ["hyve-status:sample-review"] } },
+        );
+      }
+    } catch (fallbackErr) {
+      console.error("[sample-link] fallback tag sync also failed:", fallbackErr);
+    }
   }
 
   // Record audit history safely

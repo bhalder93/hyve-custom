@@ -124,22 +124,49 @@ export function bankCountryFor({
  * Resolves the appropriate bank account for a country, optionally using
  * custom accounts loaded dynamically from the app settings.
  *
+ * The document's currency comes first, so the account always takes what the
+ * document asks for (HYV-195): an SGD document is paid to DBS SGD, a EUR one to
+ * Banking Circle, and any other to CFSB for a US buyer or DBS USD for everyone
+ * else, wherever the goods ship. With no currency, the country decides. An
+ * account with no details saved falls back to the built-in one.
+ *
  * @param {string} countryCode the customer's two-letter country or currency code
  * @param {Record<string, {heading: string, rows: string[][]}>} [customAccounts] optional dynamically loaded accounts
- * @returns {?{heading: string, rows: string[][]}} null until that account's details are filled in
+ * @param {string} [currencyCode] optional currency code of the order/invoice (e.g. "SGD", "USD", "EUR")
+ * @returns {{heading: string, rows: string[][]}}
  */
-export function bankAccountFor(countryCode, customAccounts) {
-  const country = String(countryCode || "").toUpperCase();
+export function bankAccountFor(countryCode, customAccounts, currencyCode) {
+  const country = String(countryCode || "").trim().toUpperCase();
+  const currency = String(currencyCode || "").trim().toUpperCase();
   const accounts = normalizeBankAccounts(customAccounts);
 
-  const account =
-    country === "US"
-      ? accounts.CFSB_USD
-      : country === "SG"
-        ? accounts.DBS_SGD
-        : EUROPE_COUNTRIES.includes(country)
-          ? accounts.BANKING_CIRCLE
-          : accounts.DBS_USD;
+  const effectiveCurrency =
+    currency || (["SGD", "EUR", "USD"].includes(country) ? country : "");
 
-  return account && Array.isArray(account.rows) && account.rows.length ? account : null;
+  // If order is in SGD, or country is SG (and no other currency explicitly given):
+  if (effectiveCurrency === "SGD" || (!effectiveCurrency && (country === "SG" || country === "SGD"))) {
+    const acc = accounts.DBS_SGD;
+    return acc && Array.isArray(acc.rows) && acc.rows.length ? acc : DEFAULT_ACCOUNTS.DBS_SGD;
+  }
+
+  // If order is in EUR, or European country (and no other currency explicitly given):
+  if (effectiveCurrency === "EUR" || (!effectiveCurrency && (country === "EUR" || EUROPE_COUNTRIES.includes(country)))) {
+    const acc = accounts.BANKING_CIRCLE;
+    return acc && Array.isArray(acc.rows) && acc.rows.length ? acc : DEFAULT_ACCOUNTS.BANKING_CIRCLE;
+  }
+
+  // USD / Default:
+  const isUs = country === "US" || country === "USA";
+  const preferred = isUs ? accounts.CFSB_USD : accounts.DBS_USD;
+  const fallback = isUs ? accounts.DBS_USD : accounts.CFSB_USD;
+  const defPreferred = isUs ? DEFAULT_ACCOUNTS.CFSB_USD : DEFAULT_ACCOUNTS.DBS_USD;
+  const defFallback = isUs ? DEFAULT_ACCOUNTS.DBS_USD : DEFAULT_ACCOUNTS.CFSB_USD;
+
+  const resolved =
+    (preferred?.rows?.length ? preferred : null) ||
+    (fallback?.rows?.length ? fallback : null) ||
+    defPreferred ||
+    defFallback;
+
+  return resolved;
 }

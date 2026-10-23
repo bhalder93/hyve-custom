@@ -25,6 +25,7 @@ import { orderModal, MODAL_STYLES, MODAL_SCRIPT } from "./account-order-modal.se
 import { customerArrangesFreight } from "./production-statuses";
 import { incotermFromShipping } from "./incoterm";
 import { CREDIT_DECLINED_TAG, CREDIT_HOLD_TAG } from "./credit-review.server";
+import { depositState } from "./deposit.server";
 import { currentOrderLines } from "./quote-document.server";
 import { awaitingSampleDecision } from "./sample-approval.server";
 import {
@@ -111,6 +112,9 @@ export function mapOrders(nodes = []) {
       total: formatMoney(money.amount, money.currencyCode),
       icon: iconFor(lineItems[0]?.title || ""),
       viewHref: node?.statusPageUrl || "",
+      // 30% deposit / balance before shipment (HYV-150): what's due, paid on
+      // the order's own page (Pay now) or by bank transfer. Null without one.
+      payment: creditHeld || creditDeclined ? null : depositState(node),
       trackHref: tracking?.url || "",
       carrier: tracking?.company || "",
       trackingNumber: tracking?.number || "",
@@ -139,7 +143,11 @@ export function mapOrders(nodes = []) {
       // Order detail modal (J2)
       // The modal lists payment terms as a header fact. It read a field nobody
       // set, so the line was silently dropped on every order.
-      paymentTerms: node?.paymentTerms?.paymentTermsName || "",
+      // A 30% deposit order's "Due on fulfillment" reads as what it means
+      // for the buyer (HYV-150).
+      paymentTerms: depositState(node)
+        ? "30% deposit, balance before shipment"
+        : node?.paymentTerms?.paymentTermsName || "",
       productionPhotoUrl: node?.productionPhotoUrl?.value || "",
       productionApprovalStatus: node?.productionApprovalStatus?.value || "",
       productionPhotoVersion: node?.productionPhotoVersion?.value || "",

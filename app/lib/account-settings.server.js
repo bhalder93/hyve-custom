@@ -271,21 +271,6 @@ function companyCard(company) {
             ${hint ? `<p class="hyve-settings__hint">${hint}</p>` : ""}
           </div>`;
 
-  // The currencies the store sells in (store-currencies.server.js), the same
-  // list the distributor application offered. A saved currency no longer on
-  // that list is kept as an option, so saving other details never clears it.
-  const currencies = [...(company.currencies || [])];
-  if (company.preferredCurrency && !currencies.includes(company.preferredCurrency)) {
-    currencies.push(company.preferredCurrency);
-  }
-  const currencyOptions = ['<option value="">Choose a currency</option>']
-    .concat(
-      currencies.map(
-        (code) =>
-          `<option value="${esc(code)}"${company.preferredCurrency === code ? " selected" : ""}>${esc(code)}</option>`,
-      ),
-    )
-    .join("");
   const shippingOptions = ['<option value="">Choose a method</option>']
     .concat(
       SHIPPING_METHODS.map(
@@ -307,9 +292,10 @@ function companyCard(company) {
           ${field("companyName", "Company name", company.name, "e.g. Acme Corp Pte. Ltd.")}
           ${field("taxNumber", "Tax reg. no.", company.taxNumber, "e.g. 202509530E", "Printed on your invoices.")}
           <div class="hyve-settings__form-group">
-            <label class="hyve-settings__label" for="company-preferredCurrency">Preferred currency</label>
-            <select id="company-preferredCurrency" name="preferredCurrency" class="hyve-settings__input"${locked ? " disabled" : ""}>${currencyOptions}
-            </select>
+            <label class="hyve-settings__label" for="company-preferredCurrency">Currency</label>
+            <input type="text" id="company-preferredCurrency" class="hyve-settings__input hyve-settings__input--disabled"
+              value="${esc(company.preferredCurrency)}" readonly>
+            <p class="hyve-settings__hint">SGD for Singapore companies, USD for all others.</p>
           </div>
           <div class="hyve-settings__form-group">
             <label class="hyve-settings__label" for="company-preferredShipping">Preferred shipping method</label>

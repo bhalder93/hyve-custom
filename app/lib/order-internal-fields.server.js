@@ -6,7 +6,13 @@
  * prices import duty from. Shopify copies every checkout attribute onto the
  * order, where they showed as raw fields under Additional details. Nothing
  * reads them after checkout, so they come off; every other attribute stays.
+ *
+ * Except the credit review mark (HYV-198): Shopify's order confirmation reads
+ * it to send the "pending credit review" wording, and the email can go out
+ * after this runs, so it stays on the order.
  */
+
+import { CREDIT_REVIEW_ATTRIBUTE } from "./credit-check.server";
 
 const INTERNAL_PREFIX = "_hyve_";
 
@@ -19,7 +25,9 @@ export async function removeCheckoutWorkingFields(admin, orderId, noteAttributes
     key: String(attr?.name ?? attr?.key ?? ""),
     value: String(attr?.value ?? ""),
   }));
-  const kept = attributes.filter((attr) => attr.key && !attr.key.startsWith(INTERNAL_PREFIX));
+  const kept = attributes.filter(
+    (attr) => attr.key && (!attr.key.startsWith(INTERNAL_PREFIX) || attr.key === CREDIT_REVIEW_ATTRIBUTE),
+  );
   if (kept.length === attributes.length) return;
   const input = { id: orderId, customAttributes: kept };
 

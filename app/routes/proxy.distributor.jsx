@@ -23,7 +23,7 @@ import { uploadToShopifyFiles } from "../lib/shopify-files.server";
 
 import { sendApplicationEmails } from "../lib/application-emails.server";
 
-import { supportedCurrencies } from "../lib/store-currencies.server";
+import { distributorCurrency } from "../lib/company-currency.server";
 
 import { addressErrors, addressFormatFor, cleanAddress } from "../lib/address-formats.server";
 
@@ -162,8 +162,6 @@ export const loader = async ({ request }) => {
             ),
 
           error: errorParam,
-
-          currencies: await supportedCurrencies(admin),
         }),
 
         customer,
@@ -367,10 +365,6 @@ export const action = async ({ request }) => {
       ).trim();
 
 
-      const preferredCurrency = String(
-        formData.get("preferredCurrency") ||
-        "",
-      ).trim();
 
 
       const marketsArray =
@@ -487,6 +481,12 @@ export const action = async ({ request }) => {
           ),
       });
 
+      // Not chosen by the applicant: SGD in Singapore, USD elsewhere, from the
+      // country approval gives the company's address (HYV-195).
+      const preferredCurrency = distributorCurrency(
+        addressFormatFor(registeredAddress.country || countryBased)?.code || countryCode,
+      );
+
 
       /* -------------------------------------------------------------------- */
       /*                    Server-side Address Validation                     */
@@ -594,8 +594,6 @@ export const action = async ({ request }) => {
 
                 relationToBusiness,
 
-                preferredCurrency,
-
                 markets:
                   marketsArray.map(String),
 
@@ -612,11 +610,6 @@ export const action = async ({ request }) => {
 
               fieldErrors:
                 addressValidation.errors,
-
-              currencies:
-                await supportedCurrencies(
-                  admin,
-                ),
             }),
 
             customer,
@@ -814,8 +807,6 @@ export const action = async ({ request }) => {
 
                 relationToBusiness,
 
-                preferredCurrency,
-
                 markets:
                   marketsArray.map(String),
 
@@ -829,11 +820,6 @@ export const action = async ({ request }) => {
 
                 registeredAddress,
               },
-
-              currencies:
-                await supportedCurrencies(
-                  admin,
-                ),
             }),
 
             customer,

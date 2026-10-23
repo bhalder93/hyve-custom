@@ -76,7 +76,13 @@ const DOCUMENT_QUERY = `#graphql
           quantity
           image { url }
           customAttributes { key value }
-          variant { selectedOptions { name value } }
+          variant {
+            selectedOptions { name value }
+            inventoryItem {
+              harmonizedSystemCode
+              countryCodeOfOrigin
+            }
+          }
           originalUnitPriceSet { presentmentMoney { amount currencyCode } }
           # The order as edited: currentQuantity, priced per unit.
           currentQuantity
@@ -94,7 +100,7 @@ const DOCUMENT_QUERY = `#graphql
       totalOutstandingSet { presentmentMoney { amount currencyCode } }
       paymentTerms {
         paymentTermsName
-        paymentSchedules(first: 1) {
+        paymentSchedules(first: 5) {
           nodes {
             issuedAt
             dueAt
@@ -130,7 +136,10 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
   if (!system && !orderBelongsTo(order, { customerGid, locationGids: locations })) return null;
 
   // Only an order on terms has a schedule; a prepaid one was settled at checkout.
-  const schedule = order.paymentTerms?.paymentSchedules?.nodes?.[0] || null;
+  // The schedule still to pay: a 30% deposit order (HYV-150) has its deposit
+  // settled first and the balance after it.
+  const schedules = order.paymentTerms?.paymentSchedules?.nodes || [];
+  const schedule = schedules.find((s) => !s.completedAt) || schedules[0] || null;
 
   // The currency the buyer paid in (HYV-103). `currencyCode` is the shop's
   // own, which printed an SGD order in USD.
@@ -229,8 +238,10 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
       try {
         const rawJson = body.data.shop?.bankMetafield?.value;
         if (rawJson) customAccounts = JSON.parse(rawJson);
-      } catch {}
-      return bankAccountFor(country, customAccounts);
+      } catch {
+        /* ignore invalid JSON */
+      }
+      return bankAccountFor(country, customAccounts, currency);
     })(),
   };
 }

@@ -157,24 +157,25 @@ function formatMoney(amount, currency = "SGD") {
 function parseOrderNode(order, storeCurrency = "SGD") {
   const numericId = order.id ? order.id.split("/").pop() : "";
   const currency =
+    order.totalOutstandingSet?.presentmentMoney?.currencyCode ||
+    order.totalPriceSet?.presentmentMoney?.currencyCode ||
     order.totalOutstandingSet?.shopMoney?.currencyCode ||
     order.totalPriceSet?.shopMoney?.currencyCode ||
     storeCurrency ||
-    order.totalPriceSet?.presentmentMoney?.currencyCode ||
     "SGD";
   const totalAmount = Number(
-    order.totalPriceSet?.shopMoney?.amount ||
     order.totalPriceSet?.presentmentMoney?.amount ||
+    order.totalPriceSet?.shopMoney?.amount ||
     0,
   );
   const outstandingAmount = Number(
-    order.totalOutstandingSet?.shopMoney?.amount ||
     order.totalOutstandingSet?.presentmentMoney?.amount ||
+    order.totalOutstandingSet?.shopMoney?.amount ||
     totalAmount,
   );
   const paidAmount = Number(
-    order.totalReceivedSet?.shopMoney?.amount ||
     order.totalReceivedSet?.presentmentMoney?.amount ||
+    order.totalReceivedSet?.shopMoney?.amount ||
     0,
   );
 
@@ -686,6 +687,7 @@ export const action = async ({ request }) => {
           name: o.name,
           email: o.customerEmail,
           customerName: o.customerName,
+          totalAmount: o.totalAmountLabel,
           outstanding: o.outstandingAmountLabel,
           dueDate: o.dueAtLabel,
           terms: o.termsName,
@@ -727,12 +729,15 @@ export const action = async ({ request }) => {
     const orderName = String(formData.get("orderName") || "").trim();
     const recipientEmail = String(formData.get("email") || "").trim();
     const customerName = String(formData.get("customerName") || "").trim();
+    const totalAmount = String(formData.get("totalAmount") || "").trim();
     const outstanding = String(formData.get("outstanding") || "").trim();
     const dueDate = String(formData.get("dueDate") || "").trim();
     const terms = String(formData.get("terms") || "").trim();
     const countryCode = String(formData.get("countryCode") || "").trim();
     const currency = String(formData.get("currency") || "SGD").trim();
     let invoiceUrl = String(formData.get("invoiceUrl") || "").trim();
+    const paymentAmount = outstanding || totalAmount;
+    const invoiceAmount = totalAmount || outstanding;
 
     if (!recipientEmail) {
       return {
@@ -778,22 +783,42 @@ export const action = async ({ request }) => {
       }
 
       const bankConfig = await loadBankDetailsConfig(admin);
-      let bank = bankAccountFor(countryCode || currency, bankConfig?.accounts);
+      const currUpper = String(currency || "SGD").trim().toUpperCase();
+      let bank = bankAccountFor(countryCode, bankConfig?.accounts, currUpper);
 
-      // Ensure bank details are ALWAYS present on the email with appropriate currency fallback
+      // Ensure bank details match the invoice currency exactly
       if (!bank || !Array.isArray(bank.rows) || bank.rows.length === 0) {
-        const isSgd =
-          (currency || "").toUpperCase() === "SGD" ||
-          (countryCode || "").toUpperCase() === "SG";
-        if (isSgd) {
+        if (currUpper === "SGD") {
           bank = bankConfig?.accounts?.DBS_SGD?.rows?.length
             ? bankConfig.accounts.DBS_SGD
             : DEFAULT_ACCOUNTS.DBS_SGD;
+        } else if (currUpper === "EUR") {
+          bank = bankConfig?.accounts?.BANKING_CIRCLE?.rows?.length
+            ? bankConfig.accounts.BANKING_CIRCLE
+            : DEFAULT_ACCOUNTS.BANKING_CIRCLE;
         } else {
-          bank = bankConfig?.accounts?.CFSB_USD?.rows?.length
-            ? bankConfig.accounts.CFSB_USD
-            : DEFAULT_ACCOUNTS.CFSB_USD;
+          const isUs = String(countryCode || "").trim().toUpperCase() === "US";
+          if (isUs) {
+            bank = bankConfig?.accounts?.CFSB_USD?.rows?.length
+              ? bankConfig.accounts.CFSB_USD
+              : DEFAULT_ACCOUNTS.CFSB_USD;
+          } else {
+            bank = bankConfig?.accounts?.DBS_USD?.rows?.length
+              ? bankConfig.accounts.DBS_USD
+              : DEFAULT_ACCOUNTS.DBS_USD;
+          }
         }
+      }
+
+      // Guarantee the remittance heading strictly matches the invoice presentment currency
+      if (currUpper === "SGD") {
+        bank = { ...bank, heading: "For Payment in SGD" };
+      } else if (currUpper === "EUR") {
+        bank = { ...bank, heading: "For Payment in EUR" };
+      } else if (currUpper === "USD") {
+        bank = { ...bank, heading: "For Payment in USD" };
+      } else {
+        bank = { ...bank, heading: bank.heading || `For Payment in ${currUpper}` };
       }
 
       const bankRowsHtml = `
@@ -817,8 +842,14 @@ export const action = async ({ request }) => {
           )
           .join("")}
             <tr>
-              <td style="padding: 8px 0 2px 0; color: #6B7280; font-weight: 500; border-top: 1px dashed #E5E7EB; vertical-align: top;">Payment Reference:</td>
-              <td style="padding: 8px 0 2px 0; color: #059669; font-weight: 700; font-size: 15px; border-top: 1px dashed #E5E7EB; vertical-align: top;">${escapeHtml(
+              <td style="padding: 8px 0 2px 0; color: #6B7280; font-weight: 500; border-top: 1px dashed #E5E7EB; vertical-align: top;">Payment Amount:</td>
+              <td style="padding: 8px 0 2px 0; color: #111827; font-weight: 700; font-size: 15px; border-top: 1px dashed #E5E7EB; vertical-align: top;">${escapeHtml(
+            paymentAmount,
+          )}</td>
+            </tr>
+            <tr>
+              <td style="padding: 5px 0 2px 0; color: #6B7280; font-weight: 500; vertical-align: top;">Payment Reference:</td>
+              <td style="padding: 5px 0 2px 0; color: #059669; font-weight: 700; font-size: 15px; vertical-align: top;">${escapeHtml(
             orderName,
           )}</td>
             </tr>
@@ -826,11 +857,13 @@ export const action = async ({ request }) => {
         </div>
       `;
 
-      const subject = `Payment Reminder: Invoice / Order ${orderName} (${outstanding} Outstanding)`;
+      const subject = `Payment Reminder: Invoice / Order ${orderName} (${paymentAmount} Outstanding)`;
 
       const emailBody = `
         <p style="margin: 0 0 14px; line-height: 1.7; font-size: 15px; color: #111827;">
-          This is a friendly reminder regarding the outstanding balance for order <strong>${escapeHtml(
+          This is a friendly reminder regarding the outstanding balance of <strong>${escapeHtml(
+            paymentAmount,
+          )}</strong> for order <strong>${escapeHtml(
         orderName,
       )}</strong>.
         </p>
@@ -871,7 +904,12 @@ export const action = async ({ request }) => {
         body: emailBody,
         details: [
           ["Order", escapeHtml(orderName)],
-          ["Outstanding Balance", escapeHtml(outstanding)],
+          ...(invoiceAmount && invoiceAmount !== paymentAmount
+            ? [
+                ["Invoice Amount", escapeHtml(invoiceAmount)],
+                ["Payment Amount Due", escapeHtml(paymentAmount)],
+              ]
+            : [["Invoice / Payment Amount", escapeHtml(paymentAmount)]]),
           ["Payment Terms", escapeHtml(terms || "Standard")],
           ["Due Date", escapeHtml(dueDate || "On Receipt")],
           ["Invoice Link", `<a href="${escapeHtml(invoiceUrl)}" style="color: #059669; text-decoration: underline; font-weight: 600;">View Invoice Online</a>`],
@@ -892,17 +930,23 @@ export const action = async ({ request }) => {
       const textLines = [
         customerName ? `Hi ${customerName},` : "Hi,",
         "",
-        `This is a friendly reminder regarding the outstanding balance for order ${orderName}.`,
+        `This is a friendly reminder regarding the outstanding balance of ${paymentAmount} for order ${orderName}.`,
         "",
         `Direct Invoice Link: ${invoiceUrl}`,
         "",
         `Order: ${orderName}`,
-        `Outstanding Balance: ${outstanding}`,
+        ...(invoiceAmount && invoiceAmount !== paymentAmount
+          ? [
+              `Invoice Amount: ${invoiceAmount}`,
+              `Payment Amount Due: ${paymentAmount}`,
+            ]
+          : [`Payment Amount: ${paymentAmount}`]),
         `Payment Terms: ${terms || "Standard"}`,
         `Due Date: ${dueDate || "On Receipt"}`,
         "",
         `--- ${bank.heading || "Bank Transfer Remittance Details"} ---`,
         ...bank.rows.map(([label, val]) => `${label}: ${val}`),
+        `Payment Amount: ${paymentAmount}`,
         `Payment Reference: ${orderName}`,
         "",
         `Please include payment reference ${orderName} in your wire notes.`,
@@ -1340,10 +1384,11 @@ export default function PendingPaymentOrders() {
       try {
         const form = new FormData();
         form.set("intent", "notify");
-        form.set("orderId", t.id);
-        form.set("orderName", t.name);
+        form.set("orderId", t.orderId || t.id);
+        form.set("orderName", t.orderName || t.name);
         form.set("email", t.email);
         form.set("customerName", t.customerName);
+        form.set("totalAmount", t.totalAmount || "");
         form.set("outstanding", t.outstanding);
         form.set("dueDate", t.dueDate);
         form.set("terms", t.terms);
@@ -1902,17 +1947,7 @@ export default function PendingPaymentOrders() {
                           </s-text>
                         </s-stack>
                       ) : (
-                        <s-stack direction="block" gap="none">
-                          <s-text appearance="subdued">
-                            {o.createdAtLabel}
-                          </s-text>
-                          <s-text
-                            appearance="subdued"
-                            style={{ fontSize: "11px" }}
-                          >
-                            Order created (not reminded)
-                          </s-text>
-                        </s-stack>
+                        <s-text appearance="subdued">Not reminded yet</s-text>
                       )}
                     </s-table-cell>
 
@@ -1938,6 +1973,7 @@ export default function PendingPaymentOrders() {
                               form.set("orderName", o.name);
                               form.set("email", o.customerEmail);
                               form.set("customerName", o.customerName);
+                              form.set("totalAmount", o.totalAmountLabel);
                               form.set(
                                 "outstanding",
                                 o.outstandingAmountLabel,

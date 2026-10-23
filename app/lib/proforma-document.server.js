@@ -104,7 +104,13 @@ const DOCUMENT_QUERY = `#graphql
           quantity
           image { url }
           customAttributes { key value }
-          variant { selectedOptions { name value } }
+          variant {
+            selectedOptions { name value }
+            inventoryItem {
+              harmonizedSystemCode
+              countryCodeOfOrigin
+            }
+          }
           originalUnitPriceSet { presentmentMoney { amount currencyCode } }
           # The order as edited: currentQuantity, priced per unit.
           currentQuantity
@@ -323,7 +329,7 @@ export async function loadProformaDocument(admin, orderGid, { staff, customerGid
     dueLabel: formatDate(order.paymentTerms?.paymentSchedules?.nodes?.[0]?.dueAt),
     // The same accounts the quotation and invoice print.
     // Until staff save that page, the built-in accounts.
-    bank: bankAccountFor(country, data.shop?.bankMetafield?.value ? parseJson(data.shop.bankMetafield.value) : null),
+    bank: bankAccountFor(country, data.shop?.bankMetafield?.value ? parseJson(data.shop.bankMetafield.value) : null, currency),
   };
 }
 

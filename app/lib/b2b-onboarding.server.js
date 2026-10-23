@@ -30,7 +30,6 @@ export async function completeB2BOnboarding(
     salesRepEmail,
     salesRepPhone,
     taxRegistrationNumber,
-    preferredCurrency,
   } = {},
 ) {
   const steps = [];
@@ -87,10 +86,32 @@ export async function completeB2BOnboarding(
           }
         }`, {
         companyLocationId: locationId,
-        input: { buyerExperienceConfiguration: { paymentTermsTemplateId: template.id, checkoutToDraft: true } },
+        // Orders arrive as orders; only those over the credit limit or placed
+        // with an overdue balance are held for review (HYV-198).
+        input: { buyerExperienceConfiguration: { paymentTermsTemplateId: template.id, checkoutToDraft: false } },
       });
       const err = res?.companyLocationUpdate?.userErrors?.[0];
-      record("payment terms", !err, err ? err.message : `${template.name}, orders submitted for review`);
+      record("payment terms", !err, err ? err.message : `${template.name}, held for review when over the credit limit or overdue`);
+      if (!err) {
+        try {
+          const { ensureCreditDefinitions, refreshLocationCredit } = await import("./credit-check.server");
+          await ensureCreditDefinitions(admin);
+          const credit = await refreshLocationCredit(admin, locationId);
+          record("credit", credit.ok, `${credit.detail} Set the credit limit on the company location in Shopify admin.`);
+        } catch (creditError) {
+          record("credit", false, creditError?.message || String(creditError));
+        }
+      }
+    }
+  } else {
+    // No credit terms: a 30% deposit at checkout and the balance before
+    // shipment (HYV-150).
+    try {
+      const { setDepositTerms } = await import("./deposit.server");
+      const deposit = await setDepositTerms(admin, locationId);
+      record("payment terms", deposit.ok, deposit.detail);
+    } catch (depositError) {
+      record("payment terms", false, depositError?.message || String(depositError));
     }
   }
 
@@ -167,12 +188,10 @@ export async function completeB2BOnboarding(
 
   // 7. What the application already told us about the company, kept on it
   // as its profile (company-profile.server.js), so Settings starts filled in:
-  //  - the tax registration number, which the invoice PDF prints (K3), since a
-  //    distributor's own tax number has to appear on what they file
-  //  - the currency it buys in (HYV-79)
+  // the tax registration number, which the invoice PDF prints (K3), since a
+  // distributor's own tax number has to appear on what they file.
   const profileFields = [
     ["tax_registration_number", "tax registration number", taxRegistrationNumber],
-    ["preferred_currency", "preferred currency", preferredCurrency],
   ].filter(([, , value]) => String(value || "").trim());
 
   if (profileFields.length) {
@@ -197,12 +216,12 @@ export async function completeB2BOnboarding(
     }
   }
 
-  // 8. Every address checks out in that currency, wherever it ships (HYV-183).
-  if (profileFields.some(([key]) => key === "preferred_currency")) {
-    const { keepCompanyCurrency } = await import("./company-currency.server");
-    const kept = await keepCompanyCurrency(admin, companyGid);
-    record("checkout currency", kept.ok, kept.detail);
-  }
+  // 8. The company's currency, from its country: SGD in Singapore, USD
+  // elsewhere (HYV-195). Every address checks out in it, wherever it ships
+  // (HYV-183).
+  const { keepCompanyCurrency } = await import("./company-currency.server");
+  const kept = await keepCompanyCurrency(admin, companyGid);
+  record("checkout currency", kept.ok, kept.detail);
 
   return { ok: steps.every((s) => s.ok), steps, locationId };
 }

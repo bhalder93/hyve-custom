@@ -1,0 +1,20 @@
+api_version = "2026-07"
+
+# Bank transfer only for distributors on a 30% deposit (HYV-150). The store's
+# "Bank transfer" manual payment method would otherwise show to every buyer,
+# retail included. Hyve Custom switches it on from the Distributors page.
+[[extensions]]
+description = "t:description"
+handle = "deposit-bank-transfer-payment"
+uid = "3dcc3a9d-6283-9e93-ad69-056c79d2b90f2d22d13d"
+name = "t:name"
+type = "function"
+
+[[extensions.targeting]]
+export = "cart-payment-methods-transform-run"
+input_query = "src/cart_payment_methods_transform_run.graphql"
+target = "cart.payment-methods.transform.run"
+
+[extensions.build]
+command = ""
+path = "dist/function.wasm"

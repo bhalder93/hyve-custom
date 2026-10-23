@@ -1,5 +1,6 @@
 import {
   CORS_HEADERS,
+  cronAuthorized,
   handlePaymentRemindersApi,
 } from "../lib/pending-payments.server.js";
 
@@ -16,6 +17,7 @@ export const loader = async ({ request }) => {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
+  if (!cronAuthorized(request)) return json({ success: false, error: "Unauthorized" }, 401);
   return handlePaymentRemindersApi(request);
 };
 
@@ -23,6 +25,7 @@ export const action = async ({ request }) => {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
+  if (!cronAuthorized(request)) return json({ success: false, error: "Unauthorized" }, 401);
 
   let body = {};
   const contentType = request.headers.get("content-type") || "";

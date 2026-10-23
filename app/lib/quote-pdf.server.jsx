@@ -26,6 +26,8 @@ import { HYVE_LOGO } from "./hyve-logo.server";
  * tax row: Hyve isn't GST registered (James, Sep 8; Stephen, Sep 30).
  */
 const DUTY_NOTE = "Import duties and taxes are added at checkout — once paid, there are no customs fees on delivery.";
+// Retail to a country without duties included (HYV-200), as the cart and checkout say it.
+const DUTY_NOT_INCLUDED_NOTE = "Import duties and taxes are not included and may be charged by the courier or customs on delivery.";
 
 /** NetSuite's table and total green. */
 const GREEN = "#67ad5b";
@@ -302,11 +304,30 @@ function QuoteDoc({ doc, withImages }) {
             <Text style={styles.grandLabel}>Total</Text>
             <Text style={styles.grandValue}>{money(doc.grandTotal, currency)}</Text>
           </View>
+          {/* 30% at checkout, the rest before shipment (HYV-150). */}
+          {doc.depositPercentage && doc.grandTotal != null ? (
+            <>
+              <View style={styles.sumRow}>
+                <Text style={styles.sumLabel}>Deposit ({doc.depositPercentage}%)</Text>
+                <Text style={styles.sumValue}>
+                  {money(Math.round((doc.grandTotal * doc.depositPercentage) / 100), currency)}
+                </Text>
+              </View>
+              <View style={styles.sumRow}>
+                <Text style={styles.sumLabel}>Balance before shipment</Text>
+                <Text style={styles.sumValue}>
+                  {money(doc.grandTotal - Math.round((doc.grandTotal * doc.depositPercentage) / 100), currency)}
+                </Text>
+              </View>
+            </>
+          ) : null}
           {/* Only where Hyve delivers duty paid. On FOB (and EXW) the buyer
               clears customs, so the line doesn't apply (HYV-116, Michael Oct 4). */}
           {/* Not when the quote already carries the duty line, which sales add
               from the draft's Import duty box (HYV-140). */}
-          {/^DDP\b/i.test(String(doc.incoterm || "")) && !rows.some((row) => /^import duties/i.test(String(row.title || ""))) ? (
+          {doc.dutiesIncluded === false ? (
+            <Text style={styles.dutyNote}>{DUTY_NOT_INCLUDED_NOTE}</Text>
+          ) : /^DDP\b/i.test(String(doc.incoterm || "")) && !rows.some((row) => /^import duties/i.test(String(row.title || ""))) ? (
             <Text style={styles.dutyNote}>{DUTY_NOTE}</Text>
           ) : null}
         </View>

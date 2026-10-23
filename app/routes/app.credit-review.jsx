@@ -30,7 +30,7 @@ export const action = async ({ request }) => {
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
   const id = String(form.get("id") || "");
-  // A draft waiting for review, or an order from a quote link held On Hold.
+  // A draft waiting for review, or a placed order held On Hold.
   if (!/^gid:\/\/shopify\/(DraftOrder|Order)\/\d+$/.test(id)) return { ok: false, id, error: "Missing order." };
 
   try {
@@ -83,7 +83,7 @@ function ReviewOrder({ order, shop, fetcher }) {
   return (
     <s-section
       heading={`${order.name} · ${order.company || order.buyer || "Distributor"}${
-        order.kind === "order" ? " · from a quote, on hold" : ""
+        order.kind === "order" ? " · on hold" : ""
       }`}
     >
       <s-stack direction="block" gap="base">
@@ -193,10 +193,11 @@ export default function CreditReviewPage() {
 
       <s-section>
         <s-paragraph>
-          Orders placed on payment terms by a company that submits orders for review. The buyer sees them as Credit
-          Under Review. Approve creates the order (payment pending on its terms) and it starts at Order Received.
-          Decline needs a reason, which the buyer is emailed and sees in their Orders. An order placed from a quote
-          link arrives already created and waits On Hold: Approve releases it, Decline cancels it.
+          Orders on payment terms that need a credit check: over the location's credit limit, placed with an overdue
+          balance, or submitted as a draft for review. The buyer sees them as Credit Under Review. Decline needs a
+          reason, which the buyer is emailed and sees in their Orders. A draft: Approve creates the order (payment
+          pending on its terms) and it starts at Order Received. An order already placed waits On Hold: Approve
+          releases it, Decline cancels it.
         </s-paragraph>
       </s-section>
 

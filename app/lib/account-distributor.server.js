@@ -18,7 +18,6 @@ export function distributorPage({
   notice = null,
   error = null,
   values = null,
-  currencies = [],
   fieldErrors = {},
 } = {}) {
   const isCreditRequired = Boolean(values?.requestCredit);
@@ -47,14 +46,6 @@ export function distributorPage({
     (values?.[field] != null ? values[field] === option : fallback)
       ? " selected"
       : "";
-
-  const currencyChoice = (code) =>
-    values?.preferredCurrency != null
-      ? chosen("preferredCurrency", code)
-      : `{% if cart.currency.iso_code == '${String(code).replace(
-        /[^A-Z]/g,
-        "",
-      )}' %} selected{% endif %}`;
 
   const toastHtml = renderNotificationToast(notice, error);
 
@@ -463,34 +454,6 @@ export function distributorPage({
                 >
                   Other
                 </option>
-
-              </select>
-
-            </div>
-
-            <div class="hyve-dist__field">
-
-              <label
-                class="hyve-dist__label"
-                for="dist-currency"
-              >
-                Preferred Currency
-                <span class="hyve-dist__req">*</span>
-              </label>
-
-              <select
-                id="dist-currency"
-                name="preferredCurrency"
-                class="hyve-dist__select"
-                required${values?.preferredCurrency != null ? ' data-chosen="true"' : ""}
-              >
-
-                ${(currencies || [])
-      .map(
-        (code) =>
-          `<option value="${esc(code)}"${currencyChoice(code,)}>${esc(code)}</option>`,
-      )
-      .join("")}
 
               </select>
 
@@ -4275,28 +4238,7 @@ const DISTRIBUTOR_SCRIPT = `
     if (form) form.addEventListener('submit', () => { website.value = withScheme(website.value.trim()); });
   }
 
-  // Preferred Currency follows the market the applicant is based in, until
-  // they pick a currency themselves. Vietnam distributors buy in USD while
-  // Vietnam retail stays in VND (HYV-77, Michael and Bruce, Oct 1).
   const basedIn = document.getElementById('dist-country');
-  const currencySelect = document.getElementById('dist-currency');
-  const CURRENCY_FOR = {
-    Singapore: 'SGD', 'Hong Kong': 'HKD', Malaysia: 'MYR', Philippines: 'PHP',
-    Thailand: 'THB', Indonesia: 'IDR', China: 'CNY', Vietnam: 'USD',
-  };
-  if (basedIn && currencySelect) {
-    let picked = currencySelect.dataset.chosen === 'true';
-    currencySelect.addEventListener('change', () => { picked = true; });
-    const followMarket = () => {
-      const code = CURRENCY_FOR[basedIn.value];
-      if (picked || !code) return;
-      if ([...currencySelect.options].some((o) => o.value === code)) currencySelect.value = code;
-    };
-    basedIn.addEventListener('change', followMarket);
-    // On load too: the starting choice used to follow the shopper's cart
-    // currency, so a Hong Kong applicant browsing in USD was put down as USD.
-    followMarket();
-  }
 
   // Markets You Sell Into includes the market they're based in, ticked for
   // them when they pick it. Changing the country moves that tick, unless they

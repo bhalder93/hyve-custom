@@ -55,6 +55,7 @@ export function orderModal(order, library = [], pickupConfig = {}) {
           ${awaitingApproval ? proofDecision(order) : ""}
           ${awaitingPhysicalSample ? physicalSampleDecision(order) : ""}
           ${awaitingProductionApproval ? productionPhotoDecision(order) : ""}
+          ${paymentPanel(order)}
           ${headerFacts(order, status)}
 
           <div class="hyve-modal__cols">
@@ -356,6 +357,40 @@ function artworkPanel(order, library = []) {
         <p class="hyve-art__limits">${esc(limitsNote(lines))} Up to ${esc(ARTWORK_MAX_LABEL)} per file.</p>
       </form>
       ${savedArtworkPicker(library, order.name)}
+    </section>`;
+}
+
+/**
+ * A 30% deposit order with money still due (HYV-150): the deposit before
+ * production starts, or the balance before the order is released. Paid by
+ * card from the order's own page, or by bank transfer with the confirmation
+ * uploaded here for Customer Service.
+ */
+function paymentPanel(order) {
+  const payment = order.payment;
+  if (!order.id || !payment || (!payment.depositPending && !payment.balanceDue)) return "";
+  const money = (amount) => `${payment.currency} ${Number(amount || 0).toFixed(2)}`;
+  const message = payment.depositPending
+    ? `Your ${money(payment.deposit)} deposit (30%) is due before we start your proof and production.`
+    : `Deposit received. The balance of ${money(payment.outstanding)} is due before we release your order.`;
+  return `
+    <section class="hyve-modal__panel-box">
+      <h3 class="hyve-modal__panel-title">${icoAlert()} ${payment.depositPending ? "Deposit Due" : "Balance Due Before Shipment"}</h3>
+      <p class="hyve-modal__muted">${esc(message)}</p>
+      ${
+        order.viewHref
+          ? `<div class="hyve-modal__proof-buttons"><a class="hyve-ord__btn hyve-ord__btn--primary" href="${esc(order.viewHref)}" target="_blank" rel="noopener"><span>Pay Now by Card</span></a></div>`
+          : ""
+      }
+      <p class="hyve-modal__muted">Paying by bank transfer? Use the bank details on your invoice with ${esc(order.name)} as the reference, then upload the payment confirmation here.</p>
+      <form method="post" action="/apps/account/orders/payment-proof" enctype="multipart/form-data">
+        <input type="hidden" name="order" value="${esc(order.id)}">
+        <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg" required>
+        <div class="hyve-modal__proof-buttons">
+          <button type="submit" class="hyve-ord__btn hyve-ord__btn--ghost">${icoUpload()}<span>Upload Payment Confirmation</span></button>
+        </div>
+        <p class="hyve-art__limits">PDF, PNG or JPG, up to 10 MB.</p>
+      </form>
     </section>`;
 }
 

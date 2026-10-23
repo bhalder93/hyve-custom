@@ -29,11 +29,30 @@ const QUOTE_FIELDS = `#graphql
     invoiceSentAt
     hyveStatus: metafield(namespace: "$app", key: "hyve_status") { value }
     totalPriceSet { presentmentMoney { amount currencyCode } }
-    lineItems(first: 20) {
+    subtotalPriceSet { presentmentMoney { amount currencyCode } }
+    totalShippingPriceSet { presentmentMoney { amount currencyCode } }
+    lineItems(first: 50) {
       nodes {
+        id
         title
+        name
         quantity
+        sku
+        variantTitle
+        image { url altText }
+        product { featuredImage { url altText } }
+        customAttributes { key value }
+        variant {
+          id
+          title
+          selectedOptions { name value }
+          inventoryItem {
+            harmonizedSystemCode
+            countryCodeOfOrigin
+          }
+        }
         originalUnitPriceSet { presentmentMoney { amount currencyCode } }
+        discountedUnitPriceSet { presentmentMoney { amount currencyCode } }
       }
     }
     order { id name }
@@ -160,6 +179,38 @@ export const action = async ({ request }) => {
     const intent = String(formData.get("intent") || "").trim();
     const url = new URL(request.url);
     const customerId = url.searchParams.get("logged_in_customer_id");
+    if (intent === "add_physical_sample" || intent === "remove_physical_sample") {
+      const { setPhysicalSampleOnQuote } = await import("../lib/account-quotes.server");
+      const result = await setPhysicalSampleOnQuote(admin, {
+        quoteId: String(formData.get("quoteId") || "").trim(),
+        customerId,
+        sample: intent === "add_physical_sample",
+      });
+
+      const isJson =
+        (request.headers.get("accept") || "").includes("application/json") ||
+        request.headers.get("x-requested-with") === "XMLHttpRequest";
+
+      if (isJson) {
+        return Response.json(result, { status: result.ok ? 200 : 422 });
+      }
+
+      if (result.ok) {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: `/apps/account/quotes?notice=${encodeURIComponent(result.message || (intent === "add_physical_sample" ? "Physical sample added to quote." : "Physical sample removed from quote."))}`,
+          },
+        });
+      } else {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: `/apps/account/quotes?error=${encodeURIComponent(result.error || (intent === "add_physical_sample" ? "Failed to add physical sample." : "Failed to remove physical sample."))}`,
+          },
+        });
+      }
+    }
 
     if (intent === "request_quote") {
       const items = String(formData.get("items") || "").trim();

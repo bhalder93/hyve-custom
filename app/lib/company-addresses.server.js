@@ -44,7 +44,7 @@ const BOOK_QUERY = `#graphql
               shippingAddress { ${ADDRESS_FIELDS} }
               billingAddress { ${ADDRESS_FIELDS} }
               taxSettings { taxRegistrationId taxExempt taxExemptions }
-              buyerExperienceConfiguration { checkoutToDraft editableShippingAddress paymentTermsTemplate { id } }
+              buyerExperienceConfiguration { checkoutToDraft editableShippingAddress paymentTermsTemplate { id } deposit { ... on DepositPercentage { percentage } } }
               catalogs(first: 10) { nodes { id } }
               salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
               salesRepEmail: metafield(namespace: "hyve", key: "sales_rep_email") { value }
@@ -298,6 +298,13 @@ export async function addCompanyLocation(admin, numericCustomerId, input) {
 
   // Copy the rest; any failure removes the new location again.
   try {
+    // A deposit distributor's new address pays the same 30% deposit (HYV-150).
+    if (Number(terms?.deposit?.percentage)) {
+      const { setDepositTerms } = await import("./deposit.server");
+      const deposit = await setDepositTerms(admin, locationId);
+      if (!deposit.ok) throw new Error(deposit.detail);
+    }
+
     for (const catalog of main.catalogs?.nodes || []) {
       const added = await gql(admin, CATALOG_ADD, { catalogId: catalog.id, contexts: { companyLocationIds: [locationId] } });
       const error = userError(added, "catalogContextUpdate");
@@ -367,7 +374,8 @@ export async function updateCompanyLocation(admin, numericCustomerId, input) {
   if (input.setAsDefault) {
     await setDefaultLocation(admin, numericCustomerId, { locationId: location.id, type: input.type });
   }
-  // Moving an address to another country mustn't change its currency (HYV-183).
+  // Moving an address to another country mustn't change its currency
+  // (HYV-183); only the first, registered address's country sets it (HYV-195).
   await keepCompanyCurrency(admin, book.companyId);
   return { ok: true };
 }

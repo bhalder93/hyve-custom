@@ -4,8 +4,12 @@
  * Each company address is a company location, and Shopify takes a location's
  * currency from the market its address falls in: a Hong Kong company that
  * added a Singapore address checked out in SGD there. Hyve's rule (Michael,
- * Oct 8) is the company's currency, the one it chose when it applied
- * (`hyve.preferred_currency`), for every address.
+ * Oct 8) is the company's currency for every address.
+ *
+ * The company's currency follows its country (Bruce, Oct 15, HYV-195): a
+ * Singapore distributor buys in SGD, every other distributor in USD. The
+ * country is its first address's, the registered address it applied with.
+ * It's kept in `hyve.preferred_currency`, which Settings shows.
  *
  * So every location of the company goes into a company location market in
  * that currency, "Distributors - HKD" and so on, made the first time it's
@@ -18,8 +22,9 @@
  * (Hong Kong SAR for HKD: its manual rate and its rounding), copied each time
  * this runs, so a rate changed there reaches distributors too.
  *
- * When the company changes its currency in Settings, its locations leave the
- * old currency's market for the new one: a location can only follow one.
+ * When the company's currency changes (a Hong Kong distributor moving from
+ * HKD to USD), its locations leave the old currency's market for the new
+ * one: a location can only follow one.
  * Retail markets aren't touched, and duty and freight still follow the
  * ship-to country, which they read from the delivery address.
  */
@@ -29,7 +34,7 @@ const COMPANY_QUERY = `#graphql
     company(id: $id) {
       id
       preferredCurrency: metafield(namespace: "hyve", key: "preferred_currency") { value }
-      locations(first: 50) { nodes { id } }
+      locations(first: 50) { nodes { id billingAddress { countryCode } shippingAddress { countryCode } } }
     }
   }`;
 
@@ -74,6 +79,16 @@ const MARKET_ADD = `#graphql
       userErrors { field message code }
     }
   }`;
+
+const CURRENCY_SET = `#graphql
+  mutation SetCompanyCurrency($metafields: [MetafieldsSetInput!]!) {
+    metafieldsSet(metafields: $metafields) { userErrors { field message } }
+  }`;
+
+/** SGD for a Singapore distributor, USD for every other (HYV-195). */
+export function distributorCurrency(countryCode) {
+  return String(countryCode || "").trim().toUpperCase() === "SG" ? "SGD" : "USD";
+}
 
 const HANDLE_PREFIX = "distributors-";
 const isDistributorMarket = (market) => String(market?.handle || "").startsWith(HANDLE_PREFIX);
@@ -133,8 +148,24 @@ export async function keepCompanyCurrency(admin, companyGid) {
     const company = (await run(admin, COMPANY_QUERY, { id: companyGid }))?.company;
     if (!company) return { ok: false, detail: "Company not found." };
 
-    const currency = String(company.preferredCurrency?.value || "").trim().toUpperCase();
-    if (!/^[A-Z]{3}$/.test(currency)) return { ok: true, detail: "No preferred currency on the company." };
+    // Locations come oldest first (sorted by ID): the first is the registered address.
+    const first = company.locations?.nodes?.[0];
+    const country = first?.billingAddress?.countryCode || first?.shippingAddress?.countryCode || "";
+    if (!country) return { ok: false, detail: "The company has no address, so its currency can't be set." };
+    const currency = distributorCurrency(country);
+    if (String(company.preferredCurrency?.value || "").trim().toUpperCase() !== currency) {
+      const saved = (
+        await run(admin, CURRENCY_SET, {
+          metafields: [
+            { ownerId: companyGid, namespace: "hyve", key: "preferred_currency", type: "single_line_text_field", value: currency },
+          ],
+        })
+      )?.metafieldsSet;
+      if (saved?.userErrors?.length) {
+        console.error("[company-currency] saving the currency failed", companyGid, JSON.stringify(saved.userErrors));
+        return { ok: false, detail: saved.userErrors[0].message };
+      }
+    }
 
     const handle = marketHandle(currency);
     const markets = (await run(admin, MARKETS_QUERY))?.markets?.nodes || [];

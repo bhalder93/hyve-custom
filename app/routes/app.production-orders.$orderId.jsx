@@ -33,6 +33,7 @@ import { productionDecisionLinks } from "../lib/production-approval.server";
 import { sampleDecisionLinks } from "../lib/sample-approval.server";
 import { orderRequiresPhysicalSample } from "../lib/portal.server";
 import { CREDIT_HOLD_TAG } from "../lib/credit-review.server";
+import { depositState, loadDepositOrder, paymentBlocksMove, recordDepositReceived, sendBalanceRequest } from "../lib/deposit.server";
 import {
   syncLineItemArtworkReceived,
   updateLineItemArtworkAttributesInPayload,
@@ -237,7 +238,7 @@ export function getNextStepInfo(order, history = []) {
           nextLabel: targetLabel,
           actionVerb: isCustomerFreight ? "Mark Ready For Collection" : "Mark Shipped",
           isWaitingCustomer: true,
-          waitingReason: "The pre-shipment production photo was submitted to the customer for review. The order cannot be marked for collection or shipment until the customer approves the photo.",
+          waitingReason: "Waiting for the customer to approve the production photo. If the customer does not respond, CS can approve on their behalf in Pre-Shipment Photo below.",
           currentAction: `Production is paused On Hold. Reason: "${order?.onHoldReason || "No reason specified"}". Awaiting customer pre-shipment photo approval (Photo v${order?.productionPhotoVersion || 1}).`,
           stageTitle: "Order On Hold (Photo Review Pending)",
           description: "Waiting for the customer to confirm the production photo before freight packaging and dispatch.",
@@ -335,7 +336,7 @@ export function getNextStepInfo(order, history = []) {
       nextLabel: "In Production",
       actionVerb: "Start Production",
       isWaitingCustomer: true,
-      waitingReason: `Physical sample v${version} has been sent to the customer. Bulk production cannot start until the customer inspects and approves the sample.`,
+      waitingReason: ``,
       currentAction: `Awaiting customer approval on Physical Sample v${version}.`,
       stageTitle: "Physical Sample Awaiting Approval",
       description: "The physical sample has been sent. Bulk production cannot begin until the customer approves it.",
@@ -398,7 +399,7 @@ export function getNextStepInfo(order, history = []) {
         nextLabel: targetLabel,
         actionVerb: isCustomerFreight ? "Mark Ready For Collection" : "Mark Shipped",
         isWaitingCustomer: true,
-        waitingReason: "The pre-shipment production photo was submitted to the customer for review. The order cannot be marked for collection or shipment until the customer approves the photo.",
+        waitingReason: "Waiting for the customer to approve the production photo. If the customer does not respond, CS can approve on their behalf in Pre-Shipment Photo below.",
         currentAction: `Production complete. Awaiting customer pre-shipment photo approval (Photo v${order.productionPhotoVersion || 1}).`,
         stageTitle: "6. Production Complete (Photo Review Pending)",
         description: "Waiting for the customer to confirm the production photo before freight packaging and dispatch.",
@@ -1780,10 +1781,14 @@ export async function loader({ request, params }) {
 
     const orderId = `gid://shopify/Order/${params.orderId}`;
 
-    const [order, history, pickupConfigData] = await Promise.all([
+    const [order, history, pickupConfigData, depositOrder] = await Promise.all([
       getOrder(admin, orderId),
       getStatusHistory(admin, orderId),
       loadPickupConfig(admin),
+      loadDepositOrder(admin, orderId).catch((error) => {
+        console.error("Deposit figures not loaded:", error?.message || error);
+        return null;
+      }),
     ]);
 
     const statusTag = (order.tags ?? []).find((tag) =>
@@ -1890,6 +1895,9 @@ export async function loader({ request, params }) {
         sampleApproved: (order.tags ?? []).includes(SAMPLE_APPROVED_TAG),
 
         creditReviewHold: (order.tags ?? []).includes(CREDIT_HOLD_TAG),
+
+        // 30% deposit / balance before shipment (HYV-150); null without one.
+        payment: depositState(depositOrder),
 
         productionPhotoUrl: order.productionPhotoUrl?.value || "",
 
@@ -3120,6 +3128,15 @@ export async function action({ request, params }) {
       };
     }
 
+    // Customer Service records a bank transfer deposit once it arrives
+    // (HYV-150): a manual payment in Shopify for the deposit still missing.
+    if (intent === "record_deposit") {
+      const recorded = await recordDepositReceived(admin, orderId);
+      return recorded.ok
+        ? { success: true, message: recorded.message }
+        : { success: false, fieldErrors: {}, formError: recorded.error };
+    }
+
     if (intent !== "change_status") {
       return {
         success: false,
@@ -3228,6 +3245,17 @@ export async function action({ request, params }) {
         },
         formError:
           "The production photo must be approved before this order can proceed.",
+      };
+    }
+
+    // No proof or production before the deposit, and no release before the
+    // order is fully paid (HYV-150).
+    const paymentHold = paymentBlocksMove(depositState(await loadDepositOrder(admin, orderId)), nextStatus);
+    if (paymentHold) {
+      return {
+        success: false,
+        fieldErrors: { nextStatus: paymentHold },
+        formError: paymentHold,
       };
     }
 
@@ -3550,6 +3578,17 @@ ${collectionAudit}`
               ? `The production status was saved, but the customer email could not be sent: ${emailError.message}`
               : "The production status was saved, but the customer email could not be sent.";
         }
+      }
+    }
+
+    // The balance request, once, when a deposit order finishes production.
+    if (nextStatus === "production-complete" && !isResumingToProductionComplete) {
+      try {
+        const balance = await sendBalanceRequest(admin, orderId);
+        if (!balance.sent) console.log(`[deposit] no balance request for ${order.name}: ${balance.reason}`);
+      } catch (balanceError) {
+        console.error(`[deposit] balance request failed for ${order.name}:`, balanceError);
+        emailWarning = `The production status was saved, but the balance request email could not be sent: ${balanceError?.message || balanceError}`;
       }
     }
 
@@ -4723,6 +4762,9 @@ export default function ProductionOrderDetailsPage() {
     busy && navigation.formData?.get("intent") === "retry_customer_status_email";
   const resendingReadyForCollectionEmail =
     busy && navigation.formData?.get("intent") === "resend_ready_for_collection_email";
+  const recordingDeposit = busy && navigation.formData?.get("intent") === "record_deposit";
+  const payment = order?.payment;
+  const paymentMoney = (amount) => `${payment?.currency || ""} ${Number(amount || 0).toFixed(2)}`;
 
   function clearFieldError(field) {
     setClientErrors((current) => ({
@@ -5039,6 +5081,36 @@ export default function ProductionOrderDetailsPage() {
       </s-stack>
 
       {/* Action / Error Banners */}
+      {payment?.depositPending && (
+        <s-banner tone="warning" heading="Deposit pending">
+          <s-stack direction="block" gap="small">
+            <s-paragraph>
+              {paymentMoney(payment.received)} of the {paymentMoney(payment.deposit)} deposit received. The proof and
+              production wait until it's in. Record it once the bank transfer arrives.
+            </s-paragraph>
+            <s-button
+              variant="secondary"
+              disabled={busy ? true : undefined}
+              onClick={() => {
+                if (window.confirm(`Record ${paymentMoney(payment.deposit - payment.received)} received by bank transfer on ${order.name}?`)) {
+                  submitIntent("record_deposit");
+                }
+              }}
+            >
+              {recordingDeposit ? "Recording..." : "Record deposit received"}
+            </s-button>
+          </s-stack>
+        </s-banner>
+      )}
+      {payment && !payment.depositPending && payment.balanceDue && (
+        <s-banner tone="info" heading="Payment required before release">
+          <s-paragraph>
+            Deposit received. {paymentMoney(payment.outstanding)} is still due, and the order can't be marked Ready For
+            Collection or Shipped until it's paid. It clears by itself when the buyer pays by card, or when you use
+            Collect payment &gt; Mark as paid in Shopify.
+          </s-paragraph>
+        </s-banner>
+      )}
       {order.creditReviewHold && (
         <s-banner tone="warning" heading="Waiting for credit review">
           <s-paragraph>This order is waiting for a credit review. Approve or decline it in Credit Review.</s-paragraph>

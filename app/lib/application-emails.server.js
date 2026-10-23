@@ -84,7 +84,7 @@ export async function sendApplicationEmails(admin, application) {
             ["Based in", escapeHtml(application.countryBased || "—")],
             ["Business type", escapeHtml(application.businessType || "—")],
             ["Relation", escapeHtml(application.relationToBusiness || "—")],
-            ["Preferred currency", escapeHtml(application.preferredCurrency || "—")],
+            ["Currency", escapeHtml(application.preferredCurrency || "—")],
             ["Markets", escapeHtml(application.marketsSold || "—")],
             ["Credit terms requested", application.requestCredit ? "Yes" : "No"],
           ],

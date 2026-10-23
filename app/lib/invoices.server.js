@@ -41,7 +41,7 @@ const INVOICES_QUERY = `#graphql
           paymentTerms {
             paymentTermsName
             overdue
-            paymentSchedules(first: 1) {
+            paymentSchedules(first: 5) {
               nodes {
                 issuedAt
                 dueAt
@@ -112,7 +112,10 @@ async function ordersForLocation(admin, locationGid) {
 }
 
 function toInvoice(order) {
-  const schedule = order.paymentTerms?.paymentSchedules?.nodes?.[0];
+  // The schedule still to pay: a 30% deposit order (HYV-150) has its deposit
+  // settled first and the balance after it.
+  const schedules = order.paymentTerms?.paymentSchedules?.nodes || [];
+  const schedule = schedules.find((s) => !s.completedAt) || schedules[0];
   if (!schedule) return null;
 
   const currency =
@@ -191,7 +194,7 @@ export function paymentDue(invoices, customAccounts) {
   const more = unpaid.length - 1;
 
   // Remittance details matching quote and invoice (HYV-105, K11)
-  const bank = bankAccountFor(next.country || next.currency, customAccounts);
+  const bank = bankAccountFor(next.country || next.currency, customAccounts, next.currency);
   const rows = bank?.rows ? Object.fromEntries(bank.rows) : {};
   const remittance = bank?.rows?.length
     ? {

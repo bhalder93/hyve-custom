@@ -338,6 +338,35 @@ function customerLayout({
 }
 
 /**
+ * Plain-text counterpart to customerLayout's line items and order details block.
+ */
+function plainTextOrderDetails({ lineItems = [], orderName, orderDate }) {
+  const lines = [];
+  if (Array.isArray(lineItems) && lineItems.length) {
+    lines.push(
+      "Order items",
+      ...lineItems.map((item) => {
+        const title = item.title || "Item";
+        const variant =
+          item.variantTitle && item.variantTitle !== "Default Title"
+            ? ` (${item.variantTitle})`
+            : "";
+        const qty = item.quantity != null ? item.quantity : 1;
+        return `- ${title}${variant} x ${qty}`;
+      }),
+      "",
+    );
+  }
+  if (orderName) {
+    lines.push(`Order: ${orderName}`);
+  }
+  if (orderDate) {
+    lines.push(`Order date: ${formatDate(orderDate)}`);
+  }
+  return lines;
+}
+
+/**
  * The one Hyve email frame: header, title, greeting, body, an optional block of
  * details under a rule, and the support footer. Every email the app sends to a
  * customer or to Hyve staff uses it, so they all look the same.
@@ -603,11 +632,32 @@ export async function sendArtworkReceivedEmail({
     `,
   });
 
+  const text = [
+    `Hi ${customerName || "there"},`,
+    "",
+    `${customerStatusLabel("artwork-received")} - ${orderName}`,
+    "",
+    "We have received the artwork information for your order.",
+    "",
+    "Our artwork team will now prepare your Artwork Proof for review.",
+    "",
+    "Your Artwork Proof will be prepared and sent to you within 48 hours for review and approval.",
+    "",
+    "We will contact you again as soon as your Artwork Proof is ready.",
+    "",
+    ...plainTextOrderDetails({ lineItems, orderName, orderDate }),
+    "",
+    `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+  ]
+    .filter((line) => line !== null && line !== undefined)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+
   return sendEmail({
     to: customerEmail,
     subject: `${customerStatusLabel("artwork-received")} - ${orderName}`,
     html,
-    text: `Artwork received for ${orderName}. Our team will prepare and send your Artwork Proof within 48 hours for review and approval.\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    text,
   });
 }
 
@@ -738,25 +788,34 @@ export async function sendProofSentEmail({
     `,
   });
 
+  const text = [
+    `Hi ${customerName || "there"},`,
+    "",
+    `${customerStatusLabel("proof-sent")} - ${orderName}`,
+    "",
+    "Action required: Please review your Artwork Proof, then approve it or request changes using the links below. No sign-in needed.",
+    "",
+    `Artwork Proof: ${proofUrl}`,
+    "",
+    `Approve Artwork Proof: ${approveUrl}`,
+    "",
+    `Request Changes: ${changesUrl}`,
+    "",
+    `Artwork Proof version: ${proofVersion || "1"}`,
+    "",
+    ...plainTextOrderDetails({ lineItems, orderName, orderDate }),
+    "",
+    `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+  ]
+    .filter((line) => line !== null && line !== undefined)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+
   return sendEmail({
     to: customerEmail,
     subject: `${customerStatusLabel("proof-sent")} - ${orderName}`,
     html,
-    text: ` Hi ${customerName || "there"},
-
-${customerStatusLabel("proof-sent")} - ${orderName}
-
-Action required: Please review your Artwork Proof, then approve it or request changes using the links below. No sign-in needed.
-
-Artwork Proof: ${proofUrl}
-
-Approve Artwork Proof: ${approveUrl}
-
-Request Changes: ${changesUrl}
-
-Artwork Proof version: ${proofVersion || "1"}
-
-View your order: ${orderUrl || CUSTOMER_ORDERS_URL} `.trim(),
+    text,
     replyTo: process.env.EMAIL_REPLY_TO,
   });
 }
@@ -826,11 +885,35 @@ export async function sendProofReminderEmail({
     `,
   });
 
+  const text = [
+    `Hi ${customerName || "there"},`,
+    "",
+    `Artwork Proof reminder - ${orderName}`,
+    "",
+    `This is a reminder that Artwork Proof version ${proofVersion || "1"} is still awaiting your approval.`,
+    "",
+    "Approve it or request changes using the links below. No sign-in needed.",
+    "",
+    `Review Artwork Proof: ${proofUrl}`,
+    "",
+    `Approve Artwork Proof: ${approveUrl}`,
+    "",
+    `Request Changes: ${changesUrl}`,
+    ...(reminderDay ? ["", `Reminder day: ${reminderDay}`] : []),
+    "",
+    ...plainTextOrderDetails({ lineItems, orderName, orderDate }),
+    "",
+    `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+  ]
+    .filter((line) => line !== null && line !== undefined)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+
   return sendEmail({
     to: customerEmail,
     subject: `Artwork Proof reminder - ${orderName}`,
     html,
-    text: `Reminder: proof version ${proofVersion} for ${orderName} is awaiting approval. View: ${proofUrl}\nApprove: ${approveUrl}\nRequest changes: ${changesUrl}\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    text,
     replyTo: process.env.EMAIL_REPLY_TO,
   });
 }
@@ -901,12 +984,12 @@ export async function sendArtworkReminderEmail({
       `Upload Artwork: ${orderUrl || CUSTOMER_ORDERS_URL}`,
       "Sign in to your account, open the order and upload a file for each item marked Artwork Pending.",
       "",
-      ...(lineItems.length
-        ? ["Order items", ...lineItems.map((item) => `- ${item.title}${item.variantTitle ? ` (${item.variantTitle})` : ""} x ${item.quantity}`), ""]
-        : []),
-      `Order: ${orderName}`,
-      `Order date: ${formatDate(orderDate)}`,
-    ].join("\n"),
+      ...plainTextOrderDetails({ lineItems, orderName, orderDate }),
+      "",
+      `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    ]
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n"),
     replyTo: process.env.EMAIL_REPLY_TO,
   });
 }
@@ -1021,48 +1104,44 @@ export async function sendProofApprovedEmail({
     `,
   });
 
-  const text = `
-Hi ${customerName || "there"},
-
-${
-  isSampleOrder
-    ? "Approved — Sample Preparation"
-    : customerStatusLabel("proof-approved")
-} - ${orderName}
-
-Thank you. Your Artwork Proof has been approved.
-
-${
-  isSampleOrder
-    ? "Approved — Sample Preparation: We'll prepare your physical pre-production sample before bulk production begins."
-    : "Your order is now moving into production."
-}
-
-${
-  productionDueDateOnly
-    ? `${
-        isSampleOrder
-          ? "Target completion date"
-          : "Production target"
-      }: ${productionDueDateOnly}`
-    : ""
-}
-
-${
-  estimatedShipDateOnly
-    ? `Estimated ship date: ${estimatedShipDateOnly}`
-    : ""
-}
-
-${
-  isSampleOrder
-    ? "We will contact you with photos and details once your physical sample is dispatched."
-    : "We will contact you again when production is complete."
-}
-
-View your order: ${orderUrl || CUSTOMER_ORDERS_URL}
-  `
-    .trim()
+  const text = [
+    `Hi ${customerName || "there"},`,
+    "",
+    `${
+      isSampleOrder
+        ? "Approved — Sample Preparation"
+        : customerStatusLabel("proof-approved")
+    } - ${orderName}`,
+    "",
+    "Thank you. Your Artwork Proof has been approved.",
+    "",
+    isSampleOrder
+      ? "Approved — Sample Preparation: We'll prepare your physical pre-production sample before bulk production begins."
+      : "Your order is now moving into production.",
+    ...(productionDueDateOnly
+      ? [
+          "",
+          `${
+            isSampleOrder
+              ? "Target completion date"
+              : "Production target"
+          }: ${productionDueDateOnly}`,
+        ]
+      : []),
+    ...(estimatedShipDateOnly
+      ? ["", `Estimated ship date: ${estimatedShipDateOnly}`]
+      : []),
+    "",
+    isSampleOrder
+      ? "We will contact you with photos and details once your physical sample is dispatched."
+      : "We will contact you again when production is complete.",
+    "",
+    ...plainTextOrderDetails({ lineItems, orderName, orderDate }),
+    "",
+    `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+  ]
+    .filter((line) => line !== null && line !== undefined)
+    .join("\n")
     .replace(/\n{3,}/g, "\n\n");
 
   return sendEmail({
@@ -1191,25 +1270,32 @@ ${photo ? `
     to: customerEmail,
     subject: `${customerStatusLabel("production-complete")} - ${orderName}`,
     html,
-    text:` Hi ${customerName || "there"},
-
-${customerStatusLabel("production-complete")} - ${orderName}
-
-Action required: Please review your Production Photo, then approve it or request changes using the links below. No sign-in needed.
-
-Production for your order is complete.
-
-Your order is now being prepared for shipment.
-
-Production Photo: ${productionPhotoUrl}
-
-Approve Production Photo: ${approveUrl}
-
-Request Changes: ${changesUrl}
-
-Production Photo version: ${productionPhotoVersion || "1"}
-
-View your order: ${orderUrl || CUSTOMER_ORDERS_URL} `.trim(),
+    text: [
+      `Hi ${customerName || "there"},`,
+      "",
+      `${customerStatusLabel("production-complete")} - ${orderName}`,
+      "",
+      "Action required: Please review your Production Photo, then approve it or request changes using the links below. No sign-in needed.",
+      "",
+      "Production for your order is complete.",
+      "",
+      "Your order is now being prepared for shipment.",
+      "",
+      `Production Photo: ${productionPhotoUrl}`,
+      "",
+      `Approve Production Photo: ${approveUrl}`,
+      "",
+      `Request Changes: ${changesUrl}`,
+      "",
+      `Production Photo version: ${productionPhotoVersion || "1"}`,
+      "",
+      ...plainTextOrderDetails({ lineItems, orderName, orderDate }),
+      "",
+      `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    ]
+      .filter((line) => line !== null && line !== undefined)
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n"),
     attachments: photo ? [photo] : undefined,
     replyTo: process.env.EMAIL_REPLY_TO,
   });
@@ -1325,34 +1411,34 @@ export async function sendPhysicalSampleEmail({
     `,
   });
 
-  const text = `
-Hi ${customerName || "there"},
-
-Physical Sample Ready For Review - ${orderName}
-
-Action required: ${
-  approveUrl && changesUrl
-    ? "Please review your Physical Sample, then approve it or request changes using the links below. No sign-in needed."
-    : "Please review your Physical Sample, then approve it or request changes in your account."
-}
-
-Your physical pre-production sample has been prepared and dispatched.
-
-${note ? `Sample Note: ${note}` : ""}
-
-${fileUrl ? `Physical Sample Photos / Docs: ${fileUrl}` : ""}
-
-${reviewUrl ? `Review & Approve (no sign-in required): ${reviewUrl}` : ""}
-
-${approveUrl ? `Approve Physical Sample: ${approveUrl}` : ""}
-
-${changesUrl ? `Request Changes: ${changesUrl}` : ""}
-
-Physical Sample version: v${sampleVersion || "1"}
-
-View your order: ${orderUrl || CUSTOMER_ORDERS_URL}
-  `
-    .trim()
+  const text = [
+    `Hi ${customerName || "there"},`,
+    "",
+    `Physical Sample Ready For Review - ${orderName}`,
+    "",
+    `Action required: ${
+      approveUrl && changesUrl
+        ? "Please review your Physical Sample, then approve it or request changes using the links below. No sign-in needed."
+        : "Please review your Physical Sample, then approve it or request changes in your account."
+    }`,
+    "",
+    "Your physical pre-production sample has been prepared and dispatched.",
+    ...(note ? ["", `Sample Note: ${note}`] : []),
+    ...(fileUrl ? ["", `Physical Sample Photos / Docs: ${fileUrl}`] : []),
+    ...(reviewUrl
+      ? ["", `Review & Approve (no sign-in required): ${reviewUrl}`]
+      : []),
+    ...(approveUrl ? ["", `Approve Physical Sample: ${approveUrl}`] : []),
+    ...(changesUrl ? ["", `Request Changes: ${changesUrl}`] : []),
+    "",
+    `Physical Sample version: v${sampleVersion || "1"}`,
+    "",
+    ...plainTextOrderDetails({ lineItems, orderName, orderDate }),
+    "",
+    `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+  ]
+    .filter((line) => line !== null && line !== undefined)
+    .join("\n")
     .replace(/\n{3,}/g, "\n\n");
 
   return sendEmail({
@@ -1404,6 +1490,8 @@ export async function sendReadyForCollectionEmail({
     .join("");
 
   const textLines = [
+    `Hi ${customerName || "there"},`,
+    "",
     `Your order ${orderName} is ready for collection.`,
     "",
     "Collection Details",
@@ -1424,6 +1512,8 @@ export async function sendReadyForCollectionEmail({
     "As freight for this order is customer-arranged, please coordinate collection with your nominated carrier.",
     ...(attachedLine ? [attachedLine] : []),
     "If your carrier needs collection details or assistance, please contact our customer service team.",
+    "",
+    ...plainTextOrderDetails({ lineItems, orderName, orderDate }),
     "",
     `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
   ];
@@ -1516,12 +1606,92 @@ export async function sendInvoiceEmail({ customerEmail, customerName, orderName,
     `,
   });
 
+  const text = [
+    `Hi ${customerName || "there"},`,
+    "",
+    `Invoice - ${orderName}`,
+    "",
+    `Thank you for your order. Your invoice for ${orderName} is attached as a PDF for your records.`,
+    "",
+    "You can also download it any time from the order in your account.",
+    "",
+    ...plainTextOrderDetails({ orderName, orderDate }),
+    "",
+    `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+  ]
+    .filter((line) => line !== null && line !== undefined)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+
   return sendEmail({
     to: customerEmail,
     subject: `Invoice - ${orderName}`,
     html,
-    text: `Thank you for your order. Your invoice for ${orderName} is attached as a PDF. You can also download it any time from the order in your account: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    text,
     attachments: [{ filename, content: pdf, contentType: "application/pdf" }],
+  });
+}
+
+/**
+ * The 70% balance, at Production Complete, for an order placed with a 30%
+ * deposit (HYV-150). Card through Shopify's own payment page, or bank
+ * transfer with the details on the attached invoice.
+ */
+export async function sendBalanceRequestEmail({ customerEmail, customerName, orderName, orderDate, amountDue, payUrl, pdf, filename }) {
+  const html = customerLayout({
+    title: "Balance Due Before Shipment",
+    customerName,
+    orderName,
+    orderDate,
+    orderUrl: payUrl || CUSTOMER_ORDERS_URL,
+    body: `
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        Good news: production of ${escapeHtml(orderName)} is complete. The balance of <strong>${escapeHtml(amountDue)}</strong> is now due, and we release your order once it's paid.
+      </p>
+
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        <strong>Pay by card:</strong> <a href="${escapeHtml(payUrl || CUSTOMER_ORDERS_URL)}">pay now</a> from your order page.
+      </p>
+
+      <p style="margin:0; line-height:1.7; font-size:15px;">
+        <strong>Pay by bank transfer:</strong> use the bank details on the attached invoice, with ${escapeHtml(orderName)} as the reference, then upload your payment confirmation on the order in your account.
+      </p>
+    `,
+  });
+
+  return sendEmail({
+    to: customerEmail,
+    subject: `Balance due before shipment - ${orderName}`,
+    html,
+    text: `Production of ${orderName} is complete. The balance of ${amountDue} is now due, and we release your order once it's paid. Pay by card: ${payUrl || CUSTOMER_ORDERS_URL}. Pay by bank transfer: use the bank details on the attached invoice, with ${orderName} as the reference, then upload your payment confirmation on the order in your account.`,
+    attachments: pdf ? [{ filename, content: pdf, contentType: "application/pdf" }] : undefined,
+  });
+}
+
+/**
+ * Customer Service: a distributor uploaded a bank transfer confirmation on an
+ * order (HYV-150). The file is attached and linked.
+ */
+export async function sendPaymentConfirmationAlert({ to, orderName, company, buyer, amountDue, fileUrl, adminUrl, file }) {
+  const html = brandedEmail({
+    internal: true,
+    title: "Payment Confirmation Uploaded",
+    body: `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;"><strong>${escapeHtml(company || buyer || "A distributor")}</strong> uploaded a bank transfer confirmation for ${escapeHtml(orderName)}. When the money arrives, record it on the order in Hyve Custom (Record deposit received), or use Collect payment &gt; Mark as paid in Shopify for the balance.</p>`,
+    details: [
+      ["Order", adminUrl ? `<a href="${escapeHtml(adminUrl)}">${escapeHtml(orderName)}</a>` : escapeHtml(orderName)],
+      ["Company", escapeHtml(company || "—")],
+      ["Buyer", escapeHtml(buyer || "—")],
+      ["Still due", escapeHtml(amountDue || "—")],
+      ["File", fileUrl ? `<a href="${escapeHtml(fileUrl)}">Open the file</a>` : "Attached"],
+    ],
+  });
+
+  return sendEmail({
+    to,
+    subject: `Payment confirmation: ${orderName} - ${company || buyer || "distributor"}`,
+    html,
+    text: `${company || buyer || "A distributor"} uploaded a bank transfer confirmation for ${orderName}. Still due: ${amountDue || "-"}. File: ${fileUrl || "attached"}. ${adminUrl ? `Order: ${adminUrl}. ` : ""}When the money arrives, record it on the order in Hyve Custom (Record deposit received), or use Collect payment > Mark as paid in Shopify for the balance.`,
+    attachments: file ? [file] : undefined,
   });
 }
 
@@ -1788,11 +1958,28 @@ export async function sendEstimatedShipDateEmail({
     `,
   });
 
+  const text = [
+    `Hi ${customerName || "there"},`,
+    "",
+    `Estimated Ship Date Update - ${orderName}`,
+    "",
+    "We have an update regarding the estimated ship date for your order.",
+    "",
+    `Estimated ship date: ${estimatedShipDateOnly}`,
+    "",
+    ...plainTextOrderDetails({ lineItems, orderName, orderDate }),
+    "",
+    `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+  ]
+    .filter((line) => line !== null && line !== undefined)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+
   return sendEmail({
     to: customerEmail,
     subject: `Estimated Ship Date Update - ${orderName}`,
     html,
-    text: `We have an update regarding the estimated ship date for your order. Estimated ship date: ${estimatedShipDateOnly}.\n\nView your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
+    text,
   });
 }
 

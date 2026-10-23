@@ -9,10 +9,10 @@
  * one buyer can't pull another's quote by guessing an ID.
  */
 
-import { formatDate } from "./portal.server";
-import { quoteReference } from "./quote-labels";
-import { bankAccountFor, bankCountryFor } from "./bank-details.server";
-import { FOB_INCOTERM, incotermFromShipping } from "./incoterm";
+import { formatDate } from "./portal.server.js";
+import { quoteReference, formatCountryOfOrigin } from "./quote-labels.js";
+import { bankAccountFor, bankCountryFor } from "./bank-details.server.js";
+import { FOB_INCOTERM, incotermFromShipping } from "./incoterm.js";
 
 /** How long a quote stands. The scheduled sweep that withdraws quotes uses the
  *  same figure — change both together. */
@@ -95,12 +95,36 @@ export function chargeLabel(line) {
  * account reads like the one downloaded from the cart. Hidden details (a
  * leading underscore) are the cart's own bookkeeping and never shown.
  */
+function findAttribute(attributes, pattern) {
+  if (!Array.isArray(attributes)) return "";
+  return attributes.find((attr) => attr?.key && pattern.test(String(attr.key).trim()))?.value || "";
+}
+
 export function quoteLineChips(line) {
   const chips = [];
   const variant = String(line?.variantTitle || "").trim();
   if (variant && variant !== "Default Title") chips.push(variant);
+
+  const rawHs =
+    line?.variant?.inventoryItem?.harmonizedSystemCode ||
+    findAttribute(line?.customAttributes, /^(hs[\s_-]?code|harmonized\s*(system|tariff)?\s*code|tariff\s*code)$/i);
+  const rawOrigin =
+    line?.variant?.inventoryItem?.countryCodeOfOrigin ||
+    findAttribute(line?.customAttributes, /^(country\s*of\s*origin|coo|origin|made\s*in)$/i);
+  const hsCode = String(rawHs || "").trim();
+  const countryOfOrigin = formatCountryOfOrigin(rawOrigin);
+  if (hsCode) chips.push(`HS: ${hsCode}`);
+  if (countryOfOrigin) chips.push(`Origin: ${countryOfOrigin}`);
+
   for (const { key, value } of line?.customAttributes || []) {
     if (!key || key.startsWith("_") || value == null || value === "") continue;
+    if (
+      /^(hs[\s_-]?code|harmonized\s*(system|tariff)?\s*code|tariff\s*code|country\s*of\s*origin|coo|origin|made\s*in)$/i.test(
+        String(key).trim(),
+      )
+    ) {
+      continue;
+    }
     const text = String(value);
     if (/^https?:/i.test(text)) chips.push(`${key.replace(/^Artwork:\s*/i, "")} · file ✓`);
     else if (text.toLowerCase() === "yes") chips.push(key);
@@ -142,6 +166,7 @@ const QUOTE_QUERY = `#graphql
     shop {
       name
       bankMetafield: metafield(namespace: "hyve", key: "bank_details") { value }
+      noDdpCountries: metafield(namespace: "hyve", key: "no_ddp_countries") { value }
     }
     draftOrder(id: $id) {
       id
@@ -166,7 +191,10 @@ const QUOTE_QUERY = `#graphql
           location {
             shippingAddress { ${COMPANY_ADDRESS} }
             billingAddress { ${COMPANY_ADDRESS} }
-            buyerExperienceConfiguration { paymentTermsTemplate { name } }
+            buyerExperienceConfiguration {
+              paymentTermsTemplate { name }
+              deposit { ... on DepositPercentage { percentage } }
+            }
             salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
           }
           contact {
@@ -193,7 +221,15 @@ const QUOTE_QUERY = `#graphql
           quantity
           image { url }
           customAttributes { key value }
-          variant { selectedOptions { name value } }
+          variant {
+            selectedOptions { name value }
+            inventoryItem {
+              harmonizedSystemCode
+              countryCodeOfOrigin
+            }
+          }
+          # The decoration's imprint area (HYV-211), from the product.
+          product { printSize: metafield(namespace: "custom", key: "print_size") { value } }
           originalUnitPriceSet { presentmentMoney { amount currencyCode } }
           discountedTotalSet { presentmentMoney { amount currencyCode } }
         }
@@ -323,11 +359,25 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
     leadTime: attributes.find((attr) => attr.key === LEAD_TIME_ATTRIBUTE)?.value || "",
     accountManager: location?.salesRep?.value || "",
     incoterm: incotermFor(shippingLine, company),
+    // Retail to a country Hyve doesn't ship duties included to yet (HYV-200):
+    // the quote says so, as the cart and checkout do. Commercial Settings sets
+    // the list. Distributors' quotes are unchanged.
+    dutiesIncluded: !(
+      !company &&
+      String(body.data.shop?.noDdpCountries?.value || "")
+        .split(",")
+        .map((code) => code.trim().toUpperCase())
+        .includes(String(draft.shippingAddress?.countryCodeV2 || draft.billingAddress?.countryCodeV2 || "").toUpperCase())
+    ),
     customerPo: draft.poNumber || "",
-    paymentTerms:
-      draft.paymentTerms?.paymentTermsName ||
-      location?.buyerExperienceConfiguration?.paymentTermsTemplate?.name ||
-      "100% upfront",
+    // A distributor without credit terms pays 30% at checkout and the rest
+    // before shipment (HYV-150); the totals show both amounts.
+    depositPercentage: Number(location?.buyerExperienceConfiguration?.deposit?.percentage) || 0,
+    paymentTerms: Number(location?.buyerExperienceConfiguration?.deposit?.percentage)
+      ? `${Number(location.buyerExperienceConfiguration.deposit.percentage)}% deposit at checkout, balance before shipment`
+      : draft.paymentTerms?.paymentTermsName ||
+        location?.buyerExperienceConfiguration?.paymentTermsTemplate?.name ||
+        "100% upfront",
 
     invoicing,
     shipping,
@@ -348,8 +398,10 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
       try {
         const rawJson = body.data.shop?.bankMetafield?.value;
         if (rawJson) customAccounts = JSON.parse(rawJson);
-      } catch {}
-      return bankAccountFor(country, customAccounts);
+      } catch {
+        /* ignore invalid JSON */
+      }
+      return bankAccountFor(country, customAccounts, currency);
     })(),
   };
 }
@@ -374,6 +426,18 @@ export function itemRow(li, cents, { artwork = true } = {}) {
   const option = (pattern) => options.find((opt) => pattern.test(opt.name))?.value || "";
   const color = option(/^colou?r$/i) || (options.length ? "" : plainVariant(li.variantTitle));
 
+  const rawHs =
+    li.variant?.inventoryItem?.harmonizedSystemCode ||
+    findAttribute(attributes, /^(hs[\s_-]?code|harmonized\s*(system|tariff)?\s*code|tariff\s*code)$/i);
+  const rawOrigin =
+    li.variant?.inventoryItem?.countryCodeOfOrigin ||
+    findAttribute(attributes, /^(country\s*of\s*origin|coo|origin|made\s*in)$/i);
+  const hsCode = String(rawHs || "").trim();
+  const countryOfOrigin = formatCountryOfOrigin(rawOrigin);
+  // The product's print size (HYV-211), on a decorated line only: a blank one
+  // has nothing printed.
+  const printSize = method ? String(li.product?.printSize?.value || "").trim() : "";
+
   // The rows Q46153 lists, left out when there is no value rather than shown
   // blank (Stephen, Sep 30). Pcs per carton, G.W. per carton, Carton size and
   // Imprint size live only in each product's free-text Specifications so far,
@@ -384,8 +448,17 @@ export function itemRow(li, cents, { artwork = true } = {}) {
     ...options.filter((opt) => !/^(colou?r|size)$/i.test(opt.name)).map((opt) => `${opt.name}: ${opt.value}`),
     method && `Imprint Method: ${method}`,
     positions.length && `Imprint Location: ${positions.join(", ")}`,
+    printSize && `Imprint Area: ${printSize}`,
+    hsCode && `HS Code: ${hsCode}`,
+    countryOfOrigin && `Country of Origin: ${countryOfOrigin}`,
     ...attributes
       .filter((attr) => attr.key && !attr.key.startsWith("_") && attr.key !== "Imprint Locations" && attr.value)
+      .filter(
+        (attr) =>
+          !/^(hs[\s_-]?code|harmonized\s*(system|tariff)?\s*code|tariff\s*code|country\s*of\s*origin|coo|origin|made\s*in)$/i.test(
+            String(attr.key).trim(),
+          ),
+      )
       .filter((attr) => artwork || !/^artwork\b/i.test(attr.key))
       .map((attr) =>
         /^https?:/i.test(String(attr.value)) ? `${attr.key}: file received` : `${attr.key}: ${attr.value}`,
@@ -400,6 +473,8 @@ export function itemRow(li, cents, { artwork = true } = {}) {
     title: li.title,
     decoration: count ? `with ${count} logo${count > 1 ? "s" : ""} printing` : "",
     details,
+    hsCode,
+    countryOfOrigin,
     qty: li.quantity,
     unit: cents(li.originalUnitPriceSet),
     total: cents(li.discountedTotalSet),
@@ -504,7 +579,7 @@ function placeOf(address) {
 }
 
 /** Draft orders are named #D1055; the portal calls that quote Q-1055. One copy, in quote-labels.js. */
-export { quoteReference };
+export { quoteReference, formatCountryOfOrigin };
 
 function addDays(iso, days) {
   if (!iso) return null;

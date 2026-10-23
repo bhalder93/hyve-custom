@@ -6,6 +6,8 @@ import { checkAndAddFobShippingIfStorefrontQuote } from "../lib/order-fob-shippi
 import { removeCheckoutWorkingFields } from "../lib/order-internal-fields.server";
 import { CUSTOMER_ARRANGED_FREIGHT_TAG } from "../lib/production-statuses";
 import { holdOrderForCreditReview } from "../lib/credit-review.server";
+import { CREDIT_REVIEW_ATTRIBUTE, orderLocationGid, refreshLocationCredit } from "../lib/credit-check.server";
+import { holdUntilPaid, recordOrderDeposit } from "../lib/deposit.server";
 import { productionCalendar, productionDueDate } from "../lib/order-status.server";
 
 /* -------------------------------------------------------------------------- */
@@ -222,15 +224,12 @@ function determineArtworkRequired(lineItems) {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Rush when every line being produced (the ones with artwork) is rushed. An
- * order ships in one go, so a mixed order is ready at the standard time: rush
- * is still charged per rushed line, but the order's production due date
- * follows its slowest line (HYV-82, option b, Oct 9). Charge lines and blank
- * samples aren't produced, so they don't count.
+ * Rush is for the whole order (HYV-207, James and Bruce, Oct 16): any rushed
+ * line makes the order rush, its due date counted at the rush time and its
+ * RUSH flag set. The cart charged the rush fee on every product line.
  */
 function determineRush(lineItems) {
-  const produced = lineItems.filter((lineItem) => getAttribute(lineItem, "Artwork")?.value?.trim());
-  return produced.length > 0 && produced.every((lineItem) => hasTruthyAttribute(lineItem, "Rush Production"));
+  return lineItems.some((lineItem) => hasTruthyAttribute(lineItem, "Rush Production"));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -942,6 +941,30 @@ export async function action({ request }) {
       }
     }
 
+    // Checkout marks an order over the credit limit or placed with an overdue
+    // balance (HYV-198). Read before the working fields come off the order.
+    const creditFlagged = (payload?.note_attributes || []).some(
+      (attr) => (attr?.name ?? attr?.key) === CREDIT_REVIEW_ATTRIBUTE && String(attr?.value) === "true",
+    );
+    // A new company order changes what's left of its credit.
+    const creditLocation = orderLocationGid(payload);
+    if (creditLocation) {
+      refreshLocationCredit(admin, creditLocation).catch((error) =>
+        console.error(`[credit] refresh failed for ${payload?.name}:`, error?.message || error),
+      );
+    }
+
+    // A deposit distributor's order keeps the 30% it was placed with, so
+    // Hyve Custom can hold production until it's paid (HYV-150).
+    try {
+      const deposit = await recordOrderDeposit(admin, orderId, creditLocation);
+      if (deposit.amount) console.log(`Order ${payload?.name} deposit due ${deposit.currency} ${deposit.amount}`);
+      // Shopify won't let it be fulfilled (shipped) until it's fully paid.
+      if (deposit.deposit) await holdUntilPaid(admin, orderId);
+    } catch (depositError) {
+      console.error(`[deposit] not recorded for ${payload?.name}:`, depositError?.message || depositError);
+    }
+
     // Checkout's `_hyve_*` working fields aren't for staff (HYV-176).
     await removeCheckoutWorkingFields(admin, orderId, payload?.note_attributes);
 
@@ -1072,7 +1095,7 @@ export async function action({ request }) {
       // HYV-162: a blank order from a cart quote's link is held for credit
       // review too, as a decorated one is below.
       try {
-        const held = await holdOrderForCreditReview(admin, order.id);
+        const held = await holdOrderForCreditReview(admin, order.id, { flagged: creditFlagged });
         if (held.held) console.log(`Order ${order.name} held for credit review`);
       } catch (holdError) {
         console.error(`Credit review hold failed for ${order.name}:`, holdError?.message || holdError);
@@ -1221,7 +1244,7 @@ export async function action({ request }) {
       // are reviewed, waits On Hold in Credit Review. Logged, not retried: the
       // order is set up either way, and a retry would redo all of the above.
       try {
-        const held = await holdOrderForCreditReview(admin, order.id);
+        const held = await holdOrderForCreditReview(admin, order.id, { flagged: creditFlagged });
         if (held.held) console.log(`Order ${order.name} held for credit review`);
       } catch (holdError) {
         console.error(`Credit review hold failed for ${order.name}:`, holdError?.message || holdError);

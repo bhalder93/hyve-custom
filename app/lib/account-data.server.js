@@ -49,6 +49,10 @@ const PORTAL_ORDER_FIELDS = `#graphql
           currentTotalPriceSet { presentmentMoney { amount currencyCode } }
           currentShippingPriceSet { presentmentMoney { amount currencyCode } }
           paymentTerms { paymentTermsName }
+          # A 30% deposit order's deposit and what's been paid (HYV-150).
+          totalReceivedSet { presentmentMoney { amount currencyCode } }
+          totalOutstandingSet { presentmentMoney { amount currencyCode } }
+          depositDue: metafield(namespace: "hyve", key: "deposit_due") { value }
           productionStatus: metafield(namespace: "$app", key: "production_status") { value }
           productionDueAt: metafield(namespace: "$app", key: "production_due_at") { value }
           proofUrl: metafield(namespace: "$app", key: "proof_url") { value }
@@ -108,6 +112,7 @@ const ACCOUNT_QUERY = `#graphql
               name
               buyerExperienceConfiguration {
                 paymentTermsTemplate { name dueInDays }
+                deposit { ... on DepositPercentage { percentage } }
               }
               catalogs(first: 2) { nodes { id title status } }
               salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }
@@ -283,7 +288,11 @@ function buildTerms(customer) {
     // everyone on it rather than trapped on one person's record (F4).
     companyId: profiles[0]?.company?.id || null,
     company: location ? profiles[0].company.name : "",
-    paymentTerms: location?.buyerExperienceConfiguration?.paymentTermsTemplate?.name || "",
+    // A deposit distributor's "Due on fulfillment" reads as what it means
+    // for them (HYV-150).
+    paymentTerms: Number(location?.buyerExperienceConfiguration?.deposit?.percentage)
+      ? `${Number(location.buyerExperienceConfiguration.deposit.percentage)}% deposit, balance before shipment`
+      : location?.buyerExperienceConfiguration?.paymentTermsTemplate?.name || "",
     salesRep: location?.salesRep?.value || "",
     // The rep's own contact details, so "Email Representative" and the WhatsApp
     // button reach the person named above rather than a general inbox.
@@ -325,6 +334,7 @@ const CHROME_QUERY = `#graphql
               name
               buyerExperienceConfiguration {
                 paymentTermsTemplate { name dueInDays }
+                deposit { ... on DepositPercentage { percentage } }
               }
               catalogs(first: 2) { nodes { id title status } }
               salesRep: metafield(namespace: "hyve", key: "sales_rep") { value }

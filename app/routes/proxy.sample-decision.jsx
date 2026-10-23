@@ -1,4 +1,5 @@
-import { authenticate } from "../shopify.server";
+import process from "node:process";
+import { authenticate, unauthenticated } from "../shopify.server";
 import { esc, PORTAL_TOKENS } from "../lib/account-shell.server";
 import { SUPPORT_EMAIL, WHATSAPP_URL } from "../lib/customer-service.server";
 import { loadSampleFromLink, readSampleLink, recordEmailSampleDecision } from "../lib/sample-approval.server";
@@ -10,7 +11,13 @@ import { loadSampleFromLink, readSampleLink, recordEmailSampleDecision } from ".
  * No sign-in needed: the HMAC signed link is the authorization, matching the proof email experience.
  */
 export const loader = async ({ request }) => {
-  const { liquid, admin } = await authenticate.public.appProxy(request);
+  const { liquid, admin, session } = await authenticate.public.appProxy(request);
+  let adminClient = admin;
+  if (!adminClient) {
+    const shop = session?.shop || new URL(request.url).searchParams.get("shop") || process.env.SHOP_CUSTOM_DOMAIN || "hyve-custom.myshopify.com";
+    const unauth = await unauthenticated.admin(shop);
+    adminClient = unauth.admin;
+  }
   const params = new URL(request.url).searchParams;
 
   try {
@@ -19,7 +26,7 @@ export const loader = async ({ request }) => {
       return liquid(page(problem("This link isn't valid. Please use the buttons in your Physical Sample email.")));
     }
 
-    const found = await loadSampleFromLink(admin, link);
+    const found = await loadSampleFromLink(adminClient, link);
     if (!found.ok) {
       if (found.alreadyDecided) {
         return liquid(
@@ -45,7 +52,13 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { liquid, admin } = await authenticate.public.appProxy(request);
+  const { liquid, admin, session } = await authenticate.public.appProxy(request);
+  let adminClient = admin;
+  if (!adminClient) {
+    const shop = session?.shop || new URL(request.url).searchParams.get("shop") || process.env.SHOP_CUSTOM_DOMAIN || "hyve-custom.myshopify.com";
+    const unauth = await unauthenticated.admin(shop);
+    adminClient = unauth.admin;
+  }
   const params = new URL(request.url).searchParams;
 
   try {
@@ -71,7 +84,7 @@ export const action = async ({ request }) => {
       ""
     ).trim().slice(0, 255);
 
-    const result = await recordEmailSampleDecision(admin, link, decision, form.get("message"), ipAddress, userAgent);
+    const result = await recordEmailSampleDecision(adminClient, link, decision, form.get("message"), ipAddress, userAgent);
     if (!result.ok) {
       if (result.alreadyDecided) {
         return liquid(

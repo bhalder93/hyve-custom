@@ -23,6 +23,13 @@ import {
   withAccessState,
 } from "../lib/distributor-metaobject.server";
 
+import { keepCompanyCurrency } from "../lib/company-currency.server";
+
+import { ensureSetupWaiverDefinition, waiveSetupFor } from "../lib/setup-waiver.server";
+
+import { ensureCreditDefinitions, forEachDistributorLocation, useCreditRules } from "../lib/credit-check.server";
+import { ensureBankTransferRule, useDepositTermsWhereNoTerms } from "../lib/deposit.server";
+
 /* ========================================================================== */
 /* Constants                                                                  */
 /* ========================================================================== */
@@ -581,6 +588,109 @@ export const action = async ({ request }) => {
     const intent = String(formData.get("intent") || "").trim();
 
     /* -------------------------------------------------------------------- */
+    /* Distributor currencies (HYV-195)                                     */
+    /* -------------------------------------------------------------------- */
+
+    // Puts every approved distributor on its country's currency: SGD in
+    // Singapore, USD elsewhere. Approval does this for new distributors;
+    // this moves the ones approved before the rule (Hong Kong in HKD).
+    if (intent === "apply_currency_rule") {
+      const applications = await getAllDistributorApplications(admin);
+      const companies = new Map();
+      for (const application of applications) {
+        if (application.company_id && !companies.has(application.company_id)) {
+          companies.set(application.company_id, application.company_name || "Unnamed company");
+        }
+      }
+
+      const results = [];
+      for (const [companyId, name] of companies) {
+        results.push({ name, ...(await keepCompanyCurrency(admin, companyId)) });
+      }
+      const failed = results.filter((result) => !result.ok);
+
+      return {
+        success: failed.length === 0,
+        intent,
+        results,
+        message: `Currencies checked for ${results.length} distributor${results.length === 1 ? "" : "s"}${
+          failed.length ? `, ${failed.length} couldn't be set` : ""
+        }.`,
+      };
+    }
+
+    /* -------------------------------------------------------------------- */
+    /* Setup charge waiver for current distributors (HYV-197)               */
+    /* -------------------------------------------------------------------- */
+
+    // Distributors approved before the setup charge rule keep paying none.
+    // Creates the "Setup charge waived" switch, then turns it on for every
+    // approved distributor; new ones start without it.
+    if (intent === "waive_setup_current") {
+      const definition = await ensureSetupWaiverDefinition(admin);
+      if (!definition.ok) return { success: false, intent, message: definition.detail };
+
+      const applications = await getAllDistributorApplications(admin);
+      const companyIds = applications
+        .filter((application) => statusKey(application) === STATUS.APPROVED && application.company_id)
+        .map((application) => application.company_id);
+      const waived = await waiveSetupFor(admin, companyIds);
+      return { success: waived.ok, intent, message: waived.detail };
+    }
+
+    /* -------------------------------------------------------------------- */
+    /* Credit review by limit and overdue balance (HYV-198)                 */
+    /* -------------------------------------------------------------------- */
+
+    // Moves every approved distributor off "submit all orders as drafts for
+    // review": their orders arrive as orders, and only those over the credit
+    // limit or placed with an overdue balance are held. Safe to run again.
+    if (intent === "use_credit_rules") {
+      await ensureCreditDefinitions(admin);
+      const applications = await getAllDistributorApplications(admin);
+      const companyIds = applications
+        .filter((application) => statusKey(application) === STATUS.APPROVED && application.company_id)
+        .map((application) => application.company_id);
+      const result = await forEachDistributorLocation(admin, companyIds, useCreditRules);
+      return {
+        success: result.ok,
+        intent,
+        message: `Credit rules on for ${result.done} location${result.done === 1 ? "" : "s"}${
+          result.failed.length ? `; ${result.failed.length} failed: ${result.failed.join("; ")}` : ""
+        }.`,
+      };
+    }
+
+    /* -------------------------------------------------------------------- */
+    /* 30% deposit for distributors without credit terms (HYV-150)          */
+    /* -------------------------------------------------------------------- */
+
+    // Every approved distributor location with no payment terms moves to a
+    // 30% deposit at checkout and the balance before shipment. Locations on
+    // credit terms are left alone. Safe to run again.
+    if (intent === "use_deposit_terms") {
+      // Bank transfer at checkout for these distributors only, not retail.
+      const bankRule = await ensureBankTransferRule(admin);
+      const applications = await getAllDistributorApplications(admin);
+      const companyIds = applications
+        .filter((application) => statusKey(application) === STATUS.APPROVED && application.company_id)
+        .map((application) => application.company_id);
+      let moved = 0;
+      const result = await forEachDistributorLocation(admin, companyIds, async (stepAdmin, locationId) => {
+        const step = await useDepositTermsWhereNoTerms(stepAdmin, locationId);
+        if (step.ok && !step.skipped) moved += 1;
+        return step;
+      });
+      return {
+        success: result.ok && bankRule.ok,
+        intent,
+        message: `30% deposit set for ${moved} location${moved === 1 ? "" : "s"} without credit terms${
+          result.failed.length ? `; ${result.failed.length} failed: ${result.failed.join("; ")}` : ""
+        }. ${bankRule.detail}`,
+      };
+    }
+
+    /* -------------------------------------------------------------------- */
     /* Load current company/catalog configuration                           */
     /* -------------------------------------------------------------------- */
 
@@ -1005,6 +1115,40 @@ export default function DistributorApplicationsPage() {
 
   const catalogFetcher = useFetcher();
 
+  const currencyFetcher = useFetcher();
+
+  useEffect(() => {
+    if (currencyFetcher.data?.intent === "apply_currency_rule") {
+      shopify.toast.show(currencyFetcher.data.message || currencyFetcher.data.formError || "Done.");
+    }
+  }, [currencyFetcher.data]);
+
+  const setupFetcher = useFetcher();
+
+  const creditFetcher = useFetcher();
+
+  useEffect(() => {
+    if (creditFetcher.data?.intent === "use_credit_rules") {
+      shopify.toast.show(creditFetcher.data.message || "Done.", { isError: !creditFetcher.data.success });
+    }
+  }, [creditFetcher.data]);
+
+  const depositFetcher = useFetcher();
+
+  useEffect(() => {
+    if (depositFetcher.data?.intent === "use_deposit_terms") {
+      shopify.toast.show(depositFetcher.data.message || "Done.", { isError: !depositFetcher.data.success });
+    }
+  }, [depositFetcher.data]);
+
+  useEffect(() => {
+    if (setupFetcher.data?.intent === "waive_setup_current") {
+      shopify.toast.show(setupFetcher.data.message || setupFetcher.data.formError || "Done.", {
+        isError: !setupFetcher.data.success,
+      });
+    }
+  }, [setupFetcher.data]);
+
   const [tab, setTab] = useState(STATUS.ALL);
 
   const [query, setQuery] = useState("");
@@ -1170,6 +1314,62 @@ export default function DistributorApplicationsPage() {
       <s-button slot="secondary-actions" href="/app" variant="tertiary">
         Dashboard
       </s-button>
+
+      <s-button
+        slot="secondary-actions"
+        loading={currencyFetcher.state !== "idle"}
+        onClick={() => currencyFetcher.submit({ intent: "apply_currency_rule" }, { method: "post" })}
+      >
+        Set distributor currencies
+      </s-button>
+
+      <s-button
+        slot="secondary-actions"
+        loading={setupFetcher.state !== "idle"}
+        onClick={() => {
+          if (window.confirm("Waive the setup charge for every approved distributor? Use once, for distributors approved before the setup charge rule.")) {
+            setupFetcher.submit({ intent: "waive_setup_current" }, { method: "post" });
+          }
+        }}
+      >
+        Waive setup for current distributors
+      </s-button>
+
+      <s-button
+        slot="secondary-actions"
+        loading={creditFetcher.state !== "idle"}
+        onClick={() => creditFetcher.submit({ intent: "use_credit_rules" }, { method: "post" })}
+      >
+        Use credit limit rules
+      </s-button>
+
+      <s-button
+        slot="secondary-actions"
+        loading={depositFetcher.state !== "idle"}
+        onClick={() => {
+          if (window.confirm("Set a 30% deposit at checkout, with the balance before shipment, for every distributor location without credit terms? Their next orders use it.")) {
+            depositFetcher.submit({ intent: "use_deposit_terms" }, { method: "post" });
+          }
+        }}
+      >
+        Use deposit terms
+      </s-button>
+
+      {/* Distributor currencies (HYV-195) */}
+
+      {currencyFetcher.data?.intent === "apply_currency_rule" ? (
+        <s-banner
+          tone={currencyFetcher.data.success ? "success" : "warning"}
+          heading={currencyFetcher.data.message}
+        >
+          <s-paragraph>SGD for Singapore distributors, USD for all others.</s-paragraph>
+          {(currencyFetcher.data.results || []).map((result) => (
+            <s-paragraph key={result.name + result.detail}>
+              {result.name}: {result.detail}
+            </s-paragraph>
+          ))}
+        </s-banner>
+      ) : null}
 
       {/* Catalog manager */}
 
