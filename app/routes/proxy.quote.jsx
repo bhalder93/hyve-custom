@@ -232,7 +232,9 @@ export const action = async ({ request }) => {
     const customerGid = `gid://shopify/Customer/${loggedInCustomerId}`;
     // A quote raised by someone buying for a company belongs to that company,
     // so their colleagues see it and it is priced against their catalog.
-    company = await purchasingCompanyFor(admin, loggedInCustomerId);
+    // The location the cart was priced for (HYV-195): a company with an SGD
+    // and an HKD location got its HKD cart attached to the other one (Q-144).
+    company = await purchasingCompanyFor(admin, loggedInCustomerId, { locationId: payload.location_id });
     draftInput.purchasingEntity = purchasingEntity(company, customerGid);
   } else {
     draftInput.email = email;

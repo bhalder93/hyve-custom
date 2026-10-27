@@ -39,10 +39,14 @@ export async function action({ request }) {
       );
     }
     const email = payload?.email || payload?.contact_email || payload?.customer?.email || "";
-    const tags = String(payload?.tags || "")
-      .split(",")
-      .map((tag) => tag.trim());
-    if (!admin || !orderGid || !email || tags.includes(INVOICE_SENT_TAG)) {
+    if (!admin || !orderGid || !email) {
+      return new Response(null, { status: 200 });
+    }
+
+    // Claimed on the order itself before anything is sent. Building the PDF
+    // can outlast Shopify's wait, and its retry carries the payload as it was,
+    // without the tag: checking that copy sent #1122's invoice twice.
+    if (!(await claimInvoice(admin, orderGid))) {
       return new Response(null, { status: 200 });
     }
 
@@ -58,6 +62,7 @@ export async function action({ request }) {
     const doc = await loadInvoiceDocument(admin, orderGid, { system: true });
     if (!doc) {
       console.warn("[orders/paid] no invoice document", { shop, orderGid });
+      await releaseInvoiceClaim(admin, orderGid);
       return new Response(null, { status: 200 });
     }
 
@@ -73,19 +78,45 @@ export async function action({ request }) {
       filename: `invoice-${String(doc.reference).replace(/[^A-Za-z0-9._-]/g, "")}.pdf`,
     });
 
-    const tagged = await admin.graphql(
-      `#graphql
-      mutation InvoiceSent($id: ID!, $tags: [String!]!) {
-        tagsAdd(id: $id, tags: $tags) { userErrors { field message } }
-      }`,
-      { variables: { id: orderGid, tags: [INVOICE_SENT_TAG] } },
-    );
-    const errors = (await tagged.json())?.data?.tagsAdd?.userErrors;
-    if (errors?.length) console.warn("[orders/paid] invoice tag not saved", { orderGid, errors });
-
     return new Response(null, { status: 200 });
   } catch (error) {
     console.error("[orders/paid] invoice email failed", { shop, error: error?.message || error });
+    // Not sent, so a later delivery may try again.
+    if (admin && payload?.admin_graphql_api_id) await releaseInvoiceClaim(admin, payload.admin_graphql_api_id);
     return new Response(null, { status: 200 });
+  }
+}
+
+const ORDER_TAGS = `#graphql
+  query InvoiceClaimTags($id: ID!) { order(id: $id) { tags } }`;
+
+const TAGS_ADD = `#graphql
+  mutation InvoiceSent($id: ID!, $tags: [String!]!) {
+    tagsAdd(id: $id, tags: $tags) { userErrors { field message } }
+  }`;
+
+const TAGS_REMOVE = `#graphql
+  mutation InvoiceNotSent($id: ID!, $tags: [String!]!) {
+    tagsRemove(id: $id, tags: $tags) { userErrors { field message } }
+  }`;
+
+/** True when this delivery may send the invoice: the order isn't tagged yet, and now is. */
+async function claimInvoice(admin, orderGid) {
+  const tags = (await (await admin.graphql(ORDER_TAGS, { variables: { id: orderGid } })).json())?.data?.order?.tags || [];
+  if (tags.includes(INVOICE_SENT_TAG)) return false;
+  const errors = (await (await admin.graphql(TAGS_ADD, { variables: { id: orderGid, tags: [INVOICE_SENT_TAG] } })).json())?.data
+    ?.tagsAdd?.userErrors;
+  if (errors?.length) {
+    console.warn("[orders/paid] invoice tag not saved, invoice not sent", { orderGid, errors });
+    return false;
+  }
+  return true;
+}
+
+async function releaseInvoiceClaim(admin, orderGid) {
+  try {
+    await admin.graphql(TAGS_REMOVE, { variables: { id: orderGid, tags: [INVOICE_SENT_TAG] } });
+  } catch (error) {
+    console.error("[orders/paid] invoice tag not removed", orderGid, error?.message || error);
   }
 }

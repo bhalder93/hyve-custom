@@ -35,9 +35,11 @@ export async function syncSampleStatusTags(admin, orderGid, currentTags, nextSta
         await runTagMutation(
           admin,
           "tagsRemove",
-          `#graphql mutation RemoveSampleStatusTags($id: ID!, $tags: [String!]!) {
-            tagsRemove(id: $id, tags: $tags) { userErrors { message } }
-          }`,
+          `#graphql
+            mutation RemoveSampleStatusTags($id: ID!, $tags: [String!]!) {
+              tagsRemove(id: $id, tags: $tags) { userErrors { field message } }
+            }
+          `,
           { id, tags: statusTags },
         );
       }
@@ -45,9 +47,11 @@ export async function syncSampleStatusTags(admin, orderGid, currentTags, nextSta
       await runTagMutation(
         admin,
         "tagsAdd",
-        `#graphql mutation AddSampleStatusTags($id: ID!, $tags: [String!]!) {
-          tagsAdd(id: $id, tags: $tags) { userErrors { message } }
-        }`,
+        `#graphql
+          mutation AddSampleStatusTags($id: ID!, $tags: [String!]!) {
+            tagsAdd(id: $id, tags: $tags) { userErrors { field message } }
+          }
+        `,
         { id, tags: tagsToAdd },
       );
       return;

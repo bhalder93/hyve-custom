@@ -41,7 +41,13 @@ const LOCATION_QUERY = `#graphql
         paymentTermsTemplate { id name paymentTermsType }
         deposit { ... on DepositPercentage { percentage } }
       }
+      depositField: metafield(namespace: "hyve", key: "deposit_percentage") { value }
     }
+  }`;
+
+const METAFIELDS_DELETE = `#graphql
+  mutation DepositFieldDelete($metafields: [MetafieldIdentifierInput!]!) {
+    metafieldsDelete(metafields: $metafields) { userErrors { field message } }
   }`;
 
 const LOCATION_UPDATE = `#graphql
@@ -183,6 +189,44 @@ export async function setDepositTerms(admin, locationGid) {
 }
 
 /**
+ * company_locations/update: checkout reads the deposit from
+ * `hyve.deposit_percentage` (the Bank transfer rule and the deposit note), so
+ * it follows Shopify's own deposit setting. A deposit set by hand in Shopify
+ * admin then works like one set by Hyve Custom, and one removed stops showing
+ * Bank transfer. Writes only on a difference, so its own change is a no-op.
+ * @returns {Promise<{changed: boolean, percentage: number}>}
+ */
+export async function syncDepositField(admin, locationGid) {
+  const location = (await run(admin, LOCATION_QUERY, { id: locationGid }))?.companyLocation;
+  if (!location) return { changed: false, percentage: 0 };
+  const percentage = Number(location.buyerExperienceConfiguration?.deposit?.percentage) || 0;
+  const stored = Number(location.depositField?.value) || 0;
+  if (percentage === stored) return { changed: false, percentage };
+
+  if (percentage > 0) {
+    await ensureDepositDefinition(admin);
+    const saved = (
+      await run(admin, METAFIELDS_SET, {
+        metafields: [
+          { ownerId: locationGid, namespace: NAMESPACE, key: "deposit_percentage", type: "number_integer", value: String(Math.round(percentage)) },
+        ],
+      })
+    )?.metafieldsSet;
+    const error = saved?.userErrors?.[0]?.message;
+    if (error) throw new Error(error);
+  } else {
+    const removed = (
+      await run(admin, METAFIELDS_DELETE, {
+        metafields: [{ ownerId: locationGid, namespace: NAMESPACE, key: "deposit_percentage" }],
+      })
+    )?.metafieldsDelete;
+    const error = removed?.userErrors?.[0]?.message;
+    if (error) throw new Error(error);
+  }
+  return { changed: true, percentage };
+}
+
+/**
  * The Distributors page button: every location with no payment terms moves to
  * the deposit terms. Locations with credit terms, or already on a deposit, are
  * left alone.
@@ -194,9 +238,33 @@ export async function useDepositTermsWhereNoTerms(admin, locationGid) {
   return setDepositTerms(admin, locationGid);
 }
 
+const CHECKOUT_PAYMENTS = `#graphql
+  query DepositCheckoutPayments($id: ID!) {
+    order(id: $id) {
+      transactions(first: 20) { kind status amountSet { presentmentMoney { amount } } }
+    }
+  }`;
+
+/**
+ * The deposit Shopify asked for at checkout: what the buyer paid by card, or
+ * the pending Bank transfer payment. Shopify rounds the 30% its own way
+ * (USD 798.75 asked 239.62, not 239.63), so its figure is kept rather than
+ * worked out again. Null for an order with no checkout payment.
+ */
+async function checkoutDeposit(admin, orderGid) {
+  const transactions = (await run(admin, CHECKOUT_PAYMENTS, { id: orderGid }))?.order?.transactions || [];
+  const paid = transactions.filter(
+    (t) => ["SALE", "AUTHORIZATION"].includes(t.kind) && ["SUCCESS", "PENDING"].includes(t.status),
+  );
+  if (!paid.length) return null;
+  return round2(paid.reduce((sum, t) => sum + Number(t.amountSet?.presentmentMoney?.amount || 0), 0));
+}
+
 /**
  * orders/create: an order from a deposit location keeps the deposit it was
- * placed with, in its own currency.
+ * placed with, in its own currency. An order with no checkout payment (made
+ * by staff from a draft) has the location's percentage of its total, cut down
+ * to the cent as checkout asks it.
  */
 export async function recordOrderDeposit(admin, orderGid, locationGid) {
   if (!locationGid) return { deposit: false };
@@ -205,7 +273,10 @@ export async function recordOrderDeposit(admin, orderGid, locationGid) {
   const order = (await run(admin, DEPOSIT_ORDER_QUERY, { id: orderGid }))?.order;
   if (!order || order.depositDue?.value) return { deposit: Boolean(order?.depositDue?.value) };
   const total = order.totalPriceSet?.presentmentMoney;
-  const amount = round2((Number(total?.amount) || 0) * (percentage / 100)).toFixed(2);
+  const atCheckout = await checkoutDeposit(admin, orderGid);
+  // With no checkout payment, the percentage cut down to the cent, as
+  // Shopify's checkout asks it (30% of 106.63 is 31.98).
+  const amount = (atCheckout ?? Math.floor((Number(total?.amount) || 0) * percentage + 1e-9) / 100).toFixed(2);
   const saved = (
     await run(admin, METAFIELDS_SET, {
       metafields: [
@@ -293,7 +364,32 @@ export async function recordDepositReceived(admin, orderGid) {
   )?.orderCreateManualPayment;
   const error = result?.userErrors?.[0]?.message;
   if (error) return { ok: false, error };
-  return { ok: true, message: `Deposit of ${money(state.currency, amount)} recorded. Production can start.` };
+
+  // The buyer hears the deposit is in. The payment stands if the email fails.
+  let emailed = false;
+  if (order.email) {
+    try {
+      const extra = (await run(admin, ORDER_TAGS, { id: orderGid }))?.order;
+      const { sendDepositReceivedEmail } = await import("../utils/email.server");
+      await sendDepositReceivedEmail({
+        customerEmail: order.email,
+        customerName: extra?.customer?.displayName || extra?.billingAddress?.name || "",
+        orderName: order.name,
+        orderDate: extra?.createdAt,
+        depositPaid: money(state.currency, state.deposit),
+        balanceDue: money(state.currency, round2(state.total - state.deposit)),
+      });
+      emailed = true;
+    } catch (emailError) {
+      console.error("[deposit] deposit received email failed", order.name, emailError?.message || emailError);
+    }
+  }
+  return {
+    ok: true,
+    message: `Deposit of ${money(state.currency, amount)} recorded. Production can start.${
+      emailed ? " The buyer was emailed." : " The buyer email couldn't be sent."
+    }`,
+  };
 }
 
 export const BALANCE_REQUEST_TAG = "hyve-notified:balance-request";

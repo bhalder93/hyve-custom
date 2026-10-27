@@ -1,7 +1,7 @@
 import { authenticate } from "../shopify.server";
 import { portalChrome } from "../lib/account-data.server";
 import { loadOrderForAction } from "../lib/order-action.server";
-import { productionCalendar, productionDueDate } from "../lib/order-status.server";
+import { notifyCustomer, productionCalendar, productionDueDate } from "../lib/order-status.server";
 import { awaitingSampleDecision } from "../lib/sample-approval.server";
 import { syncSampleStatusTags } from "../lib/sample-status-tags.server";
 
@@ -144,9 +144,10 @@ export const action = async ({ request }) => {
         { ownerId: orderGid, namespace: "$app", key: "status_changed_at", type: "date_time", value: inProdAt }
       );
 
+      let productionDueAt = null;
       try {
         const calendar = await productionCalendar(admin);
-        const productionDueAt = productionDueDate(calendar, inProdAt, order.rush?.value === "true");
+        productionDueAt = productionDueDate(calendar, inProdAt, order.rush?.value === "true");
         if (productionDueAt) {
           metafields.push({
             ownerId: orderGid,
@@ -216,6 +217,11 @@ export const action = async ({ request }) => {
       }
 
       await syncSampleStatusTags(admin, orderGid, order.tags, "in-production", ["hyve-sample-approved", "in-production"]);
+      try {
+        await notifyCustomer(admin, owned.order, "in-production", productionDueAt, { sampleApproved: true });
+      } catch (emailErr) {
+        console.error("[portal] failed to notify customer of In Production:", emailErr);
+      }
     } else {
       const heldAt = new Date().toISOString();
       metafields.push(

@@ -207,13 +207,18 @@ export function issuedBy(node) {
  * Accepted means the buyer acted on it and it became an order. A staff
  * approval in Hyve Custom is Hyve agreeing the quote, not the buyer accepting
  * it, so it leaves the quote with the buyer.
+ */
+export { quoteValidUntil } from "./quote-document.server";
+
+/**
+ * The status a quote shows to staff and buyer alike (HYV-165).
  *
  * A quote has gone to the buyer when Shopify sent it (sales pressing Send on
  * the draft), when the buyer made it themselves from their cart, or when staff
  * approved a request. A request from the Quotes page is tagged awaiting_review
  * until Hyve prices it.
  *
- * @returns {"created"|"sent"|"accepted"|"declined"}
+ * @returns {"created"|"sent"|"accepted"|"declined"|"expired"}
  */
 export function quoteStatus(node) {
   if (node?.status === "COMPLETED" || node?.order?.id || node?.order?.name) return QUOTE_STATUSES.ACCEPTED;
@@ -222,6 +227,13 @@ export function quoteStatus(node) {
   if (decision === false) return QUOTE_STATUSES.DECLINED;
 
   const tags = node?.tags || [];
+  const isExpired =
+    node?.status === "EXPIRED" ||
+    tags.some((t) => /^(quote[-_]?)?expired$/i.test(String(t).trim())) ||
+    Boolean(node?.createdAt && quoteValidUntil(node.createdAt).at < new Date());
+
+  if (isExpired) return QUOTE_STATUSES.EXPIRED;
+
   const fromCart = tags.includes("storefront-quote") && !tags.includes("awaiting_review");
   // `quote-sent`: staff emailed it from Hyve Custom (HYV-166) instead of
   // Shopify's Send invoice, which is what sets invoiceSentAt.
@@ -257,6 +269,65 @@ export function mergeQuoteNodes(...lists) {
   }
   const stamp = (node) => String(node.updatedAt || node.createdAt || "");
   return [...byId.values()].sort((a, b) => stamp(b).localeCompare(stamp(a)));
+}
+
+/**
+ * Whether a line item is a physical sample line (by SKU, title, variant, or attribute).
+ */
+export function isPhysicalSampleLine(li) {
+  if (!li) return false;
+  // Blank samples are not pre-production physical samples
+  const isBlank = (li.customAttributes || li.properties || []).some(
+    (a) =>
+      (String(a?.key || a?.name || "") === "Sample" && /blank/i.test(String(a?.value || ""))) ||
+      (String(a?.key || a?.name || "") === "_sample" && /blank/i.test(String(a?.value || ""))),
+  );
+  if (isBlank) return false;
+
+  const samplePattern = /physical[-_\s]*sample/i;
+
+  const envSampleId = (process.env.PHYSICAL_SAMPLE_VARIANT_ID || "gid://shopify/ProductVariant/68280437997819").replace(/^["']|["']$/g, "").trim();
+  const sampleNum = envSampleId.split("/").pop();
+
+  const variantId = String(li.variant?.id || li.variantId || "");
+  if (
+    variantId.includes("68280437997819") ||
+    variantId.includes("52315361280216") ||
+    (sampleNum && variantId.includes(sampleNum)) ||
+    (envSampleId && variantId.includes(envSampleId))
+  ) {
+    return true;
+  }
+
+  const sku = String(li.sku || "").trim();
+  if (samplePattern.test(sku)) return true;
+
+  const title = String(li.title || li.name || "");
+  const variantTitle = String(li.variantTitle || li.variant?.title || "");
+
+  if (samplePattern.test(title) || samplePattern.test(variantTitle)) return true;
+  if (/additional\s*charges/i.test(title) && (/^sample$/i.test(variantTitle.trim()) || samplePattern.test(variantTitle))) return true;
+
+  const selectedOptions = li.variant?.selectedOptions || [];
+  if (selectedOptions.some((opt) => samplePattern.test(opt.name || "") || samplePattern.test(opt.value || ""))) {
+    return true;
+  }
+
+  const attrs = Array.isArray(li.customAttributes)
+    ? li.customAttributes
+    : Array.isArray(li.properties)
+      ? li.properties
+      : [];
+
+  return attrs.some((a) => {
+    const key = String(a?.key || a?.name || "").trim().toLowerCase();
+    const val = String(a?.value || "").trim().toLowerCase();
+    return (
+      ((key === "_hyve_sample" || key === "_sample" || samplePattern.test(key)) && (val === "true" || val === "1" || val === "yes")) ||
+      samplePattern.test(val) ||
+      (key === "_charge" && val === "sample")
+    );
+  });
 }
 
 /**
@@ -320,8 +391,8 @@ export function mapDraftOrdersToQuotes(draftOrderNodes = []) {
     }
 
     const detailedLines = lineItems.map((li) => {
-      // The physical sample line carries this flag however it was added.
-      const isSample = (li.customAttributes || []).some((a) => a.key === "_hyve_sample" && String(a.value) === "true");
+      // The physical sample line carries this flag or title/SKU however it was added.
+      const isSample = isPhysicalSampleLine(li);
       const unit = Number(
         li.discountedUnitPriceSet?.presentmentMoney?.amount ??
         li.originalUnitPriceSet?.presentmentMoney?.amount ??
@@ -369,7 +440,9 @@ export function mapDraftOrdersToQuotes(draftOrderNodes = []) {
       return {
         id: li.id,
         title: li.title || li.name || "Item",
+        name: li.name || li.title || "Item",
         variantTitle,
+        variantId: String(li.variant?.id || li.variantId || ""),
         sku: li.sku || "",
         quantity: qty,
         unitPrice: formatMoney(unit, cur),
@@ -380,11 +453,21 @@ export function mapDraftOrdersToQuotes(draftOrderNodes = []) {
         hsCode,
         countryOfOrigin,
         attributes: visibleAttributes,
+        customAttributes: li.customAttributes || [],
         isSample,
       };
     });
 
-    const hasPhysicalSample = detailedLines.some((l) => l.isSample);
+    const hasPhysicalSample =
+      detailedLines.some((l) => l.isSample) ||
+      node?.physicalSampleRequired?.value === "true" ||
+      node?.physicalSampleRequired === true ||
+      (node?.customAttributes || []).some(
+        (a) =>
+          /physical[-_\s]*sample/i.test(String(a?.key || "")) &&
+          /yes|true|1/i.test(String(a?.value || "")),
+      ) ||
+      (node?.tags || []).some((t) => /physical[-_\s]*sample/i.test(String(t || "")));
     const isOpen =
       status !== QUOTE_STATUSES.ACCEPTED &&
       status !== QUOTE_STATUSES.DECLINED &&
@@ -911,7 +994,44 @@ function renderClientScript(hasQuotes, quotes = []) {
           badgeEl.innerHTML = '<span class="hyve-badge hyve-badge--' + badgeTone + '">' + escapeHtml(badgeLabel) + '</span>';
         }
 
+        function isSampleLine(line) {
+          if (!line) return false;
+          if (line.isSample === true) return true;
+
+          var samplePattern = /physical[-_\\s]*sample/i;
+
+          var vId = String(line.variantId || (line.variant && line.variant.id) || '');
+          if (vId.indexOf('68280437997819') !== -1 || vId.indexOf('52315361280216') !== -1) return true;
+
+          var sku = String(line.sku || '').trim();
+          if (samplePattern.test(sku)) return true;
+
+          var title = String(line.title || '');
+          var name = String(line.name || '');
+          var variant = String(line.variantTitle || (line.variant && line.variant.title) || '');
+          if (samplePattern.test(title) || samplePattern.test(name) || samplePattern.test(variant)) return true;
+
+          var lowerTitle = (title || name).trim().toLowerCase();
+          var lowerVariant = variant.trim().toLowerCase();
+          if (lowerTitle.indexOf('additional charges') !== -1 && (lowerVariant === 'sample' || samplePattern.test(lowerVariant))) {
+            return true;
+          }
+
+          var attrs = Array.isArray(line.attributes) ? line.attributes : (Array.isArray(line.customAttributes) ? line.customAttributes : []);
+          for (var i = 0; i < attrs.length; i++) {
+            var k = String(attrs[i].key || attrs[i].name || '').trim().toLowerCase();
+            var v = String(attrs[i].value || '').trim().toLowerCase();
+            if ((k === '_hyve_sample' || k === '_sample' || samplePattern.test(k)) && (v === 'true' || v === 'yes' || v === '1')) {
+              return true;
+            }
+            if (samplePattern.test(v)) return true;
+            if (k === '_charge' && v === 'sample') return true;
+          }
+          return false;
+        }
+
         var lines = Array.isArray(q.lineItems) ? q.lineItems : [];
+        var hasPhysicalSample = Boolean(q.hasPhysicalSample) || lines.some(isSampleLine);
         var linesHtml = '';
 
         if (lines.length === 0) {
@@ -963,7 +1083,8 @@ function renderClientScript(hasQuotes, quotes = []) {
               attrsHtml += '</div>';
             }
 
-            var sampleTag = line.isSample
+            var lineIsSample = Boolean(line.isSample) || isSampleLine(line);
+            var sampleTag = lineIsSample
               ? '<span class="hyve-badge hyve-badge--awaiting" style="font-size:10.5px; padding:1px 6px;">Physical Sample</span>' +
                 (q.isOpen ? ' <button type="button" class="hyve-btn--remove-sample-link" onclick="removePhysicalSample(\\'' + escapeHtml(q.id) + '\\')">Remove</button>' : '')
               : '';
@@ -1000,7 +1121,7 @@ function renderClientScript(hasQuotes, quotes = []) {
         }
 
         var sampleSectionHtml = '';
-        if (q.isOpen && !q.hasPhysicalSample) {
+        if (q.isOpen && !hasPhysicalSample) {
           sampleSectionHtml = '<div class="hyve-quote-sample-banner">' +
             '<div class="hyve-quote-sample-banner__left">' +
               '<div class="hyve-quote-sample-banner__icon">' +
@@ -1019,7 +1140,7 @@ function renderClientScript(hasQuotes, quotes = []) {
               '+ Add Physical Sample' +
             '</button>' +
           '</div>';
-        } else if (q.hasPhysicalSample) {
+        } else if (hasPhysicalSample) {
           if (q.isOpen) {
             sampleSectionHtml = '<div class="hyve-quote-sample-banner hyve-quote-sample-banner--included">' +
               '<div class="hyve-quote-sample-banner__left">' +

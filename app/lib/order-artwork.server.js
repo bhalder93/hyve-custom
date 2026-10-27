@@ -14,7 +14,7 @@
  * Existing attributes are carried over, because `customAttributes` replaces the
  * whole set rather than merging.
  */
-import { gql } from "./order-status.server";
+import { gql } from "./order-status.server.js";
 
 const ORDER_ATTRIBUTES = `#graphql
   query OrderArtworkAttributes($id: ID!) {

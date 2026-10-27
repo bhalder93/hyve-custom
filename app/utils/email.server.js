@@ -1005,6 +1005,7 @@ export async function sendProofApprovedEmail({
   lineItems = [],
   orderUrl,
   isSampleOrder = false,
+  sampleApproved = false,
 }) {
   // A sample order has no production date until the sample is approved.
   if (!productionDueAt && !isSampleOrder) {
@@ -1030,7 +1031,11 @@ export async function sendProofApprovedEmail({
     orderUrl,
     body: `
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
-        Thank you. Your Artwork Proof has been approved.
+        ${
+          sampleApproved
+            ? "Thank you. Your Physical Sample has been approved."
+            : "Thank you. Your Artwork Proof has been approved."
+        }
       </p>
 
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
@@ -1113,7 +1118,9 @@ export async function sendProofApprovedEmail({
         : customerStatusLabel("proof-approved")
     } - ${orderName}`,
     "",
-    "Thank you. Your Artwork Proof has been approved.",
+    sampleApproved
+      ? "Thank you. Your Physical Sample has been approved."
+      : "Thank you. Your Artwork Proof has been approved.",
     "",
     isSampleOrder
       ? "Approved — Sample Preparation: We'll prepare your physical pre-production sample before bulk production begins."
@@ -1665,6 +1672,37 @@ export async function sendBalanceRequestEmail({ customerEmail, customerName, ord
     html,
     text: `Production of ${orderName} is complete. The balance of ${amountDue} is now due, and we release your order once it's paid. Pay by card: ${payUrl || CUSTOMER_ORDERS_URL}. Pay by bank transfer: use the bank details on the attached invoice, with ${orderName} as the reference, then upload your payment confirmation on the order in your account.`,
     attachments: pdf ? [{ filename, content: pdf, contentType: "application/pdf" }] : undefined,
+  });
+}
+
+/**
+ * The buyer's 30% deposit is in (HYV-150): Customer Service recorded the bank
+ * transfer in Hyve Custom. The proof is next, and the balance follows at
+ * Production Complete.
+ */
+export async function sendDepositReceivedEmail({ customerEmail, customerName, orderName, orderDate, depositPaid, balanceDue }) {
+  const html = customerLayout({
+    title: "Deposit Received",
+    customerName,
+    orderName,
+    orderDate,
+    orderUrl: CUSTOMER_ORDERS_URL,
+    body: `
+      <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
+        Thank you. We've received your deposit of <strong>${escapeHtml(depositPaid)}</strong> for ${escapeHtml(orderName)}, and we're starting on your order. We'll email you the Artwork Proof to approve.
+      </p>
+
+      <p style="margin:0; line-height:1.7; font-size:15px;">
+        The balance of <strong>${escapeHtml(balanceDue)}</strong> is due before shipment. We'll email you when production is complete, and release your order once it's paid.
+      </p>
+    `,
+  });
+
+  return sendEmail({
+    to: customerEmail,
+    subject: `Deposit received - ${orderName}`,
+    html,
+    text: `Thank you. We've received your deposit of ${depositPaid} for ${orderName}, and we're starting on your order. We'll email you the Artwork Proof to approve. The balance of ${balanceDue} is due before shipment. We'll email you when production is complete, and release your order once it's paid.`,
   });
 }
 

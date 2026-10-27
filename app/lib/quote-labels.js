@@ -16,14 +16,14 @@ export const STAFF_QUOTE_LABELS = {
   sent: "Sent",
   accepted: "Accepted",
   declined: "Declined",
-  expired: "Expired",
+  expired: "Quote Expired",
 };
 export const STAFF_QUOTE_TONES = {
   created: "info",
   sent: "info",
   accepted: "success",
   declined: "critical",
-  expired: "neutral",
+  expired: "critical",
 };
 
 /** Format 2-letter country code to country name (e.g. 'CN' -> 'China'), or pass through string */

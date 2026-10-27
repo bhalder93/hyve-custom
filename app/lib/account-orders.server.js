@@ -28,6 +28,7 @@ import { CREDIT_DECLINED_TAG, CREDIT_HOLD_TAG } from "./credit-review.server";
 import { depositState } from "./deposit.server";
 import { currentOrderLines } from "./quote-document.server";
 import { awaitingSampleDecision } from "./sample-approval.server";
+import { isPhysicalSampleLine } from "./account-quotes.server";
 import {
   ARTWORK_PENDING,
   VISIBLE_STATUSES,
@@ -102,6 +103,11 @@ export function mapOrders(nodes = []) {
       proformaHref: proformaIssued(node) && node?.id
         ? `/apps/account/orders/proforma?order=${encodeURIComponent(node.id)}`
         : "",
+      // Packing list PDF download for the customer (HYV-160)
+      packingListHref:
+        Boolean(node?.id) && !creditHeld && !creditDeclined
+          ? `/apps/account/orders/packing-list?order=${encodeURIComponent(node.id)}`
+          : "",
       statusKey,
       // The buyer arranges the freight (FOB): the order ends at Ready For
       // Collection instead of Shipped.
@@ -138,7 +144,7 @@ export function mapOrders(nodes = []) {
       ...(creditHeld ? { artworkToFollow: artworkPending(node) } : {}),
       physicalSampleStatus: latestSample.status || "",
       physicalSampleVersion: latestSample.sampleVersion || "0",
-      hasPhysicalSample: node?.physicalSampleRequired?.value === "true" || lineItems.some((li) => li.sku === "HYVE-PHYSICAL-SAMPLE" || (li.customAttributes || []).some((attr) => (attr?.key === "_hyve_sample" && String(attr.value) === "true") || (attr?.key === "Physical Sample" && String(attr.value).toLowerCase() === "yes"))),
+      hasPhysicalSample: node?.physicalSampleRequired?.value === "true" || lineItems.some(isPhysicalSampleLine),
 
       // Order detail modal (J2)
       // The modal lists payment terms as a header fact. It read a field nobody
@@ -480,6 +486,15 @@ function rowActions(order, statusKey) {
         `/apps/account/invoices/download?order=${encodeURIComponent(order.id)}`,
         icoInvoice(),
         "Invoice",
+      ),
+    );
+  }
+  if (order.packingListHref) {
+    actions.push(
+      action(
+        order.packingListHref,
+        icoBoxSmall(),
+        "Packing List",
       ),
     );
   }

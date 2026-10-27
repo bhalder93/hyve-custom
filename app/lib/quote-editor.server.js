@@ -44,8 +44,27 @@ const CHARGE_TITLES = {
   setup: ["setup charge", "setup"],
   rush: ["rush production", "72-hour rush production", "rush"],
   gift: ["gift packaging", "gift"],
-  sample: ["physical sample", "sample"],
+  sample: ["physical sample", "sample", "physical_sample", "physical-sample"],
 };
+
+export function getPhysicalSampleVariantId() {
+  const envVal = (process.env.PHYSICAL_SAMPLE_VARIANT_ID || "gid://shopify/ProductVariant/68280437997819")
+    .replace(/^["']|["']$/g, "")
+    .trim();
+  const gid = envVal.startsWith("gid://") ? envVal : `gid://shopify/ProductVariant/${envVal}`;
+  const numId = gid.split("/").pop();
+  return { gid, numId };
+}
+
+export function getRushProductionVariantId() {
+  const envVal = (process.env.RUSH_PRODUCTION_VARIANT_ID || "")
+    .replace(/^["']|["']$/g, "")
+    .trim();
+  if (!envVal) return { gid: null, numId: null };
+  const gid = envVal.startsWith("gid://") ? envVal : `gid://shopify/ProductVariant/${envVal}`;
+  const numId = gid.split("/").pop();
+  return { gid, numId };
+}
 
 /** The flag each charge line carries, so checkout's minimum quantity rule skips it. */
 const CHARGE_FLAGS = { setup: "_hyve_setup", rush: "_hyve_rush", gift: "_hyve_gift", sample: "_hyve_sample" };
@@ -125,7 +144,7 @@ const EDIT_QUERY = `#graphql
       nodes {
         handle
         status
-        currencySettings { baseCurrency { currencyCode } }
+        currencySettings { roundingEnabled baseCurrency { currencyCode manualRate } }
         conditions { regionsCondition { regions(first: 1) { nodes { ... on MarketRegionCountry { code } } } } }
       }
     }
@@ -220,17 +239,45 @@ function decorationOptions(product, rate, currency) {
 /** Which charge a variant of the Additional Charges product is, by its title. */
 function chargeKindOf(title) {
   const t = norm(title);
+  if (/physical[-_\s]*sample/i.test(t) || /^sample$/i.test(t)) return "sample";
+  if (/rush/i.test(t)) return "rush";
+  if (/setup/i.test(t)) return "setup";
+  if (/gift/i.test(t)) return "gift";
   return Object.keys(CHARGE_TITLES).find((kind) => CHARGE_TITLES[kind].includes(t)) || "other";
 }
 
 /** The draft's lines, each with what it is. */
 function readLines(draft) {
+  const { gid: sampleGid, numId: sampleNum } = getPhysicalSampleVariantId();
   return (draft.lineItems?.nodes || []).map((node) => {
     const attrs = (node.customAttributes || []).map(({ key, value }) => ({ key, value }));
     const handle = node.variant?.product?.handle;
+    const variantId = String(node.variant?.id || "");
     let kind = "product";
-    if (!node.variant) kind = "custom";
+    if (!node.variant) {
+      if (/physical[-_\s]*sample/i.test(node.title || node.name || "")) kind = "sample";
+      else kind = "custom";
+    }
     else if (handle === DUTY_HANDLE) kind = "duty";
+    else if (
+      node.sku === "HYVE-PHYSICAL-SAMPLE" ||
+      node.sku === "PHYSICAL_SAMPLE" ||
+      node.sku === "PHYSICAL-SAMPLE" ||
+      (sampleGid && variantId === sampleGid) ||
+      (sampleNum && variantId.includes(sampleNum)) ||
+      variantId.includes("68280437997819") ||
+      variantId.includes("52315361280216") ||
+      attrs.some(
+        (a) =>
+          (a.key === "_hyve_sample" && (String(a.value) === "true" || String(a.value) === "1")) ||
+          (a.key === "Physical Sample" && String(a.value).toLowerCase() === "yes"),
+      ) ||
+      /physical[-_\s]*sample/i.test(node.title || node.name || "") ||
+      /physical[-_\s]*sample/i.test(node.variant?.title || "") ||
+      /physical[-_\s]*sample/i.test(node.variant?.selectedOptions?.map((o) => o.value).join(" ") || "")
+    ) {
+      kind = "sample";
+    }
     else if (handle === CHARGE_HANDLE) kind = chargeKindOf(node.variant.title);
     else if (isBlankSample(attrs)) kind = "blank-sample";
     return {
@@ -284,6 +331,7 @@ async function priceVariants(admin, data, variantIds, currency) {
     }
   }
 
+  let found = "";
   for (const context of contexts) {
     const nodes = (await gql(admin, PRICES_QUERY, { ids: variantIds, context }))?.nodes || [];
     const prices = new Map();
@@ -297,8 +345,51 @@ async function priceVariants(admin, data, variantIds, currency) {
       });
     }
     if (prices.size && [...prices.values()].every((p) => p.currency === currency)) return prices;
+    found ||= [...prices.values()][0]?.currency || "";
+
+    // A company location's price comes back in its catalog's currency (USD),
+    // before its market converts it: Acme's SGD location read USD 3.70. The
+    // cart charges it converted, so it's converted the same way here.
+    const catalogCurrency = [...prices.values()][0]?.currency;
+    if (context.companyLocationId && prices.size && [...prices.values()].every((p) => p.currency === catalogCurrency)) {
+      const rate = marketRate(data, currency);
+      const convert = (amount) => roundCents(amount * rate);
+      for (const p of prices.values()) {
+        p.price = convert(p.price);
+        p.breaks = p.breaks.map((b) => ({ ...b, price: convert(b.price) }));
+        p.currency = currency;
+      }
+      return prices;
+    }
+  }
+  // A quote saved in a currency the buyer isn't priced in (an SGD company
+  // location with an HKD quote) can't be repriced without changing currency.
+  if (locationId && found) {
+    throw new QuoteEditError(
+      `This quote is in ${currency}, but Shopify prices this company location in ${found}, so it can't be repriced. Make a new quote for the company in ${found}.`,
+    );
   }
   throw new QuoteEditError(`Shopify didn't give ${currency} prices for this quote's products, so it can't be repriced.`);
+}
+
+/**
+ * How a distributor market converts the catalog's USD into this currency: its
+ * fixed rate, with no rounding (Distributors - SGD: 1.325, so USD 15.00 is
+ * SGD 19.88, as order #1122 was charged). A market that rounds prices, or has
+ * no fixed rate, can't be matched to the cent, so the quote isn't repriced.
+ */
+function marketRate(data, currency) {
+  const markets = (data.markets?.nodes || []).filter(
+    (m) => m.status === "ACTIVE" && m.currencySettings?.baseCurrency?.currencyCode === currency,
+  );
+  const market = markets.find((m) => m.handle === `distributors-${currency.toLowerCase()}`) || markets[0];
+  const rate = Number(market?.currencySettings?.baseCurrency?.manualRate);
+  if (!market || !(rate > 0) || market.currencySettings.roundingEnabled) {
+    throw new QuoteEditError(
+      `Shopify converts ${currency} prices for this company with ${market ? "rounding" : "no fixed rate"}, so this quote can't be repriced to match checkout. Make a new quote from the cart.`,
+    );
+  }
+  return rate;
 }
 
 /** The base price ladder for a product line, in the quote's currency. */
@@ -321,13 +412,29 @@ async function loadContext(admin, draftId) {
   const lines = readLines(draft);
   const rate = rateFor(data, currency);
 
+  const { gid: sampleGid, numId: sampleNum } = getPhysicalSampleVariantId();
+  const { gid: rushGid, numId: rushNum } = getRushProductionVariantId();
+
   const chargeVariants = {};
   for (const variant of data.charges?.variants?.nodes || []) {
-    const kind = chargeKindOf(variant.title);
+    let kind = chargeKindOf(variant.title);
+    const vId = String(variant.id || "");
+    if ((sampleGid && vId === sampleGid) || (sampleNum && vId.includes(sampleNum))) {
+      kind = "sample";
+    } else if (rushGid && (vId === rushGid || (rushNum && vId.includes(rushNum)))) {
+      kind = "rush";
+    }
     if (kind !== "other" && !chargeVariants[kind]) chargeVariants[kind] = variant.id;
   }
 
-  const ids = new Set(Object.values(chargeVariants));
+  if (!chargeVariants.sample && sampleGid) {
+    chargeVariants.sample = sampleGid;
+  }
+  if (!chargeVariants.rush && rushGid) {
+    chargeVariants.rush = rushGid;
+  }
+
+  const ids = new Set(Object.values(chargeVariants).filter(Boolean));
   for (const line of lines) if (line.kind === "product") ids.add(line.node.variant.id);
   const prices = await priceVariants(admin, data, [...ids], currency);
 
@@ -631,9 +738,19 @@ export async function rebuildQuote(admin, draftId, change = {}) {
     }
 
     const chargePrice = (kind) => {
-      const id = ctx.chargeVariants[kind];
+      let id = ctx.chargeVariants[kind];
+      if (!id && kind === "sample") {
+        id = getPhysicalSampleVariantId().gid;
+      }
+      if (!id && kind === "rush") {
+        id = getRushProductionVariantId().gid;
+      }
       if (!id) throw new QuoteEditError(`The Additional Charges product has no ${kind} variant.`);
-      return { id, unit: ctx.prices.get(id).price };
+      // No price means Shopify didn't price it for this buyer: stop rather than
+      // put the charge on the quote at 0.00.
+      const priceObj = ctx.prices.get(id);
+      if (!priceObj) throw new QuoteEditError(`Shopify has no price for the ${kind} charge for this buyer.`);
+      return { id, unit: priceObj.price };
     };
     const addCharge = (kind, quantity, unit, extraAttrs = []) => {
       const { id } = chargePrice(kind);

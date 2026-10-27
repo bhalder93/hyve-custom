@@ -3,7 +3,7 @@ import { formatDateTime as formatDate, formatDay } from "../utils/date.js";
 // app/routes/app.production-orders.$orderId.jsx
 /* eslint-disable react/prop-types */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 
 import {
   useActionData,
@@ -1571,20 +1571,24 @@ async function sendCustomerStatusEmail({
       });
 
     case "proof-approved":
-    case "sample-preparation": {
+    case "sample-preparation":
+    case "in-production": {
       let estimatedShipDate = order.estimatedShipDate?.value;
       if (!estimatedShipDate && productionDueAt) {
         const d = new Date(productionDueAt);
         d.setUTCDate(d.getUTCDate() + 5);
         estimatedShipDate = d.toISOString();
       }
-      const isSample = order.physicalSampleRequired?.value === "true" || hasPhysicalSample(order) || status === "sample-preparation";
+      const isSample =
+        status === "sample-preparation" ||
+        (status !== "in-production" && (order.physicalSampleRequired?.value === "true" || hasPhysicalSample(order)));
       return sendProofApprovedEmail({
         ...common,
 
         productionDueAt,
         estimatedShipDate,
         isSampleOrder: isSample,
+        sampleApproved: status === "in-production",
       });
     }
 
@@ -1684,8 +1688,11 @@ async function sendCurrentCustomerStatusEmail({
   numberOfCartons,
   grossWeight,
   cbm,
+  sampleApproved = false,
 }) {
-  if (!CUSTOMER_EMAIL_STATUSES.has(status)) {
+  // In Production is emailed only when a physical sample is approved, as
+  // notifyCustomer does: any other order already had its Proof Approved email.
+  if (!CUSTOMER_EMAIL_STATUSES.has(status) || (status === "in-production" && !sampleApproved)) {
     return {
       sent: false,
       alreadySent: false,
@@ -3012,6 +3019,19 @@ export async function action({ request, params }) {
         userAgent,
         note: `Physical Sample Approved${fileUrl ? `\nIMAGE: ${fileUrl}` : ''}\n(Approved on behalf of customer)`,
       });
+
+      try {
+        await sendCurrentCustomerStatusEmail({
+          admin,
+          order,
+          orderId,
+          status: "in-production",
+          productionDueAt: inProductionDueAt,
+          sampleApproved: true,
+        });
+      } catch (emailError) {
+        console.error("admin_approve_physical_sample customer email failed:", emailError);
+      }
 
       return {
         success: true,
@@ -4766,6 +4786,51 @@ export default function ProductionOrderDetailsPage() {
   const payment = order?.payment;
   const paymentMoney = (amount) => `${payment?.currency || ""} ${Number(amount || 0).toFixed(2)}`;
 
+  const [downloadingPackingList, setDownloadingPackingList] = useState(false);
+
+  const downloadPackingList = useCallback(async () => {
+    if (!order?.id) return;
+    const numericId = String(order.id).split("/").pop();
+    setDownloadingPackingList(true);
+    try {
+      const query = new URLSearchParams();
+      if (readyDate) query.set("readyDate", readyDate);
+      if (numberOfCartons) query.set("numberOfCartons", numberOfCartons);
+      if (grossWeight) query.set("grossWeight", grossWeight);
+      if (cbm) query.set("cbm", cbm);
+      const qs = query.toString() ? `?${query.toString()}` : "";
+
+      const response = await fetch(`/app/packing-list-pdf/${numericId}${qs}`);
+      if (!response.ok) {
+        throw new Error(`Failed to generate packing list: ${response.status}`);
+      }
+      const header = response.headers.get("Content-Disposition") || "";
+      const filenameMatch = /filename="?([^"]+)"?/.exec(header);
+      const filename =
+        filenameMatch?.[1] || `Packing-List-${String(order.name || "").replace(/^#/, "")}.pdf`;
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      if (typeof shopify !== "undefined" && shopify.toast?.show) {
+        shopify.toast.show("Packing list downloaded.");
+      }
+    } catch (error) {
+      console.error("[production-order] packing list download failed:", error);
+      if (typeof shopify !== "undefined" && shopify.toast?.show) {
+        shopify.toast.show("The packing list couldn't be generated. Please try again.", { isError: true });
+      }
+    } finally {
+      setDownloadingPackingList(false);
+    }
+  }, [order?.id, order?.name, readyDate, numberOfCartons, grossWeight, cbm]);
+
   function clearFieldError(field) {
     setClientErrors((current) => ({
       ...current,
@@ -5072,6 +5137,13 @@ export default function ProductionOrderDetailsPage() {
             Put on Hold
           </s-button>
         )}
+        <s-button
+          variant="secondary"
+          disabled={downloadingPackingList ? true : undefined}
+          onClick={downloadPackingList}
+        >
+          {downloadingPackingList ? "Generating..." : "Packing List"}
+        </s-button>
         <s-button
           target="_blank"
           href={`shopify:admin/orders/${order.id.split("/").pop()}`}
@@ -5482,13 +5554,13 @@ export default function ProductionOrderDetailsPage() {
                           <s-stack direction="block" gap="base">
                             <s-stack direction="inline" justifyContent="space-between" alignItems="center">
                               <s-heading>Freight Collection Specifications (FOB)</s-heading>
-                              {/* <s-button
+                              <s-button
                                 variant="secondary"
-                                disabled={resendingReadyForCollectionEmail ? true : undefined}
-                                onClick={() => submitIntent("resend_ready_for_collection_email")}
+                                disabled={downloadingPackingList ? true : undefined}
+                                onClick={downloadPackingList}
                               >
-                                {resendingReadyForCollectionEmail ? "Sending..." : "Resend Ready for Collection Email"}
-                              </s-button> */}
+                                {downloadingPackingList ? "Generating..." : "Download Packing List"}
+                              </s-button>
                             </s-stack>
 
                             {!isEditingCollection && (order.collectionReadyDate || order.collectionCartons) ? (
@@ -6101,11 +6173,17 @@ export default function ProductionOrderDetailsPage() {
 
           {/* Right Column (Contextual Profiles & Controls) */}
           <s-stack direction="block" gap="base">
-            {/* Documents: the proforma invoice for customs and payment (HYV-118). */}
+            {/* Documents: the proforma invoice for customs and payment (HYV-118), and packing list (HYV-160). */}
             <s-section heading="Documents">
               <s-stack direction="block" gap="small-300">
-                <s-text tone="subdued">For customs and payment before shipment.</s-text>
+                <s-text tone="subdued">For customs, shipping, and payment.</s-text>
                 <s-button href={`/app/proforma/${order.id.split("/").pop()}`}>Proforma Invoice</s-button>
+                <s-button
+                  onClick={downloadPackingList}
+                  disabled={downloadingPackingList ? true : undefined}
+                >
+                  {downloadingPackingList ? "Generating Packing List…" : "Download Packing List"}
+                </s-button>
               </s-stack>
             </s-section>
 
@@ -6291,9 +6369,18 @@ export default function ProductionOrderDetailsPage() {
                   {(order.customerArrangedFreight || order.collectionReadyDate || order.collectionCartons || order.collectionGrossWeight || order.collectionCbm) && (
                     <div style={{ marginTop: "8px", padding: "10px 12px", backgroundColor: "#fbfcfe", borderRadius: "6px", border: "1px solid #e1e3e5" }}>
                       <s-stack direction="block" gap="small-200">
-                        <s-text tone="subdued" style={{ fontSize: 12, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                          Collection Package Details
-                        </s-text>
+                        <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+                          <s-text tone="subdued" style={{ fontSize: 12, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                            Collection Package Details
+                          </s-text>
+                          <s-button
+                            variant="plain"
+                            onClick={downloadPackingList}
+                            disabled={downloadingPackingList ? true : undefined}
+                          >
+                            {downloadingPackingList ? "Generating…" : "Download PDF"}
+                          </s-button>
+                        </s-stack>
                         <s-stack direction="inline" justifyContent="space-between">
                           <s-text tone="subdued" style={{ fontSize: 13 }}>Ready Date:</s-text>
                           <s-text type="strong" style={{ fontSize: 13 }}>{order.collectionReadyDate ? formatDay(order.collectionReadyDate) : "—"}</s-text>

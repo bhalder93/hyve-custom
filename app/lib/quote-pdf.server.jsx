@@ -33,6 +33,9 @@ const DUTY_NOT_INCLUDED_NOTE = "Import duties and taxes are not included and may
 const GREEN = "#67ad5b";
 const RULE = "#cfcfcf";
 
+/** The deposit in cents, cut down to the cent as Shopify's checkout asks it. */
+const depositCents = (doc) => Math.floor((doc.grandTotal * doc.depositPercentage) / 100 + 1e-9);
+
 export function money(cents, currency) {
   try {
     // Always the code, "SGD 26.12" not "$26.12": the store sells in several
@@ -304,19 +307,21 @@ function QuoteDoc({ doc, withImages }) {
             <Text style={styles.grandLabel}>Total</Text>
             <Text style={styles.grandValue}>{money(doc.grandTotal, currency)}</Text>
           </View>
-          {/* 30% at checkout, the rest before shipment (HYV-150). */}
+          {/* 30% at checkout, the rest before shipment (HYV-150). Shopify cuts
+              the deposit down to the cent (30% of 798.75 asks 239.62, of 106.63
+              asks 31.98), so the quote states what checkout will ask. */}
           {doc.depositPercentage && doc.grandTotal != null ? (
             <>
               <View style={styles.sumRow}>
                 <Text style={styles.sumLabel}>Deposit ({doc.depositPercentage}%)</Text>
                 <Text style={styles.sumValue}>
-                  {money(Math.round((doc.grandTotal * doc.depositPercentage) / 100), currency)}
+                  {money(depositCents(doc), currency)}
                 </Text>
               </View>
               <View style={styles.sumRow}>
                 <Text style={styles.sumLabel}>Balance before shipment</Text>
                 <Text style={styles.sumValue}>
-                  {money(doc.grandTotal - Math.round((doc.grandTotal * doc.depositPercentage) / 100), currency)}
+                  {money(doc.grandTotal - depositCents(doc), currency)}
                 </Text>
               </View>
             </>

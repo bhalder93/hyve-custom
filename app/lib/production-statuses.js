@@ -104,6 +104,7 @@ export const CUSTOMER_EMAIL_STATUSES = new Set([
   "proof-approved",
   "sample-preparation",
   "sample-review",
+  "in-production",
   "production-complete",
   "ready-for-collection",
 ]);

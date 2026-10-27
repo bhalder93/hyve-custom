@@ -33,7 +33,7 @@ const QUERY = `#graphql
  *   null when this shopper has no company, or holds no role at a location — in
  *   either case the quote belongs to them alone.
  */
-export async function purchasingCompanyFor(admin, customerId) {
+export async function purchasingCompanyFor(admin, customerId, { locationId = null } = {}) {
   if (!admin || !customerId) return null;
 
   try {
@@ -54,8 +54,16 @@ export async function purchasingCompanyFor(admin, customerId) {
     const locationIds = (profile?.roleAssignments?.edges || [])
       .map((edge) => edge?.node?.companyLocation?.id)
       .filter(Boolean);
+    // The location the buyer is shopping as in the storefront, when the page
+    // says (the cart: its prices and currency are that location's). Only one
+    // they're assigned to; the page's word alone isn't trusted.
+    const shoppingAs = locationId ? `gid://shopify/CompanyLocation/${String(locationId).replace(/\D/g, "")}` : null;
     const preferred = profile?.company?.defaultShipping?.value;
-    const companyLocationId = locationIds.includes(preferred) ? preferred : locationIds[0];
+    const companyLocationId = locationIds.includes(shoppingAs)
+      ? shoppingAs
+      : locationIds.includes(preferred)
+        ? preferred
+        : locationIds[0];
 
     if (!companyId || !companyLocationId || !profile.id) return null;
 

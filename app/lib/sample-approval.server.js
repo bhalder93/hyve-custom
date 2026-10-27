@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { loadOrder } from "./order-action.server";
-import { productionCalendar, productionDueDate, recordStatusHistory, SOURCES } from "./order-status.server";
-import { syncSampleStatusTags } from "./sample-status-tags.server";
+import { loadOrder } from "./order-action.server.js";
+import { notifyCustomer, productionCalendar, productionDueDate, recordStatusHistory, SOURCES } from "./order-status.server.js";
+import { syncSampleStatusTags } from "./sample-status-tags.server.js";
 
 const LINK_PATH = "/apps/account/sample-decision";
 
@@ -223,17 +223,18 @@ export async function recordEmailSampleDecision(admin, link, decision, rawMessag
     },
   ];
 
+  let inProductionDueAt = null;
   if (decision === "approve") {
     try {
       const calendar = await productionCalendar(admin);
-      const productionDueAt = productionDueDate(calendar, now, order.rush?.value === "true");
-      if (productionDueAt) {
+      inProductionDueAt = productionDueDate(calendar, now, order.rush?.value === "true");
+      if (inProductionDueAt) {
         metafields.push({
           ownerId: orderGid,
           namespace: "$app",
           key: "production_due_at",
           type: "date_time",
-          value: productionDueAt,
+          value: inProductionDueAt,
         });
       }
     } catch (e) {
@@ -289,20 +290,32 @@ export async function recordEmailSampleDecision(admin, link, decision, rawMessag
     try {
       if (decision === "approve") {
         await admin.graphql(
-          `#graphql mutation FallbackAddSampleTags($id: ID!, $tags: [String!]!) {
-            tagsAdd(id: $id, tags: $tags) { userErrors { field message } }
-          }`,
+          `#graphql
+            mutation FallbackAddSampleTags($id: ID!, $tags: [String!]!) {
+              tagsAdd(id: $id, tags: $tags) { userErrors { field message } }
+            }
+          `,
           { variables: { id: orderGid, tags: ["hyve-status:in-production", "hyve-sample-approved", "in-production"] } },
         );
         await admin.graphql(
-          `#graphql mutation FallbackRemoveSampleTags($id: ID!, $tags: [String!]!) {
-            tagsRemove(id: $id, tags: $tags) { userErrors { field message } }
-          }`,
+          `#graphql
+            mutation FallbackRemoveSampleTags($id: ID!, $tags: [String!]!) {
+              tagsRemove(id: $id, tags: $tags) { userErrors { field message } }
+            }
+          `,
           { variables: { id: orderGid, tags: ["hyve-status:sample-review"] } },
         );
       }
     } catch (fallbackErr) {
       console.error("[sample-link] fallback tag sync also failed:", fallbackErr);
+    }
+  }
+
+  if (decision === "approve") {
+    try {
+      await notifyCustomer(admin, order, "in-production", inProductionDueAt, { sampleApproved: true });
+    } catch (emailErr) {
+      console.error("[sample-link] failed to send In Production email to customer:", emailErr);
     }
   }
 

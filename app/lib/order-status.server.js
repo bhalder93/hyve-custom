@@ -20,16 +20,16 @@
  * These mirror the Production Orders screen field for field. If one changes,
  * both must.
  */
-import { sendArtworkReceivedEmail, sendProofApprovedEmail, sendOrderOnHoldAlert } from "../utils/email.server";
+import { sendArtworkReceivedEmail, sendProofApprovedEmail, sendOrderOnHoldAlert } from "../utils/email.server.js";
 import {
   getCustomerServiceRecipients,
   getNotificationRecipients,
   RECIPIENT_ROLES,
-} from "../utils/metaobjects/notification-recipients.server";
-import { adminOrderUrl } from "./admin-links.server";
-import { statusEmailWanted } from "./notification-preferences.server";
-import { loadCommercialSettings } from "./commercial-settings.server";
-import { syncLineItemArtworkReceived } from "./order-artwork.server";
+} from "../utils/metaobjects/notification-recipients.server.js";
+import { adminOrderUrl } from "./admin-links.server.js";
+import { statusEmailWanted } from "./notification-preferences.server.js";
+import { loadCommercialSettings } from "./commercial-settings.server.js";
+import { syncLineItemArtworkReceived } from "./order-artwork.server.js";
 
 const STATUS_TAG_PREFIX = "hyve-status:";
 const NOTIFIED_TAG_PREFIX = "hyve-notified:";
@@ -344,12 +344,33 @@ export async function notifyCustomerServiceOrderOnHold(
   }
 }
 
-async function notifyCustomer(admin, order, status, productionDueAt) {
-  if (status !== "artwork-received" && status !== "proof-approved" && status !== "sample-preparation") return;
+export async function notifyCustomer(admin, order, status, productionDueAt, options = {}) {
+  if (
+    status !== "artwork-received" &&
+    status !== "proof-approved" &&
+    status !== "sample-preparation" &&
+    status !== "in-production"
+  ) {
+    return { ok: false, reason: "Status does not require email notification" };
+  }
+  // In Production is emailed only when a physical sample is approved, the
+  // buyer's go-ahead for production. Any other order already had its Proof
+  // Approved email, and a move to In Production sends nothing.
+  if (status === "in-production" && !options.sampleApproved) {
+    return { ok: false, reason: "In Production is emailed only after a physical sample approval" };
+  }
 
   const tag = `${NOTIFIED_TAG_PREFIX}${status}`;
-  if ((order.tags || []).includes(tag)) return;
-  if (!(await statusEmailWanted(admin, order.customer?.id, status === "sample-preparation" ? "proof-approved" : status))) return;
+  if ((order.tags || []).includes(tag)) return { ok: false, reason: "Already notified" };
+  if (
+    !(await statusEmailWanted(
+      admin,
+      order.customer?.id,
+      status === "sample-preparation" || status === "in-production" ? "proof-approved" : status,
+    ))
+  ) {
+    return { ok: false, reason: "Opted out" };
+  }
 
   const customerEmail = order.customer?.defaultEmailAddress?.emailAddress || order.email || "";
   if (!customerEmail) throw new Error("Customer email address is missing.");
@@ -372,11 +393,23 @@ async function notifyCustomer(admin, order, status, productionDueAt) {
   if (status === "artwork-received") {
     await sendArtworkReceivedEmail(common);
   } else {
-    const isSampleOrder = status === "sample-preparation" || order.physicalSampleRequired?.value === "true";
-    await sendProofApprovedEmail({ ...common, productionDueAt, estimatedShipDate, isSampleOrder });
+    const isSampleOrder =
+      status === "sample-preparation" ||
+      (status !== "in-production" && order.physicalSampleRequired?.value === "true");
+    await sendProofApprovedEmail({
+      ...common,
+      productionDueAt,
+      estimatedShipDate,
+      isSampleOrder,
+      sampleApproved: status === "in-production" || Boolean(options.sampleApproved),
+    });
   }
 
-  check(await gql(admin, TAGS_ADD, { id: order.id, tags: [tag] }), "tagsAdd");
+  const orderGid = String(order.id).startsWith("gid://shopify/Order/")
+    ? order.id
+    : `gid://shopify/Order/${String(order.id).replace(/\D/g, "")}`;
+  check(await gql(admin, TAGS_ADD, { id: orderGid, tags: [tag] }), "tagsAdd");
+  return { ok: true, sent: true };
 }
 
 /**

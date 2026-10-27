@@ -6,7 +6,7 @@
  * going, because the order can't move without the buyer's decision. Shopify's
  * own order and shipping confirmations are Shopify's and aren't affected.
  */
-export const OPTIONAL_STATUS_EMAILS = new Set(["artwork-received", "proof-approved", "production-complete"]);
+export const OPTIONAL_STATUS_EMAILS = new Set(["artwork-received", "proof-approved", "in-production", "production-complete"]);
 
 const PREFERENCE_QUERY = `#graphql
   query CustomerEmailPreference($id: ID!) {

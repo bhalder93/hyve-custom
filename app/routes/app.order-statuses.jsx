@@ -25,6 +25,7 @@ const BUYER_SEES_TOO = {
 const OTHER_EMAIL = {
   "order-placed": "No. Shopify's order confirmation goes when the order is placed",
   shipped: "Only Shopify's shipping email, when you fulfil the order in Shopify",
+  "in-production": "Only when a physical sample is approved, unless the buyer has switched status emails off",
 };
 
 /** Where the move list depends on the order, described rather than listed. */

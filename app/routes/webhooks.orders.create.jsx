@@ -1138,9 +1138,13 @@ export async function action({ request }) {
     /* Physical Sample Detection                                            */
     /* -------------------------------------------------------------------- */
     
-    const PHYSICAL_SAMPLE_VARIANT_ID = process.env.PHYSICAL_SAMPLE_VARIANT_ID || "gid://shopify/ProductVariant/52315361280216";
+    const envSampleVariant = (process.env.PHYSICAL_SAMPLE_VARIANT_ID || "gid://shopify/ProductVariant/68280437997819").replace(/^["']|["']$/g, "").trim();
+    const sampleVariantNum = envSampleVariant.split("/").pop();
     const physicalSampleRequired = lineItems.some(
-      (line) => String(line.variant?.id) === PHYSICAL_SAMPLE_VARIANT_ID
+      (line) => {
+        const vId = String(line.variant?.id || line.variant_id || "");
+        return vId === envSampleVariant || (sampleVariantNum && vId.includes(sampleVariantNum)) || vId.includes("68280437997819") || vId.includes("52315361280216");
+      }
     );
 
     const initialStatusString = ORDER_STATUS;

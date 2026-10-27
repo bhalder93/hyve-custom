@@ -85,6 +85,11 @@ export function orderModal(order, library = [], pickupConfig = {}) {
               : ""
           }
           ${
+            order.packingListHref
+              ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="${esc(order.packingListHref)}">${icoDownload()}<span>Download Packing List</span></a>`
+              : ""
+          }
+          ${
             order.quoteHref
               ? `<a class="hyve-ord__btn hyve-ord__btn--ghost" href="${esc(order.quoteHref)}">${icoFile()}<span>Download Quote</span></a>`
               : ""
@@ -291,6 +296,11 @@ function pickupPanel(order, pickupConfig) {
     <section class="hyve-modal__panel-box">
       <h3 class="hyve-modal__panel-title">${icoTruck()} Pickup & Packing Details</h3>
       ${rows.map(([l, v]) => `<div class="hyve-modal__row"><span>${esc(l)}</span><strong>${esc(v)}</strong></div>`).join("")}
+      ${
+        order.packingListHref
+          ? `<div style="margin: 12px 0 4px;"><a class="hyve-ord__btn hyve-ord__btn--ghost" href="${esc(order.packingListHref)}">${icoDownload()}<span>Download Packing List</span></a></div>`
+          : ""
+      }
       ${pickupRows.length ? `<div class="hyve-modal__divider"></div>` : ""}
       ${pickupRows.map(([l, v]) => `<div class="hyve-modal__row"><span>${esc(l)}</span><strong style="white-space: pre-wrap; text-align: right;">${esc(v)}</strong></div>`).join("")}
     </section>`;

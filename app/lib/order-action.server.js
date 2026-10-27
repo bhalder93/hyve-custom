@@ -9,8 +9,8 @@
  * The order comes back with everything a production move needs, so the action
  * that follows doesn't have to load it again.
  */
-import { gql, PRODUCTION_ORDER_FRAGMENT } from "./order-status.server";
-import { orderBelongsTo } from "./portal.server";
+import { gql, PRODUCTION_ORDER_FRAGMENT } from "./order-status.server.js";
+import { orderBelongsTo } from "./portal.server.js";
 
 const ORDER_QUERY = `#graphql
   query OrderForAction($id: ID!) {

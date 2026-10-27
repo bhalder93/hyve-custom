@@ -2,10 +2,10 @@ import { formatDateTime } from "../utils/date.js";
 /* eslint-disable react/prop-types */
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useLoaderData, useFetcher, useRouteError } from "react-router";
-import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { quoteStatus as quoteStatusFor } from "../lib/account-quotes.server";
+import { quoteValidUntil } from "../lib/quote-document.server";
 import { STAFF_QUOTE_LABELS, STAFF_QUOTE_TONES, quoteReference, formatCountryOfOrigin } from "../lib/quote-labels";
 import { AdminTheme, Pill } from "../lib/admin-theme";
 import { ShopifyFileUpload } from "../components/ShopifyFileUpload";
@@ -19,6 +19,7 @@ const STATUS_KEYS = {
   AWAITING_ACTION: "awaiting_action",
   ACCEPTED: "accepted",
   REJECTED: "rejected",
+  EXPIRED: "expired",
 };
 
 /** What each line that isn't a product is called on the page. */
@@ -79,7 +80,7 @@ function parseQuoteStatus(metafield) {
   }
 
   const val = String(metafield.value).trim().toLowerCase();
-  if (val === "true") {
+  if (val === "true" || val === "accepted") {
     return {
       key: STATUS_KEYS.ACCEPTED,
       label: "Accepted",
@@ -88,12 +89,21 @@ function parseQuoteStatus(metafield) {
     };
   }
 
-  if (val === "false") {
+  if (val === "false" || val === "rejected" || val === "declined") {
     return {
       key: STATUS_KEYS.REJECTED,
       label: "Rejected",
       tone: "critical",
       rawBool: false,
+    };
+  }
+
+  if (val === "expired") {
+    return {
+      key: STATUS_KEYS.EXPIRED,
+      label: "Quote Expired",
+      tone: "critical",
+      rawBool: null,
     };
   }
 
@@ -187,6 +197,19 @@ async function fetchQuote(admin, draftOrderGid) {
   const json = await (await admin.graphql(QUOTE_QUERY, { variables: { id: draftOrderGid } })).json();
   const draftOrder = json?.data?.draftOrder;
   if (!draftOrder) return null;
+
+  const listStatus = quoteStatusFor({ ...draftOrder, hyveStatus: draftOrder.metafield });
+  const isExpired =
+    listStatus === "expired" ||
+    draftOrder.status === "EXPIRED" ||
+    (draftOrder.tags || []).some((t) => /^(quote[-_]?)?expired$/i.test(String(t).trim())) ||
+    Boolean(
+      draftOrder.status !== "COMPLETED" &&
+      !draftOrder.order?.id &&
+      draftOrder.createdAt &&
+      quoteValidUntil(draftOrder.createdAt).at < new Date()
+    );
+
   return {
     ...draftOrder,
     numericId: cleanDraftOrderId(draftOrder.id),
@@ -194,7 +217,8 @@ async function fetchQuote(admin, draftOrderGid) {
     // Where the quote stands with the buyer, by the same rules and names as
     // the Quotes list and the dashboard (HYV-165). The pill beside it is
     // Hyve's own Approve/Reject decision.
-    listStatus: quoteStatusFor({ ...draftOrder, hyveStatus: draftOrder.metafield }),
+    listStatus: isExpired ? "expired" : listStatus,
+    isExpired,
   };
 }
 
@@ -244,6 +268,14 @@ export const action = async ({ request }) => {
 
   if (!/^gid:\/\/shopify\/DraftOrder\/\d+$/.test(draftOrderId)) {
     return { success: false, error: "Missing draft order ID." };
+  }
+
+  const existingQuote = await fetchQuote(admin, draftOrderId);
+  if (!existingQuote) {
+    return { success: false, error: "Draft order not found." };
+  }
+  if (existingQuote.isExpired) {
+    return { success: false, error: "This quote has expired and cannot be modified." };
   }
 
   // Our own quotation email, with the PDF attached (HYV-166).
@@ -691,8 +723,22 @@ export default function QuoteDetailPage() {
 
   const isOrderCreated = Boolean(quote.order?.id);
   const isOpen = !isOrderCreated && quote.status !== "COMPLETED";
+
+  const isExpired =
+    Boolean(quote.isExpired) ||
+    quote.listStatus === "expired" ||
+    quote.quoteStatus?.key === STATUS_KEYS.EXPIRED ||
+    quote.status === "EXPIRED" ||
+    (quote.tags || []).some((t) => /^(quote[-_]?)?expired$/i.test(String(t).trim())) ||
+    Boolean(
+      !isOrderCreated &&
+      quote.status !== "COMPLETED" &&
+      quote.createdAt &&
+      new Date(quote.createdAt).getTime() + 14 * 24 * 60 * 60 * 1000 < Date.now()
+    );
+
   // Editing reprices the whole quote, so it waits until the prices can be read.
-  const canEdit = isOpen && !editor?.error;
+  const canEdit = isOpen && !isExpired && !editor?.error;
 
   const isAccepted =
     quote.quoteStatus?.key === STATUS_KEYS.ACCEPTED ||
@@ -747,7 +793,7 @@ export default function QuoteDetailPage() {
       {/* Our quotation email with the PDF attached, instead of Shopify's
           "Send invoice", which can't carry the PDF (HYV-166). Not offered
           once the quote has become an order or been declined. */}
-      {!decided && quote.listStatus !== "accepted" && quote.listStatus !== "declined" ? (
+      {!decided && !isExpired && quote.listStatus !== "accepted" && quote.listStatus !== "declined" ? (
         <s-button
           slot="secondary-actions"
           onClick={() => fetcher.submit({ intent: "email_quotation", draftOrderId: quote.id }, { method: "post" })}
@@ -761,7 +807,7 @@ export default function QuoteDetailPage() {
       <s-button slot="secondary-actions" onClick={downloadQuotation} disabled={downloading || undefined}>
         {downloading ? "Preparing PDF…" : "Download quotation"}
       </s-button>
-      {quote.invoiceUrl ? (
+      {!isExpired && quote.invoiceUrl ? (
         <s-button slot="secondary-actions" href={quote.invoiceUrl} target="_blank">
           Checkout link
         </s-button>
@@ -785,13 +831,17 @@ export default function QuoteDetailPage() {
                       <span style={{ fontSize: "17px", fontWeight: 700, letterSpacing: "-0.01em" }}>
                         {customerName}
                       </span>
-                      <Pill tone={STAFF_QUOTE_TONES[quote.listStatus] || "info"}>
-                        {STAFF_QUOTE_LABELS[quote.listStatus] || quote.listStatus}
-                      </Pill>
+                      {isExpired ? (
+                        <Pill tone="critical">Quote Expired</Pill>
+                      ) : (
+                        <Pill tone={STAFF_QUOTE_TONES[quote.listStatus] || "info"}>
+                          {STAFF_QUOTE_LABELS[quote.listStatus] || quote.listStatus}
+                        </Pill>
+                      )}
                       {/* Staff approval is Hyve agreeing the quote, not the buyer
                           accepting it, so it's "Approved", not "Accepted". A
                           declined quote already reads Declined in the pill before. */}
-                      {quote.quoteStatus.key === STATUS_KEYS.ACCEPTED ? (
+                      {!isExpired && quote.quoteStatus.key === STATUS_KEYS.ACCEPTED ? (
                         <Pill tone="success">Approved by Hyve</Pill>
                       ) : null}
                       {quote.order?.id ? (
@@ -833,10 +883,18 @@ export default function QuoteDetailPage() {
               </s-banner>
             ) : null}
 
+            {isExpired ? (
+              <s-banner tone="critical" heading="This quote has expired">
+                <s-paragraph>
+                  This quote has passed its 14-day validity period and can no longer be edited, approved, or declined.
+                </s-paragraph>
+              </s-banner>
+            ) : null}
+
             {/* Only a buyer's request waits on Hyve: it reads Created until
                 staff approve it. A quote sales made, or one from the cart, is
                 already with the buyer whatever the decision says. */}
-            {!decided && quote.listStatus === "created" && (quote.tags || []).includes("awaiting_review") ? (
+            {!decided && !isExpired && quote.listStatus === "created" && (quote.tags || []).includes("awaiting_review") ? (
               <s-banner tone="warning" heading="Waiting on your decision">
                 <s-paragraph>
                   The buyer asked for this quote. They see it as Created until you approve or decline it.
@@ -1377,7 +1435,7 @@ export default function QuoteDetailPage() {
             </div>
 
             {/* Decision */}
-            {!decided ? (
+            {!decided && !isExpired ? (
               <div className="hyv-panel" style={{ padding: "16px 18px" }}>
                 <div
                   style={{
@@ -1431,12 +1489,6 @@ export default function QuoteDetailPage() {
           </s-box>
         ) : (
           <s-stack direction="block" gap="base">
-            {configError ? (
-              <s-banner tone="critical" heading="Please review the decoration">
-                <s-paragraph>{configError}</s-paragraph>
-              </s-banner>
-            ) : null}
-
             {/* 1. One decoration: none, an imprint, or Full Colour Wrap */}
             <s-section heading="1. Decoration">
               <s-choice-list
@@ -1609,6 +1661,13 @@ export default function QuoteDetailPage() {
                   ) : null}
                 </s-stack>
               </s-section>
+            ) : null}
+
+            {/* Last, so it's in view next to Save decoration (HYV-172 QA). */}
+            {configError ? (
+              <s-banner tone="critical" heading="Please review the decoration">
+                <s-paragraph>{configError}</s-paragraph>
+              </s-banner>
             ) : null}
           </s-stack>
         )}

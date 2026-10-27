@@ -212,6 +212,10 @@ async function sendViaMicrosoftGraph({
  * - If Microsoft 365 is configured (production), returns an adapter with sendMail via Microsoft Graph.
  * - Otherwise (development), returns the Nodemailer SMTP transporter (Gmail).
  */
+export function resetMailer() {
+  transporter = null;
+}
+
 export function getMailer() {
   if (isMicrosoftGraphConfigured()) {
     return {
