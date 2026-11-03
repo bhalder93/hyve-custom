@@ -175,6 +175,8 @@ export const action = async ({ request }) => {
 
       const company = String(formData.get("company") || "").trim();
       const phone = String(formData.get("phone") || "").trim();
+      const forwarderName = String(formData.get("forwarderName") || "").trim();
+      const forwarderAccount = String(formData.get("forwarderAccount") || "").trim();
       const whatsappUpdates = formData.get("whatsappUpdates") === "true" ? "true" : "false";
       const emailNotifications = formData.get("emailNotifications") === "true" ? "true" : "false";
       const marketingEmails = formData.get("marketingEmails") === "true" ? "true" : "false";
@@ -182,7 +184,7 @@ export const action = async ({ request }) => {
       // Update customer basic profile (firstName, lastName, phone)
       await updateCustomerProfile(admin, gidCustomerId, { firstName, lastName, phone });
 
-      // Update customer metafields (including WhatsApp Updates metafield)
+      // Update customer metafields (including WhatsApp Updates and FOB forwarder metafields)
       const metafields = [
         {
           ownerId: gidCustomerId,
@@ -211,7 +213,62 @@ export const action = async ({ request }) => {
         });
       }
 
+      if (forwarderName) {
+        metafields.push(
+          {
+            ownerId: gidCustomerId,
+            namespace: "custom",
+            key: "forwarder_name",
+            type: "single_line_text_field",
+            value: forwarderName,
+          },
+          {
+            ownerId: gidCustomerId,
+            namespace: "hyve",
+            key: "forwarder_name",
+            type: "single_line_text_field",
+            value: forwarderName,
+          },
+        );
+      }
+
+      if (forwarderAccount) {
+        metafields.push(
+          {
+            ownerId: gidCustomerId,
+            namespace: "custom",
+            key: "forwarder_account",
+            type: "single_line_text_field",
+            value: forwarderAccount,
+          },
+          {
+            ownerId: gidCustomerId,
+            namespace: "hyve",
+            key: "forwarder_account",
+            type: "single_line_text_field",
+            value: forwarderAccount,
+          },
+        );
+      }
+
       await setCustomerMetafieldsBatch(admin, metafields);
+
+      const metafieldsToClear = [];
+      if (!forwarderName) {
+        metafieldsToClear.push(
+          { ownerId: gidCustomerId, namespace: "custom", key: "forwarder_name" },
+          { ownerId: gidCustomerId, namespace: "hyve", key: "forwarder_name" },
+        );
+      }
+      if (!forwarderAccount) {
+        metafieldsToClear.push(
+          { ownerId: gidCustomerId, namespace: "custom", key: "forwarder_account" },
+          { ownerId: gidCustomerId, namespace: "hyve", key: "forwarder_account" },
+        );
+      }
+      if (metafieldsToClear.length > 0) {
+        await deleteCustomerMetafieldsBatch(admin, metafieldsToClear);
+      }
 
       return respond(isAjax, { success: true, notice: "Settings saved successfully" });
     }
@@ -266,6 +323,16 @@ async function fetchCustomerSettings(admin, customerId) {
             companyMetafield: metafield(namespace: "custom", key: "company") { value }
             whatsappMetafield: metafield(namespace: "custom", key: "whatsapp_updates") { value }
             emailNotificationsMetafield: metafield(namespace: "custom", key: "email_notifications") { value }
+            forwarderNameMetafield: metafield(namespace: "custom", key: "forwarder_name") { value }
+            forwarderAccountMetafield: metafield(namespace: "custom", key: "forwarder_account") { value }
+            hyveForwarderNameMetafield: metafield(namespace: "hyve", key: "forwarder_name") { value }
+            hyveForwarderAccountMetafield: metafield(namespace: "hyve", key: "forwarder_account") { value }
+            companyContactProfiles {
+              company {
+                forwarderName: metafield(namespace: "hyve", key: "forwarder_name") { value }
+                forwarderAccount: metafield(namespace: "hyve", key: "forwarder_account") { value }
+              }
+            }
             defaultAddress {
               company
               phone
@@ -295,6 +362,17 @@ async function fetchCustomerSettings(admin, customerId) {
       /^(b2b|distributor|wholesale|commercial|gold)$/i.test(t.trim())
     );
 
+    const forwarderName =
+      c.forwarderNameMetafield?.value ||
+      c.hyveForwarderNameMetafield?.value ||
+      c.companyContactProfiles?.[0]?.company?.forwarderName?.value ||
+      "";
+    const forwarderAccount =
+      c.forwarderAccountMetafield?.value ||
+      c.hyveForwarderAccountMetafield?.value ||
+      c.companyContactProfiles?.[0]?.company?.forwarderAccount?.value ||
+      "";
+
     return {
       customer: {
         ...c,
@@ -303,6 +381,8 @@ async function fetchCustomerSettings(admin, customerId) {
         email: c.defaultEmailAddress?.emailAddress || "",
         tags,
         isB2B,
+        forwarderName,
+        forwarderAccount,
       },
       failed: false,
     };
@@ -457,6 +537,46 @@ async function setCustomerMetafieldsBatch(admin, metafields = []) {
   } catch (err) {
     console.error("[account] metafieldsSet threw", err);
     return { error: err?.message || "Failed to set metafields" };
+  }
+}
+
+/**
+ * Delete a batch of customer metafields using metafieldsDelete.
+ */
+async function deleteCustomerMetafieldsBatch(admin, metafields = []) {
+  if (!metafields.length) return { success: true };
+
+  try {
+    const response = await withTimeout(
+      admin.graphql(
+        `#graphql
+        mutation CustomerMetafieldsDelete($metafields: [MetafieldIdentifierInput!]!) {
+          metafieldsDelete(metafields: $metafields) {
+            deletedMetafields {
+              ownerId
+              namespace
+              key
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }`,
+        { variables: { metafields } },
+      ),
+      ADMIN_TIMEOUT_MS,
+    );
+
+    const body = await response.json();
+    const errors = body?.data?.metafieldsDelete?.userErrors;
+    if (errors && errors.length > 0) {
+      console.warn("[account] metafieldsDelete userErrors", errors);
+    }
+    return { success: true };
+  } catch (err) {
+    console.warn("[account] metafieldsDelete error", err);
+    return { success: false };
   }
 }
 

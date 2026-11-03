@@ -1677,10 +1677,23 @@ export async function sendBalanceRequestEmail({ customerEmail, customerName, ord
 
 /**
  * The buyer's 30% deposit is in (HYV-150): Customer Service recorded the bank
- * transfer in Hyve Custom. The proof is next, and the balance follows at
- * Production Complete.
+ * transfer in Hyve Custom. What comes next depends on the order: the Artwork
+ * Proof, the artwork the buyer still has to send, or, with nothing printed,
+ * production itself. The balance follows at Production Complete.
+ *
+ * @param {"proof"|"artwork"|"production"} next
  */
-export async function sendDepositReceivedEmail({ customerEmail, customerName, orderName, orderDate, depositPaid, balanceDue }) {
+const DEPOSIT_NEXT = {
+  proof: "and we're starting on your order. We'll email you the Artwork Proof to approve.",
+  artwork: "Once you upload your artwork in your account, we'll prepare your Artwork Proof for you to approve.",
+  production: "and we're starting production of your order.",
+};
+
+export async function sendDepositReceivedEmail({ customerEmail, customerName, orderName, orderDate, depositPaid, balanceDue, next = "proof" }) {
+  const nextStep = DEPOSIT_NEXT[next] || DEPOSIT_NEXT.proof;
+  // "..., and we're starting" carries on the sentence; the artwork step is its own.
+  const received = (amount, name) =>
+    `Thank you. We've received your deposit of ${amount} for ${name}${nextStep.startsWith("and ") ? `, ${nextStep}` : `. ${nextStep}`}`;
   const html = customerLayout({
     title: "Deposit Received",
     customerName,
@@ -1689,7 +1702,7 @@ export async function sendDepositReceivedEmail({ customerEmail, customerName, or
     orderUrl: CUSTOMER_ORDERS_URL,
     body: `
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
-        Thank you. We've received your deposit of <strong>${escapeHtml(depositPaid)}</strong> for ${escapeHtml(orderName)}, and we're starting on your order. We'll email you the Artwork Proof to approve.
+        ${received(`<strong>${escapeHtml(depositPaid)}</strong>`, escapeHtml(orderName))}
       </p>
 
       <p style="margin:0; line-height:1.7; font-size:15px;">
@@ -1702,7 +1715,7 @@ export async function sendDepositReceivedEmail({ customerEmail, customerName, or
     to: customerEmail,
     subject: `Deposit received - ${orderName}`,
     html,
-    text: `Thank you. We've received your deposit of ${depositPaid} for ${orderName}, and we're starting on your order. We'll email you the Artwork Proof to approve. The balance of ${balanceDue} is due before shipment. We'll email you when production is complete, and release your order once it's paid.`,
+    text: `${received(depositPaid, orderName)} The balance of ${balanceDue} is due before shipment. We'll email you when production is complete, and release your order once it's paid.`,
   });
 }
 

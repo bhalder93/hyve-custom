@@ -23,7 +23,7 @@ import {
   WHATSAPP_DISPLAY,
   SUPPORT_EMAIL,
   SERVICE_HOURS,
-} from "./customer-service.server";
+} from "./customer-service.server.js";
 
 /** Shared group (H6). Dashboard is distributor-only; B2C lands on Orders. */
 const NAV_SHARED = [

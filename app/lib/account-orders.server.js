@@ -25,7 +25,7 @@ import { orderModal, MODAL_STYLES, MODAL_SCRIPT } from "./account-order-modal.se
 import { customerArrangesFreight } from "./production-statuses";
 import { incotermFromShipping } from "./incoterm";
 import { CREDIT_DECLINED_TAG, CREDIT_HOLD_TAG } from "./credit-review.server";
-import { depositState } from "./deposit.server";
+import { DEPOSIT_TERMS, depositState } from "./deposit.server";
 import { currentOrderLines } from "./quote-document.server";
 import { awaitingSampleDecision } from "./sample-approval.server";
 import { isPhysicalSampleLine } from "./account-quotes.server";
@@ -152,7 +152,7 @@ export function mapOrders(nodes = []) {
       // A 30% deposit order's "Due on fulfillment" reads as what it means
       // for the buyer (HYV-150).
       paymentTerms: depositState(node)
-        ? "30% deposit, balance before shipment"
+        ? DEPOSIT_TERMS
         : node?.paymentTerms?.paymentTermsName || "",
       productionPhotoUrl: node?.productionPhotoUrl?.value || "",
       productionApprovalStatus: node?.productionApprovalStatus?.value || "",
@@ -164,7 +164,7 @@ export function mapOrders(nodes = []) {
       note: node?.note || "",
       shippingAddress: node?.shippingAddress || null,
       shippingMethod: node?.shippingLine?.title || "",
-      incoterm: incotermFromShipping(node?.shippingLine?.title),
+      incoterm: incotermFromShipping(node?.shippingLine?.title, { distributor: Boolean(node?.purchasingEntity?.company) }),
       // The freight charged, shown above the total next to its rate's name
       // (HYV-140). An FOB order has none and shows no row.
       shippingLabel: Number(freight.amount) > 0 ? formatMoney(freight.amount, freight.currencyCode) : "",
@@ -195,6 +195,10 @@ export function mapOrders(nodes = []) {
         // F11: where this line is decorated, so a send-later order can be
         // completed against the same positions the buyer chose.
         zones: zonesFromAttributes(li.customAttributes, node?.customAttributes),
+        // Hyve designs it, so a logo is optional on its positions (HYV-212).
+        designForMe: (li.customAttributes || []).some(
+          (attr) => attr?.key === "Artwork" && String(attr.value).trim().toLowerCase() === "design it for me",
+        ),
         unitPrice: formatMoney(
           li.originalUnitPriceSet?.presentmentMoney?.amount,
           li.originalUnitPriceSet?.presentmentMoney?.currencyCode,
@@ -233,6 +237,7 @@ const REVIEW_ORDERS_QUERY = `#graphql
         customAttributes { key value }
         shippingAddress { name company address1 address2 city provinceCode zip countryCodeV2 }
         shippingLine { title }
+        purchasingEntity { ... on PurchasingCompany { company { id } } }
         lineItems(first: 10) {
           nodes {
             title
@@ -593,7 +598,7 @@ function promoCard() {
         <ul class="hyve-promo__perks">
           <li>${icoCard()}<span>Get up to Net 30 day terms, subject to credit approval</span></li>
           <li>${icoTag()}<span>Exclusive Tier Pricing (Up to Diamond)</span></li>
-          <li>${icoTruck()}<span>Flexible Shipping Terms (FOB/DDP)</span></li>
+          <li>${icoTruck()}<span>Flexible Shipping Terms (FOB/DDU)</span></li>
         </ul>
       </div>
       <a class="hyve-promo__cta" href="/apps/account/distributor">Apply Now ${icoArrow()}</a>

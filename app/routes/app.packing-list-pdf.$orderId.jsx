@@ -45,9 +45,14 @@ export const loader = async ({ request, params }) => {
       url.searchParams.get("numberOfCartons") ||
       url.searchParams.get("cartons") ||
       orderNode?.collectionCartons?.value ||
+      doc.calculatedCartons ||
       "",
-    grossWeight: url.searchParams.get("grossWeight") || orderNode?.collectionGrossWeight?.value || "",
-    cbm: url.searchParams.get("cbm") || orderNode?.collectionCbm?.value || "",
+    grossWeight: url.searchParams.get("grossWeight") || orderNode?.collectionGrossWeight?.value || doc.calculatedGrossWeight || "",
+    cbm: url.searchParams.get("cbm") || orderNode?.collectionCbm?.value || doc.calculatedCbm || "",
+    forwarderName: doc.forwarderName || "",
+    forwarderAccount: doc.forwarderAccount || "",
+    packingWarnings: doc.packingWarnings || [],
+    detailedPackingWarnings: doc.detailedPackingWarnings || [],
   };
 
   const pdf = await buildPackingListPdf(doc, collection);

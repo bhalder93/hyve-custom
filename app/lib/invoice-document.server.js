@@ -18,6 +18,8 @@
 import { formatDate, orderBelongsTo } from "./portal.server";
 import { incotermFromShipping } from "./incoterm";
 import { bankAccountFor, bankCountryFor } from "./bank-details.server";
+import { calculateOrderPackaging } from "./packaging-calculator.js";
+import { DEPOSIT_TERMS } from "./deposit.server";
 import {
   COMPANY_ADDRESS,
   CURRENCY_COUNTRY,
@@ -45,11 +47,20 @@ const DOCUMENT_QUERY = `#graphql
       presentmentCurrencyCode
       # The ship date customer service gives, as on the order (HYV-102).
       estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
+      depositDue: metafield(namespace: "hyve", key: "deposit_due") { value }
+      forwarderName: metafield(namespace: "hyve", key: "forwarder_name") { value }
+      forwarderAccount: metafield(namespace: "hyve", key: "forwarder_account") { value }
+      customForwarderName: metafield(namespace: "custom", key: "forwarder_name") { value }
+      customForwarderAccount: metafield(namespace: "custom", key: "forwarder_account") { value }
       customer {
         id
         displayName
         defaultPhoneNumber { phoneNumber }
         defaultAddress { countryCodeV2 }
+        customForwarderName: metafield(namespace: "custom", key: "forwarder_name") { value }
+        customForwarderAccount: metafield(namespace: "custom", key: "forwarder_account") { value }
+        hyveForwarderName: metafield(namespace: "hyve", key: "forwarder_name") { value }
+        hyveForwarderAccount: metafield(namespace: "hyve", key: "forwarder_account") { value }
       }
       billingAddress { ${MAILING_ADDRESS} }
       shippingAddress { ${MAILING_ADDRESS} }
@@ -59,6 +70,8 @@ const DOCUMENT_QUERY = `#graphql
             id
             name
             taxRegistrationNumber: metafield(namespace: "hyve", key: "tax_registration_number") { value }
+            forwarderName: metafield(namespace: "hyve", key: "forwarder_name") { value }
+            forwarderAccount: metafield(namespace: "hyve", key: "forwarder_account") { value }
           }
           location {
             id
@@ -74,11 +87,20 @@ const DOCUMENT_QUERY = `#graphql
           variantTitle
           sku
           quantity
+          requiresShipping
           image { url }
           customAttributes { key value }
+          product {
+            cartonSize: metafield(namespace: "custom", key: "carton_size") { value }
+            piecesPerCarton: metafield(namespace: "custom", key: "pieces_per_carton") { value }
+            grossWeight: metafield(namespace: "custom", key: "gross_weight") { value }
+            volumetricWeight: metafield(namespace: "custom", key: "volumetric_weight") { value }
+            productVolumetricWeight: metafield(namespace: "product", key: "volumetric_weight") { value }
+          }
           variant {
             selectedOptions { name value }
             inventoryItem {
+              requiresShipping
               harmonizedSystemCode
               countryCodeOfOrigin
             }
@@ -187,6 +209,7 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
     ...lines.filter(isChargeLine).map((li) => ({
       kind: "charge",
       code: li.sku || "",
+      sku: li.sku || "",
       image: "",
       title: chargeLabel(li),
       details: [],
@@ -196,11 +219,19 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
     })),
     ...lines
       .filter(isDutyLine)
-      .map((li) => ({ ...itemRow(li, cents, { artwork: false }), kind: "charge", code: "", image: "" })),
+      .map((li) => ({ ...itemRow(li, cents, { artwork: false }), kind: "charge", code: "", sku: "", image: "" })),
   ];
+
+  const packaging = calculateOrderPackaging(order.lineItems?.nodes);
 
   return {
     shopEmail: body.data.shop?.contactEmail || "",
+    calculatedCartons: packaging.cartonsLabel,
+    calculatedGrossWeight: packaging.grossWeightLabel,
+    calculatedCbm: packaging.cbmLabel,
+    packingWarnings: packaging.warnings || [],
+    detailedPackingWarnings: packaging.detailedWarnings || [],
+    hasPackingWarnings: packaging.hasWarnings || false,
 
     reference: order.name,
     poNumber: order.poNumber || "",
@@ -208,13 +239,34 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
     status: paid ? "PAID" : overdue ? "OVERDUE" : "DUE",
 
     issuedLabel: formatDate(schedule?.issuedAt || order.createdAt),
-    dueLabel: formatDate(schedule?.dueAt) || "On receipt",
+    // A deposit order's balance has no date: it's due before shipment (HYV-150).
+    dueLabel: formatDate(schedule?.dueAt) || (order.depositDue?.value ? "Before shipment" : "On receipt"),
+    dueSentence: schedule?.dueAt
+      ? `Payment is due by ${formatDate(schedule.dueAt)}.`
+      : order.depositDue?.value
+        ? ""
+        : "Payment is due on receipt.",
     paidLabel: formatDate(schedule?.completedAt) || formatDate(order.createdAt),
-    termsName: order.paymentTerms?.paymentTermsName || "",
+    // A deposit order's "Due on fulfillment" reads as what it means (HYV-150).
+    termsName: order.depositDue?.value ? DEPOSIT_TERMS : order.paymentTerms?.paymentTermsName || "",
     shipDateLabel: formatDate(order.estimatedShipDate?.value),
-    // HYV-140: the term the order ships under, DDP or FOB Ningbo.
-    incoterm: incotermFromShipping(order.shippingLine?.title),
+    // HYV-140: the term the order ships under: DDP, DDU for a distributor, or FOB Ningbo.
+    incoterm: incotermFromShipping(order.shippingLine?.title, { distributor: Boolean(order.purchasingEntity?.company) }),
     accountManager: location?.salesRep?.value || "",
+    forwarderName:
+      order.customForwarderName?.value ||
+      order.forwarderName?.value ||
+      order.customer?.customForwarderName?.value ||
+      order.customer?.hyveForwarderName?.value ||
+      company?.forwarderName?.value ||
+      "",
+    forwarderAccount:
+      order.customForwarderAccount?.value ||
+      order.forwarderAccount?.value ||
+      order.customer?.customForwarderAccount?.value ||
+      order.customer?.hyveForwarderAccount?.value ||
+      company?.forwarderAccount?.value ||
+      "",
 
     invoicing,
     shipping,

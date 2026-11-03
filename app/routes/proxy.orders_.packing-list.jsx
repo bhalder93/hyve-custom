@@ -57,9 +57,13 @@ export const loader = async ({ request }) => {
     const orderNode = orderRes?.data?.order;
     const collection = {
       readyDate: orderNode?.collectionReadyDate?.value || "",
-      numberOfCartons: orderNode?.collectionCartons?.value || "",
-      grossWeight: orderNode?.collectionGrossWeight?.value || "",
-      cbm: orderNode?.collectionCbm?.value || "",
+      numberOfCartons: orderNode?.collectionCartons?.value || doc.calculatedCartons || "",
+      grossWeight: orderNode?.collectionGrossWeight?.value || doc.calculatedGrossWeight || "",
+      cbm: orderNode?.collectionCbm?.value || doc.calculatedCbm || "",
+      forwarderName: doc.forwarderName || "",
+      forwarderAccount: doc.forwarderAccount || "",
+      packingWarnings: doc.packingWarnings || [],
+      detailedPackingWarnings: doc.detailedPackingWarnings || [],
     };
 
     const { buildPackingListPdf } = await import("../lib/packing-list-pdf.server.jsx");

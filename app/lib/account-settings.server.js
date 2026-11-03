@@ -7,8 +7,8 @@
  *   - Instant toggle interactivity with AJAX persistence to customer metafields
  *   - Production-ready responsive layout matching the UI mockup
  */
-import { esc } from "./account-shell.server";
-import { SHIPPING_METHODS } from "./company-profile.server";
+import { esc } from "./account-shell.server.js";
+import { SHIPPING_METHODS } from "./company-profile.server.js";
 
 /**
  * Format customer settings data with fallbacks matching the mockup.
@@ -54,6 +54,22 @@ export function mapCustomerSettings(customer = null) {
   // marketing emails obey, rather than a separate flag of ours.
   const marketingEmails = customer?.defaultEmailAddress?.marketingState === "SUBSCRIBED";
 
+  const forwarderName =
+    customer?.forwarderNameMetafield?.value ||
+    customer?.customForwarderName?.value ||
+    customer?.hyveForwarderName?.value ||
+    customer?.companyContactProfiles?.[0]?.company?.forwarderName?.value ||
+    customer?.forwarderName ||
+    "";
+
+  const forwarderAccount =
+    customer?.forwarderAccountMetafield?.value ||
+    customer?.customForwarderAccount?.value ||
+    customer?.hyveForwarderAccount?.value ||
+    customer?.companyContactProfiles?.[0]?.company?.forwarderAccount?.value ||
+    customer?.forwarderAccount ||
+    "";
+
   return {
     id: customer?.id || "",
     fullName,
@@ -62,6 +78,8 @@ export function mapCustomerSettings(customer = null) {
     email,
     company,
     phone,
+    forwarderName,
+    forwarderAccount,
     notifications: {
       emailNotifications,
       whatsappUpdates,
@@ -175,6 +193,30 @@ export function settingsPage({
               class="hyve-settings__input"
               value="${esc(settings.phone)}"
               placeholder="e.g. +65 9123 4567"
+            >
+          </div>
+
+          <div class="hyve-settings__form-group">
+            <label class="hyve-settings__label" for="settings-forwarder-name">Freight Forwarder (FOB Ningbo)</label>
+            <input
+              type="text"
+              id="settings-forwarder-name"
+              name="forwarderName"
+              class="hyve-settings__input"
+              value="${esc(settings.forwarderName)}"
+              placeholder="e.g. Kuehne+Nagel"
+            >
+          </div>
+
+          <div class="hyve-settings__form-group">
+            <label class="hyve-settings__label" for="settings-forwarder-account">Forwarder Account Number (FOB Ningbo)</label>
+            <input
+              type="text"
+              id="settings-forwarder-account"
+              name="forwarderAccount"
+              class="hyve-settings__input"
+              value="${esc(settings.forwarderAccount)}"
+              placeholder="e.g. KN-00012345"
             >
           </div>
 
@@ -302,8 +344,8 @@ function companyCard(company) {
             <select id="company-preferredShipping" name="preferredShipping" class="hyve-settings__input"${locked ? " disabled" : ""}>${shippingOptions}</select>
           </div>
   
-          ${field("forwarderName", "Freight forwarder (FOB Ningbo)", company.forwarderName, "e.g. Kuehne+Nagel")}
-          ${field("forwarderAccount", "Forwarder account number (FOB Ningbo)", company.forwarderAccount, "e.g. KN-00012345")}
+          ${field("forwarderName", "Freight Forwarder (FOB Ningbo)", company.forwarderName, "e.g. Kuehne+Nagel")}
+          ${field("forwarderAccount", "Forwarder Account Number (FOB Ningbo)", company.forwarderAccount, "e.g. KN-00012345")}
         </div>
 
         ${locked

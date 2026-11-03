@@ -322,6 +322,7 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
     ...lines.filter(isChargeLine).map((li) => ({
       kind: "charge",
       code: li.sku || "",
+      sku: li.sku || "",
       image: "",
       title: chargeLabel(li),
       details: [],
@@ -331,7 +332,7 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
     })),
     // The duties line goes with the charges, below the products, and has no
     // picture either.
-    ...lines.filter(isDutyLine).map((li) => ({ ...itemRow(li, cents), kind: "charge", code: "", image: "" })),
+    ...lines.filter(isDutyLine).map((li) => ({ ...itemRow(li, cents), kind: "charge", code: "", sku: "", image: "" })),
     ...(shippingLine
       ? [{
         kind: "shipping",
@@ -361,9 +362,8 @@ export async function loadQuoteDocument(admin, draftGid, proof = {}) {
     incoterm: incotermFor(shippingLine, company),
     // Retail to a country Hyve doesn't ship duties included to yet (HYV-200):
     // the quote says so, as the cart and checkout do. Commercial Settings sets
-    // the list. Distributors' quotes are unchanged.
-    dutiesIncluded: !(
-      !company &&
+    // the list. A distributor's UPS is DDU: they pay the duties on import (HYV-75).
+    dutiesIncluded: company ? incotermFor(shippingLine, company) !== "DDU" : !(
       String(body.data.shop?.noDdpCountries?.value || "")
         .split(",")
         .map((code) => code.trim().toUpperCase())
@@ -469,6 +469,7 @@ export function itemRow(li, cents, { artwork = true } = {}) {
     kind: "item",
     // The decorated SKU, as NetSuite prints it: 50280MATBLK-Laser.
     code: li.sku ? (method ? `${li.sku}-${method}` : li.sku) : "",
+    sku: li.sku || "",
     image: li.image?.url || "",
     title: li.title,
     decoration: count ? `with ${count} logo${count > 1 ? "s" : ""} printing` : "",
@@ -479,6 +480,29 @@ export function itemRow(li, cents, { artwork = true } = {}) {
     unit: cents(li.originalUnitPriceSet),
     total: cents(li.discountedTotalSet),
   };
+}
+
+/**
+ * Returns the plain product SKU without decoration method suffixes, as needed
+ * on invoices, proforma invoices, quotations, and packing lists (e.g. "29223BLK"
+ * instead of "29223BLK-Digital").
+ */
+export function skuOnly(row) {
+  if (row?.sku) return String(row.sku).trim();
+  const code = String(row?.code || "").trim();
+  if (!code) return "";
+  const imprintLine = (row?.details || []).find((d) => typeof d === "string" && d.startsWith("Imprint Method:"));
+  if (imprintLine) {
+    const method = imprintLine.replace("Imprint Method:", "").trim();
+    if (method && code.endsWith(`-${method}`)) {
+      return code.slice(0, -(method.length + 1)).trim();
+    }
+  }
+  const match = code.match(/^(.*?)-(?:Digital|Laser|Screen|Embroidery|Pad|Deboss|Engrave|Transfer|Direct|Foil|UV|Sublimation|Print)$/i);
+  if (match) {
+    return match[1].trim();
+  }
+  return code;
 }
 
 /**
@@ -511,9 +535,10 @@ function plainVariant(title) {
  * NetSuite's quotation states the Incoterm. A quote with shipping chosen says
  * which. Without it, a distributor is quoted FOB with shipping excluded
  * (Michael, HYV-144), and a retail buyer DDP, the duties paid at checkout.
+ * A distributor's UPS is DDU (HYV-75).
  */
 function incotermFor(shippingLine, company) {
-  return incotermFromShipping(shippingLine?.title) || (company ? FOB_INCOTERM : RETAIL_INCOTERM);
+  return incotermFromShipping(shippingLine?.title, { distributor: Boolean(company) }) || (company ? FOB_INCOTERM : RETAIL_INCOTERM);
 }
 
 /** A draft's note, without the line marking a cart quote. */

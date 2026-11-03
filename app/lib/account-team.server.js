@@ -9,7 +9,7 @@
  *   - Responsive, production-grade HTML/CSS/JS
  */
 
-import { esc } from "./account-shell.server";
+import { esc } from "./account-shell.server.js";
 import { formatDate, singaporeDayDiff } from "../utils/date.js";
 
 export const ROLES = {

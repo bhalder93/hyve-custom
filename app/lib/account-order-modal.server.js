@@ -340,7 +340,7 @@ function artworkPanel(order, library = []) {
                   .join("")}</div>`
               : ""
           }
-          ${empty.map((zone) => zoneSlot(zone, editable, order.name)).join("")}
+          ${empty.map((zone) => zoneSlot(zone, editable, order.name, li.designForMe)).join("")}
         </div>`;
     })
     .join("");
@@ -413,8 +413,11 @@ function limitsNote(lines) {
   return laser ? artworkRulesFor("laser").note : artworkRulesFor("").note;
 }
 
-/** One decoration position: what is on it, or a way to supply it. */
-function zoneSlot(zone, editable, orderName) {
+/**
+ * One decoration position: what is on it, or a way to supply it. On a Design
+ * It For Me line Hyve designs it, so a logo is optional (HYV-212).
+ */
+function zoneSlot(zone, editable, orderName, designForMe = false) {
   const field = `zone:${zone.key}`;
   const id = `${orderName}-${zone.key}`.replace(/[^A-Za-z0-9-]/g, "-");
 
@@ -442,7 +445,13 @@ function zoneSlot(zone, editable, orderName) {
     <div class="hyve-art__zone" data-art-zone data-zone-id="${esc(id)}"
       data-art-allowed="${esc(rules.accept)}" data-art-reject="${esc(rules.reject)}">
       <span class="hyve-art__zone-label">${esc(zone.label)}</span>
-      ${rules.isLaser ? `<p class="hyve-art__zone-note">${esc(rules.note)}</p>` : ""}
+      ${
+        designForMe
+          ? `<p class="hyve-art__zone-note">Optional: we're designing this for you. Add a logo only if you'd like us to use it.${rules.isLaser ? ` ${esc(rules.note)}` : ""}</p>`
+          : rules.isLaser
+            ? `<p class="hyve-art__zone-note">${esc(rules.note)}</p>`
+            : ""
+      }
 
       <label class="hyve-art__drop" for="${esc(id)}-file" data-art-drop>
         ${icoUpload()}

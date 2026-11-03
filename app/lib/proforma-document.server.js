@@ -27,6 +27,7 @@
 import { formatDate, orderBelongsTo } from "./portal.server";
 import { incotermFromShipping } from "./incoterm";
 import { bankAccountFor } from "./bank-details.server";
+import { DEPOSIT_TERMS } from "./deposit.server";
 import { quoteReference } from "./quote-labels";
 import {
   COMPANY_ADDRESS,
@@ -65,6 +66,7 @@ const DOCUMENT_QUERY = `#graphql
       presentmentCurrencyCode
       displayFinancialStatus
       estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
+      depositDue: metafield(namespace: "hyve", key: "deposit_due") { value }
       proforma: metafield(namespace: "$app", key: "${PROFORMA_KEY}") { value }
       customer {
         id
@@ -128,7 +130,7 @@ const DOCUMENT_QUERY = `#graphql
       totalOutstandingSet { presentmentMoney { amount currencyCode } }
       paymentTerms {
         paymentTermsName
-        paymentSchedules(first: 1) { nodes { dueAt } }
+        paymentSchedules(first: 5) { nodes { dueAt completedAt } }
       }
     }
   }`;
@@ -258,6 +260,7 @@ export async function loadProformaDocument(admin, orderGid, { staff, customerGid
     ...lines.filter(isChargeLine).map((li) => ({
       kind: "charge",
       code: li.sku || "",
+      sku: li.sku || "",
       image: "",
       title: chargeLabel(li),
       details: [],
@@ -267,10 +270,10 @@ export async function loadProformaDocument(admin, orderGid, { staff, customerGid
     })),
     ...lines
       .filter(isDutyLine)
-      .map((li) => ({ ...itemRow(li, cents, { artwork: false }), kind: "charge", code: "", image: "" })),
+      .map((li) => ({ ...itemRow(li, cents, { artwork: false }), kind: "charge", code: "", sku: "", image: "" })),
   ];
 
-  const incoterm = incotermFromShipping(order.shippingLine?.title);
+  const incoterm = incotermFromShipping(order.shippingLine?.title, { distributor: Boolean(company) });
   const outstanding = cents(order.totalOutstandingSet);
 
   // What the ticket requires before it's issued (HYV-118 acceptance 2).
@@ -325,8 +328,11 @@ export async function loadProformaDocument(admin, orderGid, { staff, customerGid
     total: cents(order.currentTotalPriceSet),
     amountPaid: cents(order.totalReceivedSet),
     outstanding,
-    termsName: order.paymentTerms?.paymentTermsName || "",
-    dueLabel: formatDate(order.paymentTerms?.paymentSchedules?.nodes?.[0]?.dueAt),
+    // A deposit order's "Due on fulfillment" reads as what it means (HYV-150).
+    termsName: order.depositDue?.value ? DEPOSIT_TERMS : order.paymentTerms?.paymentTermsName || "",
+    // The schedule still to pay, as on the invoice: a deposit order's balance
+    // has no date and is due before shipment (HYV-150).
+    dueLabel: dueLabelFor(order),
     // The same accounts the quotation and invoice print.
     // Until staff save that page, the built-in accounts.
     bank: bankAccountFor(country, data.shop?.bankMetafield?.value ? parseJson(data.shop.bankMetafield.value) : null, currency),
@@ -439,4 +445,10 @@ export async function issueProformaNumber(admin, doc) {
     return number;
   }
   throw new Error("Couldn't assign a proforma number. Please try again.");
+}
+
+function dueLabelFor(order) {
+  const schedules = order.paymentTerms?.paymentSchedules?.nodes || [];
+  const schedule = schedules.find((s) => !s.completedAt) || schedules[0] || null;
+  return formatDate(schedule?.dueAt) || (order.depositDue?.value ? "Before shipment" : "");
 }

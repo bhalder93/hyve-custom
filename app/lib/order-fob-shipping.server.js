@@ -280,3 +280,174 @@ export async function checkAndAddFobShippingIfStorefrontQuote(
     return { evaluated: true, applied: false, error: err?.message || String(err) };
   }
 }
+
+/**
+ * Retrieve the customer's (or company's) FOB forwarder settings:
+ *   - Freight Forwarder (FOB Ningbo)
+ *   - Forwarder Account Number (FOB Ningbo)
+ */
+export async function getCustomerForwarderSettings(admin, customerId) {
+  if (!admin || !customerId) return { forwarderName: "", forwarderAccount: "" };
+
+  const gid = customerId.startsWith("gid://")
+    ? customerId
+    : `gid://shopify/Customer/${customerId}`;
+
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      query CustomerForwarderMetafields($id: ID!) {
+        customer(id: $id) {
+          customForwarderName: metafield(namespace: "custom", key: "forwarder_name") { value }
+          customForwarderAccount: metafield(namespace: "custom", key: "forwarder_account") { value }
+          hyveForwarderName: metafield(namespace: "hyve", key: "forwarder_name") { value }
+          hyveForwarderAccount: metafield(namespace: "hyve", key: "forwarder_account") { value }
+          companyContactProfiles {
+            company {
+              forwarderName: metafield(namespace: "hyve", key: "forwarder_name") { value }
+              forwarderAccount: metafield(namespace: "hyve", key: "forwarder_account") { value }
+            }
+          }
+        }
+      }`,
+      { variables: { id: gid } },
+    );
+
+    const body = await response.json();
+    const cust = body?.data?.customer;
+    if (!cust) return { forwarderName: "", forwarderAccount: "" };
+
+    const company = cust.companyContactProfiles?.[0]?.company;
+
+    const forwarderName =
+      cust.customForwarderName?.value ||
+      cust.hyveForwarderName?.value ||
+      company?.forwarderName?.value ||
+      "";
+
+    const forwarderAccount =
+      cust.customForwarderAccount?.value ||
+      cust.hyveForwarderAccount?.value ||
+      company?.forwarderAccount?.value ||
+      "";
+
+    return {
+      forwarderName: String(forwarderName || "").trim(),
+      forwarderAccount: String(forwarderAccount || "").trim(),
+    };
+  } catch (err) {
+    console.error(`[fob] Error fetching customer forwarder settings:`, err?.message || err);
+    return { forwarderName: "", forwarderAccount: "" };
+  }
+}
+
+/**
+ * When an order is placed with shipping method set to FOB,
+ * automatically copy Freight Forwarder and Forwarder Account Number
+ * from the customer's account settings into the order metafields.
+ */
+export async function copyFobForwarderMetafieldsToOrder(admin, { order, payload } = {}) {
+  const orderGid =
+    order?.id ||
+    payload?.admin_graphql_api_id ||
+    (payload?.id ? `gid://shopify/Order/${payload.id}` : null);
+
+  if (!admin || !orderGid) {
+    console.warn("[fob] Missing admin or order ID for copyFobForwarderMetafieldsToOrder");
+    return { ok: false, reason: "Missing admin or order ID" };
+  }
+
+  const customerId =
+    order?.customer?.id ||
+    payload?.customer?.admin_graphql_api_id ||
+    (payload?.customer?.id ? `gid://shopify/Customer/${payload.customer.id}` : null);
+
+  if (!customerId) {
+    console.log(`[fob] No customer associated with order ${orderGid}, skipping forwarder copy.`);
+    return { ok: false, reason: "No customer found" };
+  }
+
+  const { forwarderName, forwarderAccount } = await getCustomerForwarderSettings(admin, customerId);
+
+  if (!forwarderName && !forwarderAccount) {
+    console.log(`[fob] Customer ${customerId} has no forwarder settings configured.`);
+    return { ok: true, copied: false, reason: "No forwarder settings configured" };
+  }
+
+  const metafields = [];
+  if (forwarderName) {
+    metafields.push(
+      {
+        ownerId: orderGid,
+        namespace: "custom",
+        key: "forwarder_name",
+        type: "single_line_text_field",
+        value: forwarderName,
+      },
+      {
+        ownerId: orderGid,
+        namespace: "hyve",
+        key: "forwarder_name",
+        type: "single_line_text_field",
+        value: forwarderName,
+      },
+    );
+  }
+  if (forwarderAccount) {
+    metafields.push(
+      {
+        ownerId: orderGid,
+        namespace: "custom",
+        key: "forwarder_account",
+        type: "single_line_text_field",
+        value: forwarderAccount,
+      },
+      {
+        ownerId: orderGid,
+        namespace: "hyve",
+        key: "forwarder_account",
+        type: "single_line_text_field",
+        value: forwarderAccount,
+      },
+    );
+  }
+
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation SetOrderForwarderMetafields($metafields: [MetafieldsSetInput!]!) {
+        metafieldsSet(metafields: $metafields) {
+          metafields {
+            id
+            namespace
+            key
+            value
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }`,
+      { variables: { metafields } },
+    );
+
+    const data = await response.json();
+    const userErrors = data?.data?.metafieldsSet?.userErrors;
+    if (userErrors && userErrors.length > 0) {
+      console.warn(`[fob] metafieldsSet userErrors for order ${orderGid}:`, userErrors);
+      return { ok: false, errors: userErrors };
+    }
+
+    console.log(`[fob] Copied forwarder details to order ${orderGid}:`, {
+      forwarderName,
+      forwarderAccount,
+    });
+
+    return { ok: true, copied: true, forwarderName, forwarderAccount };
+  } catch (err) {
+    console.error(`[fob] Failed to copy forwarder metafields to order ${orderGid}:`, err?.message || err);
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+

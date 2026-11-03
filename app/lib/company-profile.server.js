@@ -6,16 +6,16 @@
  *   tax_registration_number    printed on its invoices (invoice-document)
  *   preferred_currency         the currency it buys in, set from its country
  *                              (company-currency.server.js), shown read-only
- *   preferred_shipping_method  EXW, FOB Ningbo or DDP
+ *   preferred_shipping_method  FOB Ningbo or DDU (a distributor is the
+ *                              importer of record; DDP is retail only, HYV-75)
  *   courier_account            its own courier account, for EXW collection
  *   forwarder_name / _account  its sea freight forwarder, for FOB Ningbo
  *
  * Shown in Settings. Only a company admin changes it; buyers see it read-only.
  */
-import { canManageTeam } from "./account-team.server";
+import { canManageTeam } from "./account-team.server.js";
 
-export const SHIPPING_METHODS = ["FOB Ningbo", "DDP"];
-// export const SHIPPING_METHODS = ["EXW", "FOB Ningbo", "DDP"];
+export const SHIPPING_METHODS = ["FOB Ningbo", "DDU"];
 
 const FIELDS = [
   { key: "tax_registration_number", form: "taxNumber" },

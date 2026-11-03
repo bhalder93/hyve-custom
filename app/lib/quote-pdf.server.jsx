@@ -18,6 +18,7 @@
 import { Document, Page, View, Text, Image, StyleSheet, renderToBuffer } from "@react-pdf/renderer";
 import { LEGAL_NAME, BUSINESS_REGISTRATION_NUMBER, LEGAL_ADDRESS, TERMS_URL } from "./legal-entity.server";
 import { HYVE_LOGO } from "./hyve-logo.server";
+import { skuOnly } from "./quote-document.server.js";
 
 /**
  * Under the totals on every quote. Duties are worked out at checkout, once the
@@ -262,7 +263,7 @@ function QuoteDoc({ doc, withImages }) {
                 <Text style={styles.center}>{i + 1}</Text>
               </View>
               <View style={[styles.cell, { width: COL.code }]}>
-                <Text>{row.code}</Text>
+                <Text>{skuOnly(row)}</Text>
               </View>
               <View style={[styles.cell, { width: COL.image, alignItems: "center" }]}>
                 {withImages && row.kind === "item" && row.image ? <Image style={styles.thumb} src={row.image} /> : null}

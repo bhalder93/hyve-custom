@@ -4,7 +4,7 @@ let transporter;
 let msTokenCache = { token: null, expiresAt: 0 };
 
 /** Hyve customer service: where every email's replies go (HYV-110). */
-export const CUSTOMER_SERVICE_EMAIL = "support@hyve.promo";
+export const CUSTOMER_SERVICE_EMAIL = "sales@hyve.promo";
 
 /**
  * Checks whether Microsoft 365 Graph credentials are provided.

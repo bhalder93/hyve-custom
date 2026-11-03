@@ -22,6 +22,7 @@ import { Document, Page, View, Text, Image, StyleSheet, renderToBuffer } from "@
 import { LEGAL_NAME, BUSINESS_REGISTRATION_NUMBER, LEGAL_ADDRESS, TERMS_URL } from "./legal-entity.server";
 import { HYVE_LOGO } from "./hyve-logo.server";
 import { AddressBlock, COL, HeadCell, Pair, money, styles } from "./quote-pdf.server.jsx";
+import { skuOnly } from "./quote-document.server.js";
 
 const TONE = {
   PAID: { bg: "#dcfce7", fg: "#166534" },
@@ -50,6 +51,26 @@ const own = StyleSheet.create({
   },
   dueLabel: { width: 130, textAlign: "right", paddingRight: 10, fontFamily: "Helvetica-Bold", fontSize: 11 },
   dueValue: { width: COL.total + 8, textAlign: "right", paddingRight: 5, fontFamily: "Helvetica-Bold", fontSize: 11 },
+  warningBox: {
+    marginTop: 10,
+    marginBottom: 8,
+    padding: 8,
+    backgroundColor: "#fffbeb",
+    borderWidth: 1,
+    borderColor: "#f59e0b",
+    borderRadius: 4,
+  },
+  warningTitle: {
+    fontFamily: "Helvetica-Bold",
+    fontSize: 9,
+    color: "#b45309",
+    marginBottom: 3,
+  },
+  warningItem: {
+    fontSize: 8,
+    color: "#92400e",
+    lineHeight: 1.3,
+  },
 });
 
 function InvoiceDoc({ doc, withImages }) {
@@ -134,7 +155,7 @@ function InvoiceDoc({ doc, withImages }) {
                 <Text style={styles.center}>{i + 1}</Text>
               </View>
               <View style={[styles.cell, { width: COL.code }]}>
-                <Text>{row.code}</Text>
+                <Text>{skuOnly(row)}</Text>
               </View>
               <View style={[styles.cell, { width: COL.image, alignItems: "center" }]}>
                 {withImages && row.kind === "item" && row.image ? <Image style={styles.thumb} src={row.image} /> : null}
@@ -184,13 +205,24 @@ function InvoiceDoc({ doc, withImages }) {
           </View>
         </View>
 
+        {Array.isArray(doc.packingWarnings) && doc.packingWarnings.length > 0 ? (
+          <View style={own.warningBox} wrap={false}>
+            <Text style={own.warningTitle}>Packing Calculation Notice:</Text>
+            {doc.packingWarnings.map((w, idx) => (
+              <Text key={idx} style={own.warningItem}>• {w}</Text>
+            ))}
+          </View>
+        ) : null}
+
         <View style={styles.blocks} wrap={false}>
           <View style={styles.block}>
             <Text style={styles.heading}>Payment Terms</Text>
             <Text>
               {settled
                 ? `Paid in full on ${doc.paidLabel}. Thank you for your business.`
-                : `${doc.termsName || "100% upfront"}. Payment is due by ${doc.dueLabel}. Please quote invoice ${doc.reference} with your remittance.`}
+                : [`${doc.termsName || "100% upfront"}.`, doc.dueSentence, `Please quote invoice ${doc.reference} with your remittance.`]
+                    .filter(Boolean)
+                    .join(" ")}
             </Text>
           </View>
         </View>

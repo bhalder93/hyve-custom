@@ -2,7 +2,10 @@
 /* global process */
 
 import { authenticate } from "../shopify.server";
-import { checkAndAddFobShippingIfStorefrontQuote } from "../lib/order-fob-shipping.server";
+import {
+  checkAndAddFobShippingIfStorefrontQuote,
+  copyFobForwarderMetafieldsToOrder,
+} from "../lib/order-fob-shipping.server";
 import { removeCheckoutWorkingFields } from "../lib/order-internal-fields.server";
 import { CUSTOMER_ARRANGED_FREIGHT_TAG } from "../lib/production-statuses";
 import { holdOrderForCreditReview } from "../lib/credit-review.server";
@@ -356,6 +359,7 @@ async function getOrder(admin, orderId) {
             }
 
             customer {
+              id
               displayName
 
               defaultEmailAddress {
@@ -939,6 +943,8 @@ export async function action({ request }) {
         }
         order.tags.push(CUSTOMER_ARRANGED_FREIGHT_TAG);
       }
+
+      await copyFobForwarderMetafieldsToOrder(admin, { order, payload });
     }
 
     // Checkout marks an order over the credit limit or placed with an overdue

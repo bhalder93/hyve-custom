@@ -24,6 +24,8 @@
  */
 
 export const DEPOSIT_PERCENTAGE = 30;
+/** A deposit order's "Due on fulfillment", as the buyer reads it. */
+export const DEPOSIT_TERMS = `${DEPOSIT_PERCENTAGE}% deposit, balance before shipment`;
 export const DEPOSIT_TAG = "hyve-deposit";
 export const BANK_TRANSFER_METHOD = "Bank transfer";
 const NAMESPACE = "hyve";
@@ -371,6 +373,7 @@ export async function recordDepositReceived(admin, orderGid) {
     try {
       const extra = (await run(admin, ORDER_TAGS, { id: orderGid }))?.order;
       const { sendDepositReceivedEmail } = await import("../utils/email.server");
+      const { artworkPending } = await import("./portal.server");
       await sendDepositReceivedEmail({
         customerEmail: order.email,
         customerName: extra?.customer?.displayName || extra?.billingAddress?.name || "",
@@ -378,6 +381,12 @@ export async function recordDepositReceived(admin, orderGid) {
         orderDate: extra?.createdAt,
         depositPaid: money(state.currency, state.deposit),
         balanceDue: money(state.currency, round2(state.total - state.deposit)),
+        next:
+          extra?.artworkRequired?.value === "false"
+            ? "production"
+            : extra && artworkPending(extra)
+              ? "artwork"
+              : "proof",
       });
       emailed = true;
     } catch (emailError) {
@@ -396,7 +405,17 @@ export const BALANCE_REQUEST_TAG = "hyve-notified:balance-request";
 
 const ORDER_TAGS = `#graphql
   query DepositOrderTags($id: ID!) {
-    order(id: $id) { tags createdAt customer { displayName } billingAddress { name } }
+    order(id: $id) {
+      tags
+      createdAt
+      customer { displayName }
+      billingAddress { name }
+      # What comes next for the buyer: nothing printed means no proof, and
+      # send-later artwork means the proof waits for it.
+      artworkRequired: metafield(namespace: "$app", key: "artwork_required") { value }
+      customAttributes { key value }
+      lineItems(first: 100) { nodes { customAttributes { key value } } }
+    }
   }`;
 
 /**

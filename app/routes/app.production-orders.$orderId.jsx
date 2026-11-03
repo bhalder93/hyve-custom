@@ -36,10 +36,10 @@ import { CREDIT_HOLD_TAG } from "../lib/credit-review.server";
 import { depositState, loadDepositOrder, paymentBlocksMove, recordDepositReceived, sendBalanceRequest } from "../lib/deposit.server";
 import {
   syncLineItemArtworkReceived,
-  updateLineItemArtworkAttributesInPayload,
 } from "../lib/order-artwork.server";
 import { loadPickupConfig } from "../lib/pickup-config.server";
 import { loadInvoiceDocument } from "../lib/invoice-document.server";
+import { calculateOrderPackaging } from "../lib/packaging-calculator.js";
 import { staffMemberLabel } from "../lib/staff-member.server";
 import { NOTIFICATIONS_PAUSED_TAG } from "../utils/sla-engine.server";
 import { statusEmailWanted } from "../lib/notification-preferences.server";
@@ -200,6 +200,19 @@ function getCustomerEmail(order) {
  * Identifies whether a customer response is required and generates professional action messages.
  */
 export function getNextStepInfo(order, history = []) {
+  if (!order) {
+    return {
+      nextStatus: null,
+      nextLabel: "",
+      actionVerb: "",
+      isWaitingCustomer: false,
+      waitingReason: null,
+      currentAction: "",
+      stageTitle: "",
+      description: "",
+      canProceed: false,
+    };
+  }
   const currentStatus = order?.productionStatus || "order-placed";
 
   if (currentStatus === "on-hold") {
@@ -267,7 +280,7 @@ export function getNextStepInfo(order, history = []) {
 
   // A blank order needs no artwork, so it goes straight to production
   // (HYV-120, Michael's F20).
-  if (currentStatus === "order-placed" && order.noArtwork) {
+  if (currentStatus === "order-placed" && order?.noArtwork) {
     return {
       nextStatus: "in-production",
       nextLabel: "In Production",
@@ -282,7 +295,7 @@ export function getNextStepInfo(order, history = []) {
   }
 
   if (currentStatus === "order-placed") {
-    const artworkNeeded = Boolean(order.artworkRequired);
+    const artworkNeeded = Boolean(order?.artworkRequired);
     return {
       nextStatus: "artwork-received",
       nextLabel: "Artwork Received",
@@ -327,7 +340,7 @@ export function getNextStepInfo(order, history = []) {
     };
   }
 
-  const isSampleOrder = Boolean(order.physicalSampleRequired || order.hasPhysicalSample);
+  const isSampleOrder = Boolean(order?.physicalSampleRequired || order?.hasPhysicalSample);
 
   if (currentStatus === "sample-review" || (isSampleOrder && (order.physicalSampleStatus === "sent" || currentStatus === "on-hold" && order.physicalSampleStatus === "sent"))) {
     const version = order.physicalSampleVersion || 1;
@@ -344,7 +357,7 @@ export function getNextStepInfo(order, history = []) {
     };
   }
 
-  if (currentStatus === "sample-preparation" || (isSampleOrder && currentStatus === "proof-approved" && order.physicalSampleStatus !== "approved" && !order.sampleApproved)) {
+  if (currentStatus === "sample-preparation" || (isSampleOrder && currentStatus === "proof-approved" && order?.physicalSampleStatus !== "approved" && !order?.sampleApproved)) {
     return {
       nextStatus: "sample-review",
       nextLabel: "Awaiting Sample Approval",
@@ -388,8 +401,8 @@ export function getNextStepInfo(order, history = []) {
   }
 
   if (currentStatus === "production-complete") {
-    const isApproved = order.productionApprovalStatus === "approved";
-    const isCustomerFreight = Boolean(order.customerArrangedFreight);
+    const isApproved = order?.productionApprovalStatus === "approved";
+    const isCustomerFreight = Boolean(order?.customerArrangedFreight);
     const targetStatus = isCustomerFreight ? READY_FOR_COLLECTION_STATUS : "shipped";
     const targetLabel = isCustomerFreight ? "Ready For Collection" : "Shipped";
 
@@ -400,7 +413,7 @@ export function getNextStepInfo(order, history = []) {
         actionVerb: isCustomerFreight ? "Mark Ready For Collection" : "Mark Shipped",
         isWaitingCustomer: true,
         waitingReason: "Waiting for the customer to approve the production photo. If the customer does not respond, CS can approve on their behalf in Pre-Shipment Photo below.",
-        currentAction: `Production complete. Awaiting customer pre-shipment photo approval (Photo v${order.productionPhotoVersion || 1}).`,
+        currentAction: `Production complete. Awaiting customer pre-shipment photo approval (Photo v${order?.productionPhotoVersion || 1}).`,
         stageTitle: "6. Production Complete (Photo Review Pending)",
         description: "Waiting for the customer to confirm the production photo before freight packaging and dispatch.",
         canProceed: false,
@@ -583,13 +596,26 @@ async function getOrder(admin, orderId) {
             email
             phone
             note
+            customAttributes {
+              key
+              value
+            }
 
             displayFinancialStatus
             displayFulfillmentStatus
             shippingLine {
               title
             }
-totalPriceSet {
+            purchasingEntity {
+              ... on PurchasingCompany {
+                company {
+                  id
+                  forwarderName: metafield(namespace: "hyve", key: "forwarder_name") { value }
+                  forwarderAccount: metafield(namespace: "hyve", key: "forwarder_account") { value }
+                }
+              }
+            }
+            totalPriceSet {
               presentmentMoney {
                 amount
                 currencyCode
@@ -619,6 +645,16 @@ totalPriceSet {
               defaultEmailAddress {
                 emailAddress
               }
+              customForwarderName: metafield(namespace: "custom", key: "forwarder_name") { value }
+              customForwarderAccount: metafield(namespace: "custom", key: "forwarder_account") { value }
+              hyveForwarderName: metafield(namespace: "hyve", key: "forwarder_name") { value }
+              hyveForwarderAccount: metafield(namespace: "hyve", key: "forwarder_account") { value }
+              companyContactProfiles {
+                company {
+                  forwarderName: metafield(namespace: "hyve", key: "forwarder_name") { value }
+                  forwarderAccount: metafield(namespace: "hyve", key: "forwarder_account") { value }
+                }
+              }
             }
 
             shippingAddress {
@@ -639,6 +675,7 @@ totalPriceSet {
     quantity
     sku
     variantTitle
+    requiresShipping
 
     customAttributes {
       key
@@ -658,6 +695,9 @@ totalPriceSet {
     }
 
     variant {
+      inventoryItem {
+        requiresShipping
+      }
       id
       image {
         url
@@ -666,6 +706,11 @@ totalPriceSet {
     }
 
     product {
+      cartonSize: metafield(namespace: "custom", key: "carton_size") { value }
+      piecesPerCarton: metafield(namespace: "custom", key: "pieces_per_carton") { value }
+      grossWeight: metafield(namespace: "custom", key: "gross_weight") { value }
+      volumetricWeight: metafield(namespace: "custom", key: "volumetric_weight") { value }
+      productVolumetricWeight: metafield(namespace: "product", key: "volumetric_weight") { value }
       id
       featuredImage {
         url
@@ -814,6 +859,34 @@ totalPriceSet {
             ) {
               value
             }
+
+            customForwarderName: metafield(
+              namespace: "custom"
+              key: "forwarder_name"
+            ) {
+              value
+            }
+
+            customForwarderAccount: metafield(
+              namespace: "custom"
+              key: "forwarder_account"
+            ) {
+              value
+            }
+
+            hyveForwarderName: metafield(
+              namespace: "hyve"
+              key: "forwarder_name"
+            ) {
+              value
+            }
+
+            hyveForwarderAccount: metafield(
+              namespace: "hyve"
+              key: "forwarder_account"
+            ) {
+              value
+            }
           }
         }
       `,
@@ -838,14 +911,6 @@ totalPriceSet {
       .find((t) => t.startsWith("hyve-status:"))
       ?.slice("hyve-status:".length) ||
     "";
-
-  if (currentStatus && currentStatus !== "order-placed") {
-    if (order.lineItems?.nodes) {
-      order.lineItems.nodes = updateLineItemArtworkAttributesInPayload(
-        order.lineItems.nodes,
-      );
-    }
-  }
 
   return order;
 }
@@ -1217,31 +1282,27 @@ async function setOrderMetafields(
     cbm,
   },
 ) {
-  const metafields = [
-    {
+  const metafields = [];
+
+  if (status) {
+    metafields.push({
       ownerId: orderId,
-
       namespace: "$app",
-
       key: "production_status",
-
       type: "single_line_text_field",
-
       value: status,
-    },
+    });
+  }
 
-    {
+  if (changedAt) {
+    metafields.push({
       ownerId: orderId,
-
       namespace: "$app",
-
       key: "status_changed_at",
-
       type: "date_time",
-
       value: changedAt,
-    },
-  ];
+    });
+  }
 
   if (productionDueAt) {
     metafields.push({
@@ -1364,6 +1425,10 @@ async function setOrderMetafields(
     }
   }
 
+  if (metafields.length === 0) {
+    return [];
+  }
+
   const response = await admin.graphql(
     `#graphql
         mutation SetProductionMetafields(
@@ -1401,7 +1466,7 @@ async function setOrderMetafields(
     "SetProductionMetafields",
   );
 
-  if (status !== "on-hold") {
+  if (status && status !== "on-hold") {
     await deleteOnHoldReason(admin, orderId);
   }
 
@@ -1868,6 +1933,12 @@ export async function loader({ request, params }) {
     return {
       order: {
         ...order,
+        calculatedCartons: calculateOrderPackaging(order.lineItems?.nodes).cartonsLabel,
+        calculatedGrossWeight: calculateOrderPackaging(order.lineItems?.nodes).grossWeightLabel,
+        calculatedCbm: calculateOrderPackaging(order.lineItems?.nodes).cbmLabel,
+        packingWarnings: calculateOrderPackaging(order.lineItems?.nodes).warnings,
+        detailedPackingWarnings: calculateOrderPackaging(order.lineItems?.nodes).detailedWarnings,
+        hasPackingWarnings: calculateOrderPackaging(order.lineItems?.nodes).hasWarnings,
 
         productionStatus: order.productionStatus?.value || statusFromTag || "",
 
@@ -1897,6 +1968,9 @@ export async function loader({ request, params }) {
 
         customerArrangedFreight: customerArrangesFreight(order),
 
+        // DDP, or DDU for a distributor (HYV-75).
+        incoterm: incotermFromShipping(order.shippingLine?.title, { distributor: Boolean(order.purchasingEntity?.company) }),
+
         hasPhysicalSample: hasPhysicalSample(order),
 
         sampleApproved: (order.tags ?? []).includes(SAMPLE_APPROVED_TAG),
@@ -1925,6 +1999,22 @@ export async function loader({ request, params }) {
         collectionCartons: order.collectionCartons?.value || "",
         collectionGrossWeight: order.collectionGrossWeight?.value || "",
         collectionCbm: order.collectionCbm?.value || "",
+        forwarderName:
+          order.customForwarderName?.value ||
+          order.hyveForwarderName?.value ||
+          order.customer?.customForwarderName?.value ||
+          order.customer?.hyveForwarderName?.value ||
+          order.customer?.companyContactProfiles?.[0]?.company?.forwarderName?.value ||
+          order.purchasingEntity?.company?.forwarderName?.value ||
+          "",
+        forwarderAccount:
+          order.customForwarderAccount?.value ||
+          order.hyveForwarderAccount?.value ||
+          order.customer?.customForwarderAccount?.value ||
+          order.customer?.hyveForwarderAccount?.value ||
+          order.customer?.companyContactProfiles?.[0]?.company?.forwarderAccount?.value ||
+          order.purchasingEntity?.company?.forwarderAccount?.value ||
+          "",
 
         // Physical Sample Approval Workflow
         physicalSampleRequired: order.physicalSampleRequired?.value === "true",
@@ -2202,7 +2292,7 @@ export async function action({ request, params }) {
       const grossWeight = String(formData.get("grossWeight") || "").trim();
       const cbm = String(formData.get("cbm") || "").trim();
 
-      if (!readyDate) {
+      if (false) {
         return {
           success: false,
           fieldErrors: { readyDate: "Ready date is required." },
@@ -3533,11 +3623,6 @@ ${collectionAudit}`
     if (nextStatus === "artwork-received") {
       try {
         await syncLineItemArtworkReceived(admin, order);
-        if (order.lineItems?.nodes) {
-          order.lineItems.nodes = updateLineItemArtworkAttributesInPayload(
-            order.lineItems.nodes,
-          );
-        }
       } catch (artError) {
         console.error("On Artwork Received line item update failed:", artError);
       }
@@ -4713,9 +4798,9 @@ export default function ProductionOrderDetailsPage() {
   );
 
   const [readyDate, setReadyDate] = useState(order?.collectionReadyDate || "");
-  const [numberOfCartons, setNumberOfCartons] = useState(order?.collectionCartons || "");
-  const [grossWeight, setGrossWeight] = useState(order?.collectionGrossWeight || "");
-  const [cbm, setCbm] = useState(order?.collectionCbm || "");
+  const [numberOfCartons, setNumberOfCartons] = useState(order?.collectionCartons || order?.calculatedCartons || "");
+  const [grossWeight, setGrossWeight] = useState(order?.collectionGrossWeight || order?.calculatedGrossWeight || "");
+  const [cbm, setCbm] = useState(order?.collectionCbm || order?.calculatedCbm || "");
 
   const [shipDate, setShipDate] = useState(order?.estimatedShipDate || "");
   const [physicalSampleFileUrl, setPhysicalSampleFileUrl] = useState("");
@@ -4723,6 +4808,7 @@ export default function ProductionOrderDetailsPage() {
   const [physicalSampleDecisionNote, setPhysicalSampleDecisionNote] = useState("");
   const [holdReasonInput, setHoldReasonInput] = useState("");
   const [isEditingCollection, setIsEditingCollection] = useState(false);
+  const [isEditingPackingDetails, setIsEditingPackingDetails] = useState(false);
 
   useEffect(() => {
     setProofUrl(order?.proofUrl || "");
@@ -4741,16 +4827,16 @@ export default function ProductionOrderDetailsPage() {
   }, [order?.collectionReadyDate]);
 
   useEffect(() => {
-    setNumberOfCartons(order?.collectionCartons || "");
-  }, [order?.collectionCartons]);
+    setNumberOfCartons(order?.collectionCartons || order?.calculatedCartons || "");
+  }, [order?.collectionCartons, order?.calculatedCartons]);
 
   useEffect(() => {
-    setGrossWeight(order?.collectionGrossWeight || "");
-  }, [order?.collectionGrossWeight]);
+    setGrossWeight(order?.collectionGrossWeight || order?.calculatedGrossWeight || "");
+  }, [order?.collectionGrossWeight, order?.calculatedGrossWeight]);
 
   useEffect(() => {
-    setCbm(order?.collectionCbm || "");
-  }, [order?.collectionCbm]);
+    setCbm(order?.collectionCbm || order?.calculatedCbm || "");
+  }, [order?.collectionCbm, order?.calculatedCbm]);
 
   const nextStepInfo = useMemo(() => {
     return getNextStepInfo(order, loaderData?.history || []);
@@ -4795,9 +4881,9 @@ export default function ProductionOrderDetailsPage() {
     try {
       const query = new URLSearchParams();
       if (readyDate) query.set("readyDate", readyDate);
-      if (numberOfCartons) query.set("numberOfCartons", numberOfCartons);
-      if (grossWeight) query.set("grossWeight", grossWeight);
-      if (cbm) query.set("cbm", cbm);
+      if (numberOfCartons || order.calculatedCartons) query.set("numberOfCartons", numberOfCartons || order.calculatedCartons);
+      if (grossWeight || order.calculatedGrossWeight) query.set("grossWeight", grossWeight || order.calculatedGrossWeight);
+      if (cbm || order.calculatedCbm) query.set("cbm", cbm || order.calculatedCbm);
       const qs = query.toString() ? `?${query.toString()}` : "";
 
       const response = await fetch(`/app/packing-list-pdf/${numericId}${qs}`);
@@ -4882,7 +4968,7 @@ export default function ProductionOrderDetailsPage() {
   }
 
   function submitUpdateCollectionDetails() {
-    if (!readyDate.trim()) {
+    if (false) {
       setClientErrors((current) => ({
         ...current,
         readyDate: "Ready date is required.",
@@ -4903,6 +4989,7 @@ export default function ProductionOrderDetailsPage() {
     });
 
     setIsEditingCollection(false);
+    setIsEditingPackingDetails(false);
   }
 
   function proceedNextStep() {
@@ -5288,6 +5375,12 @@ export default function ProductionOrderDetailsPage() {
                   )}
                   <s-text tone="subdued" style={{ fontSize: 12 }}>• {order.displayFinancialStatus || "Paid"}</s-text>
                 </s-stack>
+                {order.customerArrangedFreight && (order.forwarderName || order.forwarderAccount) && (
+                  <s-text tone="subdued" style={{ fontSize: 12 }}>
+                    Forwarder: <strong>{order.forwarderName || "—"}</strong>
+                    {order.forwarderAccount ? ` (${order.forwarderAccount})` : ""}
+                  </s-text>
+                )}
               </s-stack>
             </s-box>
           </s-grid>
@@ -5554,6 +5647,15 @@ export default function ProductionOrderDetailsPage() {
                           <s-stack direction="block" gap="base">
                             <s-stack direction="inline" justifyContent="space-between" alignItems="center">
                               <s-heading>Freight Collection Specifications (FOB)</s-heading>
+                              <s-stack direction="inline" gap="small-200">
+                                {!isEditingCollection && (
+                                  <s-button
+                                    variant="secondary"
+                                    onClick={() => setIsEditingCollection(true)}
+                                  >
+                                    Edit Specifications
+                                  </s-button>
+                                )}
                               <s-button
                                 variant="secondary"
                                 disabled={downloadingPackingList ? true : undefined}
@@ -5562,6 +5664,16 @@ export default function ProductionOrderDetailsPage() {
                                 {downloadingPackingList ? "Generating..." : "Download Packing List"}
                               </s-button>
                             </s-stack>
+
+                            </s-stack>
+
+                            {order.packingWarnings?.length > 0 && (
+                              <s-banner tone="warning" heading="Packing data missing">
+                                {order.packingWarnings.map((warn, i) => (
+                                  <s-paragraph key={i}>{warn}</s-paragraph>
+                                ))}
+                              </s-banner>
+                            )}
 
                             {!isEditingCollection && (order.collectionReadyDate || order.collectionCartons) ? (
                               <s-grid gridTemplateColumns="1fr 1fr 1fr 1fr" gap="base">
@@ -5574,19 +5686,19 @@ export default function ProductionOrderDetailsPage() {
                                 <s-box>
                                   <s-text tone="subdued" style={{ fontSize: 12 }}>Cartons</s-text>
                                   <s-heading style={{ fontSize: 15, margin: "2px 0 0 0" }}>
-                                    {order.collectionCartons || "—"}
+                                    {order.collectionCartons || order.calculatedCartons || "—"}
                                   </s-heading>
                                 </s-box>
                                 <s-box>
                                   <s-text tone="subdued" style={{ fontSize: 12 }}>Gross Weight</s-text>
                                   <s-heading style={{ fontSize: 15, margin: "2px 0 0 0" }}>
-                                    {order.collectionGrossWeight ? `${order.collectionGrossWeight} kg` : "—"}
+                                    {(order.collectionGrossWeight || order.calculatedGrossWeight) ? `${order.collectionGrossWeight || order.calculatedGrossWeight} kg` : "—"}
                                   </s-heading>
                                 </s-box>
                                 <s-box>
                                   <s-text tone="subdued" style={{ fontSize: 12 }}>Volume (CBM)</s-text>
                                   <s-heading style={{ fontSize: 15, margin: "2px 0 0 0" }}>
-                                    {order.collectionCbm ? `${order.collectionCbm} m³` : "—"}
+                                    {(order.collectionCbm || order.calculatedCbm) ? `${order.collectionCbm || order.calculatedCbm} m³` : "—"}
                                   </s-heading>
                                 </s-box>
                               </s-grid>
@@ -5673,11 +5785,26 @@ export default function ProductionOrderDetailsPage() {
                         <s-box padding="base" border="base" borderRadius="base" background="subdued">
                           <s-stack direction="block" gap="base">
                             <s-heading>Freight Collection Details</s-heading>
+                            {order.packingWarnings?.length > 0 && (
+                              <s-banner tone="warning" heading="Packing data missing">
+                                {order.packingWarnings.map((warn, i) => (
+                                  <s-paragraph key={i}>{warn}</s-paragraph>
+                                ))}
+                              </s-banner>
+                            )}
                             <s-banner tone="info">
                               <s-paragraph>
                                 Enter the final collection package dimensions. This information will be sent to the customer so they can coordinate freight pickup.
                               </s-paragraph>
                             </s-banner>
+
+                            {(order.forwarderName || order.forwarderAccount) && (
+                              <div style={{ padding: "8px 12px", backgroundColor: "#ffffff", borderRadius: "6px", border: "1px solid #c7f9f1" }}>
+                                <s-text style={{ fontSize: 13 }}>
+                                  <strong>Customer Nominated Forwarder:</strong> {order.forwarderName || "—"}{order.forwarderAccount ? ` (Acc: ${order.forwarderAccount})` : ""}
+                                </s-text>
+                              </div>
+                            )}
 
                             <s-grid gridTemplateColumns="1fr 1fr" gap="base">
                               <DatePickerInput
@@ -5845,6 +5972,23 @@ export default function ProductionOrderDetailsPage() {
                       (attribute) =>
                         String(attribute.key || "").trim().toLowerCase() === "artwork",
                     );
+                    const designBrief = item.customAttributes?.find(
+                      (attribute) =>
+                        String(attribute.key || "").trim().toLowerCase() === "design brief",
+                    );
+                    const lineZoneArtworks = (item.customAttributes || []).filter(
+                      (attribute) =>
+                        attribute.key &&
+                        /^Artwork:\s*/i.test(attribute.key) &&
+                        attribute.value,
+                    );
+                    const orderZoneArtworks = (order.customAttributes || []).filter(
+                      (attribute) =>
+                        attribute.key &&
+                        /^Artwork:\s*/i.test(attribute.key) &&
+                        attribute.value &&
+                        validateHttpUrl(attribute.value),
+                    );
                     const itemTotal = Number(price?.amount || 0) * Number(item.quantity || 1);
 
                     return (
@@ -5921,7 +6065,7 @@ export default function ProductionOrderDetailsPage() {
                                 )}
                               </s-stack>
 
-                              {/* Artwork link if present */}
+                              {/* Artwork link or status if present */}
                               {artwork?.value && (
                                 <div style={{ marginTop: "4px" }}>
                                   {validateHttpUrl(artwork.value) ? (
@@ -5935,6 +6079,41 @@ export default function ProductionOrderDetailsPage() {
                                   )}
                                 </div>
                               )}
+
+                              {/* Design Brief if present */}
+                              {designBrief?.value && (
+                                <div style={{ marginTop: "4px" }}>
+                                  <s-text color="subdued" style={{ fontSize: 13 }}>
+                                    Design Brief: {designBrief.value}
+                                  </s-text>
+                                </div>
+                              )}
+
+                              {/* Line zone artworks if present */}
+                              {lineZoneArtworks.map((zone) => (
+                                <div key={zone.key} style={{ marginTop: "4px" }}>
+                                  {validateHttpUrl(zone.value) ? (
+                                    <s-button href={zone.value} target="_blank">
+                                      View {zone.key.replace(/^Artwork:\s*/i, "")} File ↗
+                                    </s-button>
+                                  ) : (
+                                    <s-text color="subdued" style={{ fontSize: 13 }}>
+                                      {zone.key}: {zone.value}
+                                    </s-text>
+                                  )}
+                                </div>
+                              ))}
+
+                              {/* Order-level late-uploaded artwork files if item has no direct artwork link */}
+                              {!validateHttpUrl(artwork?.value) &&
+                                lineZoneArtworks.every((z) => !validateHttpUrl(z.value)) &&
+                                orderZoneArtworks.map((zone) => (
+                                  <div key={`order-${zone.key}`} style={{ marginTop: "4px" }}>
+                                    <s-button href={zone.value} target="_blank">
+                                      View {zone.key.replace(/^Artwork:\s*/i, "")} File (Uploaded Later) ↗
+                                    </s-button>
+                                  </div>
+                                ))}
                             </s-stack>
                           </div>
                         </s-stack>
@@ -6240,9 +6419,36 @@ export default function ProductionOrderDetailsPage() {
                     {order.customerArrangedFreight ? (
                       <s-badge tone="attention">FOB (Pickup)</s-badge>
                     ) : (
-                      <s-badge tone="neutral">{incotermFromShipping(order.shippingLine?.title) || "Standard Courier"}</s-badge>
+                      <s-badge tone="neutral">{order.incoterm || "Standard Courier"}</s-badge>
                     )}
                   </s-stack>
+
+                  {order.customerArrangedFreight && (
+                    <div
+                      style={{
+                        marginTop: "4px",
+                        marginBottom: "4px",
+                        padding: "10px 12px",
+                        backgroundColor: "#f0fdf4",
+                        borderRadius: "6px",
+                        border: "1px solid #bbf7d0",
+                      }}
+                    >
+                      <s-stack direction="block" gap="small-100">
+                        <s-text tone="subdued" style={{ fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          Forwarder Details (FOB Ningbo)
+                        </s-text>
+                        <s-stack direction="inline" justifyContent="space-between">
+                          <s-text tone="subdued" style={{ fontSize: 13 }}>Forwarder Name:</s-text>
+                          <s-text type="strong" style={{ fontSize: 13 }}>{order.forwarderName || "—"}</s-text>
+                        </s-stack>
+                        <s-stack direction="inline" justifyContent="space-between">
+                          <s-text tone="subdued" style={{ fontSize: 13 }}>Account Number:</s-text>
+                          <s-text type="strong" style={{ fontSize: 13 }}>{order.forwarderAccount || "—"}</s-text>
+                        </s-stack>
+                      </s-stack>
+                    </div>
+                  )}
 
                   {shipping ? (
                     <s-stack direction="block" gap="small-200">
@@ -6366,37 +6572,116 @@ export default function ProductionOrderDetailsPage() {
                       </div>
                     )}
 
-                  {(order.customerArrangedFreight || order.collectionReadyDate || order.collectionCartons || order.collectionGrossWeight || order.collectionCbm) && (
+                  {(order.customerArrangedFreight || order.collectionReadyDate || order.collectionCartons || order.collectionGrossWeight || order.collectionCbm || order.calculatedCartons) && (
                     <div style={{ marginTop: "8px", padding: "10px 12px", backgroundColor: "#fbfcfe", borderRadius: "6px", border: "1px solid #e1e3e5" }}>
                       <s-stack direction="block" gap="small-200">
                         <s-stack direction="inline" justifyContent="space-between" alignItems="center">
                           <s-text tone="subdued" style={{ fontSize: 12, fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                             Collection Package Details
                           </s-text>
-                          <s-button
-                            variant="plain"
-                            onClick={downloadPackingList}
-                            disabled={downloadingPackingList ? true : undefined}
-                          >
-                            {downloadingPackingList ? "Generating…" : "Download PDF"}
-                          </s-button>
+                          <s-stack direction="inline" gap="small-100" alignItems="center">
+                            {!isEditingPackingDetails && (
+                              <s-button
+                                variant="plain"
+                                onClick={() => setIsEditingPackingDetails(true)}
+                              >
+                                Edit
+                              </s-button>
+                            )}
+                            <s-button
+                              variant="plain"
+                              onClick={downloadPackingList}
+                              disabled={downloadingPackingList ? true : undefined}
+                            >
+                              {downloadingPackingList ? "Generating…" : "Download PDF"}
+                            </s-button>
+                          </s-stack>
                         </s-stack>
-                        <s-stack direction="inline" justifyContent="space-between">
-                          <s-text tone="subdued" style={{ fontSize: 13 }}>Ready Date:</s-text>
-                          <s-text type="strong" style={{ fontSize: 13 }}>{order.collectionReadyDate ? formatDay(order.collectionReadyDate) : "—"}</s-text>
-                        </s-stack>
-                        <s-stack direction="inline" justifyContent="space-between">
-                          <s-text tone="subdued" style={{ fontSize: 13 }}>Cartons:</s-text>
-                          <s-text type="strong" style={{ fontSize: 13 }}>{order.collectionCartons || "—"}</s-text>
-                        </s-stack>
-                        <s-stack direction="inline" justifyContent="space-between">
-                          <s-text tone="subdued" style={{ fontSize: 13 }}>Gross Weight:</s-text>
-                          <s-text type="strong" style={{ fontSize: 13 }}>{order.collectionGrossWeight ? `${order.collectionGrossWeight} kg` : "—"}</s-text>
-                        </s-stack>
-                        <s-stack direction="inline" justifyContent="space-between">
-                          <s-text tone="subdued" style={{ fontSize: 13 }}>Volume (CBM):</s-text>
-                          <s-text type="strong" style={{ fontSize: 13 }}>{order.collectionCbm ? `${order.collectionCbm} m³` : "—"}</s-text>
-                        </s-stack>
+
+                        {order.packingWarnings?.length > 0 && (
+                          <div style={{ margin: "4px 0", padding: "8px 10px", backgroundColor: "#fffbeb", border: "1px solid #f59e0b", borderRadius: "4px" }}>
+                            <div style={{ fontSize: "12px", fontWeight: "600", color: "#b45309" }}>Packing data missing:</div>
+                            {order.packingWarnings.map((w, idx) => (
+                              <div key={idx} style={{ fontSize: "11px", color: "#92400e", marginTop: "2px" }}>• {w}</div>
+                            ))}
+                          </div>
+                        )}
+
+                        {isEditingPackingDetails ? (
+                          <s-stack direction="block" gap="small-200" style={{ marginTop: "4px" }}>
+                            <s-text-field
+                              label="Number of Cartons"
+                              type="number"
+                              value={numberOfCartons}
+                              onInput={(e) => setNumberOfCartons(e.currentTarget.value)}
+                            />
+                            <s-text-field
+                              label="Gross Weight (kg)"
+                              type="number"
+                              step="0.01"
+                              value={grossWeight}
+                              onInput={(e) => setGrossWeight(e.currentTarget.value)}
+                            />
+                            <s-text-field
+                              label="Volume (CBM)"
+                              type="number"
+                              step="0.001"
+                              value={cbm}
+                              onInput={(e) => setCbm(e.currentTarget.value)}
+                            />
+                            <s-stack direction="inline" gap="small-200" style={{ marginTop: "6px" }}>
+                              <s-button
+                                variant="primary"
+                                onClick={() => submitUpdateCollectionDetails()}
+                                disabled={busy ? true : undefined}
+                              >
+                                Save
+                              </s-button>
+                              <s-button
+                                variant="secondary"
+                                onClick={() => {
+                                  setNumberOfCartons(order.collectionCartons || order.calculatedCartons || "");
+                                  setGrossWeight(order.collectionGrossWeight || order.calculatedGrossWeight || "");
+                                  setCbm(order.collectionCbm || order.calculatedCbm || "");
+                                  setIsEditingPackingDetails(false);
+                                }}
+                              >
+                                Cancel
+                              </s-button>
+                            </s-stack>
+                          </s-stack>
+                        ) : (
+                          <>
+                            <s-stack direction="inline" justifyContent="space-between">
+                              <s-text tone="subdued" style={{ fontSize: 13 }}>Ready Date:</s-text>
+                              <s-text type="strong" style={{ fontSize: 13 }}>{order.collectionReadyDate ? formatDay(order.collectionReadyDate) : "—"}</s-text>
+                            </s-stack>
+                            <s-stack direction="inline" justifyContent="space-between">
+                              <s-text tone="subdued" style={{ fontSize: 13 }}>Cartons:</s-text>
+                              <s-text type="strong" style={{ fontSize: 13 }}>{order.collectionCartons || order.calculatedCartons || "—"}</s-text>
+                            </s-stack>
+                            <s-stack direction="inline" justifyContent="space-between">
+                              <s-text tone="subdued" style={{ fontSize: 13 }}>Gross Weight:</s-text>
+                              <s-text type="strong" style={{ fontSize: 13 }}>{(order.collectionGrossWeight || order.calculatedGrossWeight) ? `${order.collectionGrossWeight || order.calculatedGrossWeight} kg` : "—"}</s-text>
+                            </s-stack>
+                            <s-stack direction="inline" justifyContent="space-between">
+                              <s-text tone="subdued" style={{ fontSize: 13 }}>Volume (CBM):</s-text>
+                              <s-text type="strong" style={{ fontSize: 13 }}>{(order.collectionCbm || order.calculatedCbm) ? `${order.collectionCbm || order.calculatedCbm} m³` : "—"}</s-text>
+                            </s-stack>
+                            {order.forwarderName && (
+                              <s-stack direction="inline" justifyContent="space-between">
+                                <s-text tone="subdued" style={{ fontSize: 13 }}>Forwarder:</s-text>
+                                <s-text type="strong" style={{ fontSize: 13 }}>{order.forwarderName}</s-text>
+                              </s-stack>
+                            )}
+                            {order.forwarderAccount && (
+                              <s-stack direction="inline" justifyContent="space-between">
+                                <s-text tone="subdued" style={{ fontSize: 13 }}>Forwarder Acc:</s-text>
+                                <s-text type="strong" style={{ fontSize: 13 }}>{order.forwarderAccount}</s-text>
+                              </s-stack>
+                            )}
+                          </>
+                        )}
                       </s-stack>
                     </div>
                   )}

@@ -32,6 +32,8 @@ const INVOICES_QUERY = `#graphql
           displayFulfillmentStatus
           # The ship date customer service gives, as on the order (HYV-102).
           estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
+          # A 30% deposit order (HYV-150): its balance is due before shipment.
+          depositDue: metafield(namespace: "hyve", key: "deposit_due") { value }
           # As the order stands after any edit, as on the invoice PDF.
           totalPriceSet: currentTotalPriceSet { presentmentMoney { amount currencyCode } }
           totalOutstandingSet { presentmentMoney { amount currencyCode } }
@@ -152,7 +154,8 @@ function toInvoice(order) {
     totalLabel: formatMoney(total, currency),
     outstandingLabel: formatMoney(outstandingNow, currency),
     issuedLabel: formatDate(schedule.issuedAt || order.createdAt),
-    dueLabel: formatDate(schedule.dueAt),
+    // A deposit order's balance has no date: it's due before shipment (HYV-150).
+    dueLabel: formatDate(schedule.dueAt) || (order.depositDue?.value ? "Before shipment" : ""),
     paidLabel: formatDate(schedule.completedAt),
     shipDateLabel: formatDate(order.estimatedShipDate?.value),
     daysUntilDue: days,
@@ -188,9 +191,12 @@ export function paymentDue(invoices, customAccounts) {
     .slice()
     .sort((a, b) => (a.daysUntilDue ?? Infinity) - (b.daysUntilDue ?? Infinity));
   const overdue = next.status === "overdue";
-  const due = next.dueLabel
-    ? `Invoice ${next.reference} ${overdue ? "was" : "is"} due ${next.dueLabel}.`
-    : `Invoice ${next.reference} is unpaid.`;
+  const due =
+    next.daysUntilDue != null
+      ? `Invoice ${next.reference} ${overdue ? "was" : "is"} due ${next.dueLabel}.`
+      : next.dueLabel
+        ? `Invoice ${next.reference} is due ${next.dueLabel.toLowerCase()}.`
+        : `Invoice ${next.reference} is unpaid.`;
   const more = unpaid.length - 1;
 
   // Remittance details matching quote and invoice (HYV-105, K11)
