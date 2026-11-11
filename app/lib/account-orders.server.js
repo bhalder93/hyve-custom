@@ -183,18 +183,19 @@ export function mapOrders(nodes = []) {
               attr?.key && !attr.key.startsWith("_") && !attr.key.startsWith("Artwork:") && attr.value,
           )
           // Artwork sent after the order reads as received, not as the
-          // "Artwork Pending" or "Design it for me" the line was placed with (HYV-89).
+          // "Artwork Pending" the line was placed with (HYV-89). Only this line's
+          // own files count, so one upload doesn't mark the other lines. A Design
+          // It For Me line stays as it is: Hyve designs it, logo or not (HYV-212).
           .map((attr) =>
             attr.key === "Artwork" &&
-            (attr.value === ARTWORK_PENDING || String(attr.value).trim().toLowerCase() === "design it for me") &&
-            (artworkSupplied(li.customAttributes, node?.customAttributes) ||
-              (node?.productionStatus?.value && node.productionStatus.value !== "order-placed"))
+            attr.value === ARTWORK_PENDING &&
+            artworkSupplied(li.customAttributes, node?.customAttributes, li.id, li)
               ? "Artwork: Received"
               : `${attr.key}: ${attr.value}`,
           ),
         // F11: where this line is decorated, so a send-later order can be
         // completed against the same positions the buyer chose.
-        zones: zonesFromAttributes(li.customAttributes, node?.customAttributes),
+        zones: zonesFromAttributes(li.customAttributes, node?.customAttributes, li.id, li),
         // Hyve designs it, so a logo is optional on its positions (HYV-212).
         designForMe: (li.customAttributes || []).some(
           (attr) => attr?.key === "Artwork" && String(attr.value).trim().toLowerCase() === "design it for me",
@@ -503,6 +504,15 @@ function rowActions(order, statusKey) {
       ),
     );
   }
+  if (order.quoteHref) {
+    actions.push(
+      action(
+        order.quoteHref,
+        icoQuote(),
+        "Quote",
+      ),
+    );
+  }
   if (["shipped", "ready-for-collection", "production-completed"].includes(statusKey) && order.id) {
     // Reorder fills the cart, so it posts rather than following a link.
     actions.push(`
@@ -653,6 +663,7 @@ function icoPen() { return svg('<path d="M12 19l7-7-4-4-7 7-1 5z"/><path d="M16 
 function icoPhone() { return svg('<rect x="6" y="2" width="12" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/>'); }
 function icoBook() { return svg('<path d="M4 4a2 2 0 0 1 2-2h14v18H6a2 2 0 0 0-2 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/>'); }
 function icoBoxSmall() { return svg('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>'); }
+function icoQuote() { return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="15" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>'); }
 
 /* ---------- styles ---------- */
 export const ORDER_ROW_STYLES = `

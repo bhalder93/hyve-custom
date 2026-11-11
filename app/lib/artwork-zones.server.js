@@ -18,25 +18,73 @@
 const ARTWORK_PREFIX = "Artwork:";
 
 /**
- * @param {Array<{key?:string, value?:string}>} attributes a line's customAttributes
- * @param {Array<{key?:string, value?:string}>} [orderAttributes] the order's own
- *   attributes. Artwork supplied after the order exists is written there,
- *   because a line's properties are fixed once the order is placed — so a zone
- *   filled later is found here rather than on the line.
- * @returns {Array<{key:string, label:string, url:string}>}
+ * Format line title cleanly: "MagSnap Key Cable — Black" or "Satin Pen".
+ * Ignores "Default Title" for single-variant products.
  */
+export function lineTitleOf(line) {
+  if (!line) return "";
+  if (typeof line === "string") return line.trim();
+  const title = String(line.title || "").trim();
+  const variant =
+    line.variantTitle && line.variantTitle !== "Default Title"
+      ? String(line.variantTitle).trim()
+      : "";
+  return [title, variant].filter(Boolean).join(" — ");
+}
+
+/**
+ * The order attribute a file sent after the order is saved under:
+ *   "MagSnap Key Cable — Black, Digital — BARREL"
+ *
+ * This displays in the Shopify admin order details under "Additional details".
+ * If line details are unavailable, falls back to legacy key format:
+ *   "Artwork: Digital - Front (line 16450215248088)"
+ *
+ * @param {string} zoneKey "Artwork: Digital - Front"
+ * @param {string} lineId the line item's GID
+ * @param {object|string} [line] the line item object or name
+ * @param {string} [zoneLabel] formatted zone label (e.g. "Digital — BARREL")
+ */
+export function lateArtworkKey(zoneKey, lineId, line, zoneLabel) {
+  const lineTitle = lineTitleOf(line);
+  const label = zoneLabel || (zoneKey || "").replace(/^Artwork:\s*/i, "").trim().replace(/\s+-\s+/g, " — ");
+  if (lineTitle && label) {
+    return `${lineTitle}, ${label}`;
+  }
+  const id = String(lineId || "").split("/").pop();
+  return id ? `${zoneKey} (line ${id})` : zoneKey;
+}
+
+/**
+ * Legacy key helper for backwards compatibility with existing orders in Shopify.
+ */
+export function legacyLateArtworkKey(zoneKey, lineId) {
+  const id = String(lineId || "").split("/").pop();
+  return id ? `${zoneKey} (line ${id})` : zoneKey;
+}
+
 /**
  * Whether every decoration position on a line has its artwork, including
  * files sent after the order was placed. Those are saved on the order, since a
  * line's own properties can't change once the order exists, so the line's
  * "Artwork: Artwork Pending" stays as it was and has to be read alongside them.
  */
-export function artworkSupplied(attributes, orderAttributes) {
-  const zones = zonesFromAttributes(attributes, orderAttributes);
+export function artworkSupplied(attributes, orderAttributes, lineId, line) {
+  const zones = zonesFromAttributes(attributes, orderAttributes, lineId, line);
   return zones.length > 0 && zones.every((zone) => zone.url);
 }
 
-export function zonesFromAttributes(attributes, orderAttributes) {
+/**
+ * @param {Array<{key?:string, value?:string}>} attributes a line's customAttributes
+ * @param {Array<{key?:string, value?:string}>} [orderAttributes] the order's own
+ *   attributes. Artwork supplied after the order exists is written there,
+ *   because a line's properties are fixed once the order is placed — so a zone
+ *   filled later is found here rather than on the line.
+ * @param {string} [lineId] the line item's GID, which the order keys its files by
+ * @param {object|string} [line] the line item object or title
+ * @returns {Array<{key:string, label:string, url:string, lateKey:string, legacyKey:string, suppliedLater:boolean}>}
+ */
+export function zonesFromAttributes(attributes, orderAttributes, lineId, line) {
   // The line's own properties decide which zones exist. They are written at
   // add-to-cart and fixed once the order is placed, so they are the only
   // honest answer to "what is being decorated here".
@@ -53,11 +101,36 @@ export function zonesFromAttributes(attributes, orderAttributes) {
   for (const attr of orderAttributes || []) {
     if (attr?.key && attr.value) suppliedLater[attr.key] = String(attr.value);
   }
-  const urlFor = (key) => suppliedLater[key] || lineProps[key] || "";
+
+  const laterUrl = (key, label) => {
+    const preferred = lateArtworkKey(key, lineId, line, label);
+    const legacy = legacyLateArtworkKey(key, lineId);
+    return (
+      suppliedLater[preferred] ||
+      suppliedLater[`${preferred}:`] ||
+      suppliedLater[legacy] ||
+      suppliedLater[`${legacy}:`] ||
+      suppliedLater[key] ||
+      ""
+    );
+  };
+
+  const zone = (key, label) => {
+    const lateKey = lateArtworkKey(key, lineId, line, label);
+    const legacyKey = legacyLateArtworkKey(key, lineId);
+    const later = laterUrl(key, label);
+    return {
+      key,
+      label,
+      url: later || lineProps[key] || "",
+      lateKey,
+      legacyKey,
+      suppliedLater: Boolean(later),
+    };
+  };
 
   if (lineProps["Full Colour Wrap"]) {
-    const key = `${ARTWORK_PREFIX} Full Colour Wrap`;
-    return [{ key, label: "Full Colour Wrap", url: urlFor(key) }];
+    return [zone(`${ARTWORK_PREFIX} Full Colour Wrap`, "Full Colour Wrap")];
   }
 
   if (lineProps["Imprint Locations"]) {
@@ -73,17 +146,14 @@ export function zonesFromAttributes(attributes, orderAttributes) {
             .filter(Boolean)
         : [];
 
-    return locations.map((location) => {
-      const key = `${ARTWORK_PREFIX} ${method} - ${location}`;
-      return { key, label: `${method} — ${location}`, url: urlFor(key) };
-    });
+    return locations.map((location) => zone(`${ARTWORK_PREFIX} ${method} - ${location}`, `${method} — ${location}`));
   }
 
   return Object.keys(lineProps)
     .filter((key) => key.startsWith(ARTWORK_PREFIX))
-    .map((key) => ({
-      key,
-      label: key.slice(ARTWORK_PREFIX.length).trim() || "Artwork",
-      url: urlFor(key),
-    }));
+    .map((key) => {
+      const rawLabel = key.slice(ARTWORK_PREFIX.length).trim() || "Artwork";
+      const label = rawLabel.replace(/\s+-\s+/g, " — ");
+      return zone(key, label);
+    });
 }

@@ -87,7 +87,8 @@ const CURRENCY_SET = `#graphql
 
 /** SGD for a Singapore distributor, USD for every other (HYV-195). */
 export function distributorCurrency(countryCode) {
-  return String(countryCode || "").trim().toUpperCase() === "SG" ? "SGD" : "USD";
+  const code = String(countryCode || "").trim().toUpperCase();
+  return code === "SG" || code === "SINGAPORE" ? "SGD" : "USD";
 }
 
 const HANDLE_PREFIX = "distributors-";
@@ -143,15 +144,18 @@ async function run(admin, query, variables) {
  * Puts every location of the company into its currency's market.
  * @returns {Promise<{ok: boolean, detail: string}>}
  */
-export async function keepCompanyCurrency(admin, companyGid) {
+export async function keepCompanyCurrency(admin, companyGid, fallbackCountry = "") {
   try {
     const company = (await run(admin, COMPANY_QUERY, { id: companyGid }))?.company;
     if (!company) return { ok: false, detail: "Company not found." };
 
     // Locations come oldest first (sorted by ID): the first is the registered address.
     const first = company.locations?.nodes?.[0];
-    const country = first?.billingAddress?.countryCode || first?.shippingAddress?.countryCode || "";
-    if (!country) return { ok: false, detail: "The company has no address, so its currency can't be set." };
+    const country =
+      first?.billingAddress?.countryCode ||
+      first?.shippingAddress?.countryCode ||
+      fallbackCountry ||
+      "";
     const currency = distributorCurrency(country);
     if (String(company.preferredCurrency?.value || "").trim().toUpperCase() !== currency) {
       const saved = (

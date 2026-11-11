@@ -7,12 +7,12 @@
  * leaving the distributor with a quote that silently vanished and no way to ask
  * for a new one.
  *
- * A scheduled Shopify Flow therefore copies each quote into an `expired_quote`
- * record just before deleting it, and this reads those back so the Quotes page
- * can still show it as expired with a Requote, and the Retrieve page can say
- * "this expired on the 6th" rather than "no such quote".
+ * The SLA run therefore copies each quote into an `expired_quote` record just
+ * before deleting it (quote-withdraw.server.js), and this reads those back so
+ * the Quotes page can still show it as expired with a Requote, and the
+ * Retrieve page can say "this expired on the 6th" rather than "no such quote".
  *
- * The shape Flow writes, which this expects:
+ * The shape the record takes:
  *   quote_number  "#D21"
  *   quote_date    the date the quote was raised, ISO 8601
  *   customer      {"id": "gid://shopify/Customer/123", "email": "...", "name": "..."}

@@ -470,10 +470,10 @@ async function addMissingFields(admin, definition) {
     return;
   }
 
-  console.log(
-    `[metaobject] adding missing fields to ${definition.type}:`,
-    missing.map((field) => field.key).join(", "),
-  );
+  // console.log(
+  //   `[metaobject] adding missing fields to ${definition.type}:`,
+  //   missing.map((field) => field.key).join(", "),
+  // );
 
   try {
     const response = await admin.graphql(
@@ -707,9 +707,9 @@ export async function withAccessState(admin, applications = []) {
     return stillOn
       ? application
       : {
-          ...application,
-          access_removed: true,
-        };
+        ...application,
+        access_removed: true,
+      };
   });
 }
 
@@ -727,9 +727,9 @@ export async function getAllDistributorApplications(admin) {
   for (const type of METAOBJECT_TYPES) {
     let after = null;
     do {
-    try {
-      const response = await admin.graphql(
-        `#graphql
+      try {
+        const response = await admin.graphql(
+          `#graphql
           query GetAllApplications(
             $type: String!
             $after: String
@@ -757,62 +757,62 @@ export async function getAllDistributorApplications(admin) {
             }
           }
           `,
-        {
-          variables: {
-            type,
-            after,
+          {
+            variables: {
+              type,
+              after,
+            },
           },
-        },
-      );
-
-      const body = await response.json();
-
-      const nodes = body?.data?.metaobjects?.nodes || [];
-
-      // Every page: the duplicate registration check needs older ones too.
-      const pageInfo = body?.data?.metaobjects?.pageInfo;
-      after = pageInfo?.hasNextPage ? pageInfo.endCursor : null;
-
-      for (const node of nodes) {
-        if (seen.has(node.id)) {
-          continue;
-        }
-
-        seen.add(node.id);
-
-        const fieldMap = Object.fromEntries(
-          (node.fields || []).map((field) => [field.key, field.value]),
         );
 
-        found.push({
-          id: node.id,
+        const body = await response.json();
 
-          handle: node.handle,
+        const nodes = body?.data?.metaobjects?.nodes || [];
 
-          updatedAt: node.updatedAt,
+        // Every page: the duplicate registration check needs older ones too.
+        const pageInfo = body?.data?.metaobjects?.pageInfo;
+        after = pageInfo?.hasNextPage ? pageInfo.endCursor : null;
 
-          type,
+        for (const node of nodes) {
+          if (seen.has(node.id)) {
+            continue;
+          }
 
-          ...normalizeApplicationAddressFields(fieldMap),
-        });
+          seen.add(node.id);
+
+          const fieldMap = Object.fromEntries(
+            (node.fields || []).map((field) => [field.key, field.value]),
+          );
+
+          found.push({
+            id: node.id,
+
+            handle: node.handle,
+
+            updatedAt: node.updatedAt,
+
+            type,
+
+            ...normalizeApplicationAddressFields(fieldMap),
+          });
+        }
+      } catch (err) {
+        console.warn(
+          `[metaobject] getAllDistributorApplications (${type}) warning:`,
+          err?.message || err,
+        );
+        after = null;
       }
-    } catch (err) {
-      console.warn(
-        `[metaobject] getAllDistributorApplications (${type}) warning:`,
-        err?.message || err,
-      );
-      after = null;
-    }
     } while (after);
   }
 
-  console.log(
-    `[metaobject] applications found: ${found.length}`,
+  // console.log(
+  //   `[metaobject] applications found: ${found.length}`,
 
-    found
-      .map((application) => `${application.type} ${application.id}`)
-      .join(", ") || "(none)",
-  );
+  //   found
+  //     .map((application) => `${application.type} ${application.id}`)
+  //     .join(", ") || "(none)",
+  // );
 
   return found;
 }
@@ -1162,13 +1162,13 @@ export async function updateDistributorApplication(
   id,
   fieldsToUpdate = {},
 ) {
-  console.log(
-    "[metaobjectUpdate] Requested ID:",
-    id,
+  // console.log(
+  //   "[metaobjectUpdate] Requested ID:",
+  //   id,
 
-    "Fields:",
-    JSON.stringify(fieldsToUpdate),
-  );
+  //   "Fields:",
+  //   JSON.stringify(fieldsToUpdate),
+  // );
 
   try {
     if (!admin?.graphql) {
@@ -1290,7 +1290,7 @@ export async function updateDistributorApplication(
       .filter((field) => field.key && field.value !== null);
 
     if (fields.length === 0) {
-      console.log("[metaobjectUpdate] No fields to update.");
+      // console.log("[metaobjectUpdate] No fields to update.");
 
       return {
         success: true,
@@ -1326,9 +1326,9 @@ export async function updateDistributorApplication(
       };
     }
 
-    console.log("[metaobjectUpdate] Target GID:", targetGid);
+    // console.log("[metaobjectUpdate] Target GID:", targetGid);
 
-    console.log("[metaobjectUpdate] Fields:", JSON.stringify(fields));
+    // console.log("[metaobjectUpdate] Fields:", JSON.stringify(fields));
 
     /**
      * Execute update mutation.
@@ -1459,7 +1459,7 @@ export async function updateDistributorApplication(
 
     let body = await updateMetaobject(fields);
 
-    console.log("[metaobjectUpdate] Shopify response:", JSON.stringify(body));
+    //console.log("[metaobjectUpdate] Shopify response:", JSON.stringify(body));
 
     let errors = getErrors(body);
 
@@ -1477,7 +1477,7 @@ export async function updateDistributorApplication(
         };
       }
 
-      console.log("[metaobjectUpdate] Update succeeded:", metaobject.id);
+      //console.log("[metaobjectUpdate] Update succeeded:", metaobject.id);
 
       return {
         success: true,
@@ -1517,14 +1517,14 @@ export async function updateDistributorApplication(
         };
       }
 
-      console.log(
-        "[metaobjectUpdate] Retrying without unsupported fields:",
-        JSON.stringify(fallbackFields),
-      );
+      // console.log(
+      //   "[metaobjectUpdate] Retrying without unsupported fields:",
+      //   JSON.stringify(fallbackFields),
+      // );
 
       body = await updateMetaobject(fallbackFields);
 
-      console.log("[metaobjectUpdate] Retry response:", JSON.stringify(body));
+      //console.log("[metaobjectUpdate] Retry response:", JSON.stringify(body));
 
       errors = getErrors(body);
 
@@ -1540,10 +1540,10 @@ export async function updateDistributorApplication(
           };
         }
 
-        console.log(
-          "[metaobjectUpdate] Retry update succeeded:",
-          metaobject.id,
-        );
+        // console.log(
+        //   "[metaobjectUpdate] Retry update succeeded:",
+        //   metaobject.id,
+        // );
 
         return {
           success: true,

@@ -418,8 +418,10 @@ function limitsNote(lines) {
  * It For Me line Hyve designs it, so a logo is optional (HYV-212).
  */
 function zoneSlot(zone, editable, orderName, designForMe = false) {
-  const field = `zone:${zone.key}`;
-  const id = `${orderName}-${zone.key}`.replace(/[^A-Za-z0-9-]/g, "-");
+  // Keyed by line as well as position, so two lines decorated in the same
+  // position each get their own file (HYV-212).
+  const field = `zone:${zone.lateKey}`;
+  const id = `${orderName}-${zone.lateKey}`.replace(/[^A-Za-z0-9-]/g, "-");
 
   if (zone.url) {
     const filename = filenameOf(zone.url);

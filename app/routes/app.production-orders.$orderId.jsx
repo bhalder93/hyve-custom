@@ -31,12 +31,10 @@ import {
 } from "../lib/order-status.server";
 import { productionDecisionLinks } from "../lib/production-approval.server";
 import { sampleDecisionLinks } from "../lib/sample-approval.server";
-import { orderRequiresPhysicalSample } from "../lib/portal.server";
+import { ARTWORK_PENDING, emailLineItems, orderRequiresPhysicalSample } from "../lib/portal.server";
+import { artworkSupplied, zonesFromAttributes } from "../lib/artwork-zones.server";
 import { CREDIT_HOLD_TAG } from "../lib/credit-review.server";
 import { depositState, loadDepositOrder, paymentBlocksMove, recordDepositReceived, sendBalanceRequest } from "../lib/deposit.server";
-import {
-  syncLineItemArtworkReceived,
-} from "../lib/order-artwork.server";
 import { loadPickupConfig } from "../lib/pickup-config.server";
 import { loadInvoiceDocument } from "../lib/invoice-document.server";
 import { calculateOrderPackaging } from "../lib/packaging-calculator.js";
@@ -68,6 +66,7 @@ const STATUS_INTENTS = new Set([
   "admin_request_sample_changes",
   "approve_sample",
   "change_status",
+  "fulfill_order",
 ]);
 const READY_FOR_COLLECTION_STATUS = "ready-for-collection";
 
@@ -238,7 +237,7 @@ export function getNextStepInfo(order, history = []) {
           stageTitle: "Order On Hold (Ready to Ship)",
           description: isCustomerFreight
             ? "This order was placed on hold after the production photo was approved. Enter collection details below to resume and notify the customer that their freight is ready for pickup."
-            : "This order was placed on hold after the production photo was approved. Resume this order back to Production Complete or fulfill the order in Shopify Admin to provide customer tracking information.",
+            : "This order was placed on hold after the production photo was approved. Resume this order back to Production Complete, or fulfill it below with the carrier and tracking number.",
           canProceed: true,
           heldFrom,
           isPhotoApproved: true,
@@ -296,15 +295,22 @@ export function getNextStepInfo(order, history = []) {
 
   if (currentStatus === "order-placed") {
     const artworkNeeded = Boolean(order?.artworkRequired);
+    // Send-later lines and how many already have their files, so staff don't
+    // confirm with artwork still missing (HYV-212).
+    const sendLater = Object.values(order?.lineArtwork || {}).filter((line) => line.sendLater);
+    const supplied = sendLater.filter((line) => line.status === "Received").length;
+    const partly = supplied > 0 && supplied < sendLater.length;
     return {
       nextStatus: "artwork-received",
       nextLabel: "Artwork Received",
       actionVerb: "Confirm Artwork Received",
       isWaitingCustomer: false,
       waitingReason: null,
-      currentAction: artworkNeeded
-        ? "Order received. Awaiting custom artwork upload from customer."
-        : "Order received. Ready to review artwork and proceed to proof preparation.",
+      currentAction: partly
+        ? `Order received. ${supplied} of ${sendLater.length} lines have artwork; ${sendLater.length - supplied} still to come from the customer.`
+        : artworkNeeded
+          ? "Order received. Awaiting custom artwork upload from customer."
+          : "Order received. Ready to review artwork and proceed to proof preparation.",
       stageTitle: "1. Order Received",
       description: "Confirm that artwork files have been received and verified to proceed with digital proof preparation.",
       canProceed: true,
@@ -423,7 +429,7 @@ export function getNextStepInfo(order, history = []) {
     return {
       nextStatus: targetStatus,
       nextLabel: targetLabel,
-      actionVerb: isCustomerFreight ? "Submit Collection Details & Mark Ready" : "Proceed to Fulfillment in Shopify",
+      actionVerb: isCustomerFreight ? "Submit Collection Details & Mark Ready" : "Fulfill Order",
       isWaitingCustomer: false,
       waitingReason: null,
       currentAction: isCustomerFreight
@@ -432,22 +438,23 @@ export function getNextStepInfo(order, history = []) {
       stageTitle: "6. Production Complete (Photo Approved)",
       description: isCustomerFreight
         ? "Enter collection details (cartons, weight, CBM, ready date) to notify the customer that their freight is ready for collection."
-        : "Fulfill the order in Shopify Admin to provide customer tracking information.",
+        : "Enter the carrier and tracking number below to fulfill the order and email the customer the tracking link.",
       canProceed: true,
     };
   }
 
   if (currentStatus === "ready-for-collection") {
     return {
-      nextStatus: "delivered",
-      nextLabel: "Delivered",
-      actionVerb: "Mark Order Delivered",
+      nextStatus: "fulfill-in-shopify",
+      nextLabel: "Fulfill Order",
+      actionVerb: "Fulfill Order",
       isWaitingCustomer: false,
       waitingReason: null,
       currentAction: "Finished goods are packed and staged for freight collection by customer courier.",
       stageTitle: "7. Ready For Collection",
-      description: "Mark the order as Delivered once customer freight collection has taken place and goods have been received.",
+      description: "Finished goods are packed and staged for collection. Fulfill the order below once the customer's forwarder collects it, with the carrier and tracking number if you have them.",
       canProceed: true,
+      isShopifyFulfillment: true,
     };
   }
 
@@ -603,6 +610,26 @@ async function getOrder(admin, orderId) {
 
             displayFinancialStatus
             displayFulfillmentStatus
+            fulfillmentOrders(first: 20) {
+              nodes {
+                id
+                status
+                fulfillmentHolds {
+                  reason
+                  reasonNotes
+                }
+              }
+            }
+            fulfillments(first: 10) {
+              id
+              createdAt
+              status
+              trackingInfo(first: 5) {
+                company
+                number
+                url
+              }
+            }
             shippingLine {
               title
             }
@@ -612,6 +639,15 @@ async function getOrder(admin, orderId) {
                   id
                   forwarderName: metafield(namespace: "hyve", key: "forwarder_name") { value }
                   forwarderAccount: metafield(namespace: "hyve", key: "forwarder_account") { value }
+                  draftOrders(first: 50, sortKey: UPDATED_AT, reverse: true) {
+                    nodes {
+                      id
+                      name
+                      order {
+                        id
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -914,6 +950,90 @@ async function getOrder(admin, orderId) {
 
   return order;
 }
+/**
+ * Per line, by line ID: whether its send-later artwork is in, and the files
+ * sent after the order for its own positions. Those are saved on the order per
+ * line (lateArtworkKey); the line's own "Artwork: Artwork Pending" can't change
+ * once the order exists. The portal reads them the same way (HYV-89, HYV-212).
+ */
+function lineArtworkOf(order) {
+  return Object.fromEntries(
+    (order.lineItems?.nodes || []).map((line) => {
+      const zones = zonesFromAttributes(line.customAttributes, order.customAttributes, line.id, line);
+      const artwork = (line.customAttributes || []).find((attr) => attr.key === "Artwork")?.value || "";
+      // Only this line's own files count, so one upload doesn't mark the other lines.
+      const received =
+        artwork === ARTWORK_PENDING && artworkSupplied(line.customAttributes, order.customAttributes, line.id, line);
+      return [
+        line.id,
+        {
+          // A Design It For Me line keeps its own value.
+          status: received ? "Received" : artwork,
+          sendLater: artwork === ARTWORK_PENDING,
+          later: zones.filter((zone) => zone.suppliedLater).map(({ key, label, url }) => ({ key, label, url })),
+        },
+      ];
+    }),
+  );
+}
+
+/** Shopify knows these by name and makes the tracking link itself (HYV-219). */
+const CARRIERS = ["UPS", "DHL Express", "FedEx", "SF Express"];
+const OTHER_CARRIER = "other";
+/** Fulfillment orders Shopify will fulfil now; a held one waits (deposit balance). */
+const FULFILLABLE_STATUSES = new Set(["OPEN", "IN_PROGRESS"]);
+
+/** Courier orders once the photo is approved, FOB orders at Ready For Collection. */
+function isFulfillStep(info) {
+  return !info.isWaitingCustomer && (info.nextStatus === "shipped" || Boolean(info.isShopifyFulfillment));
+}
+
+/**
+ * HYV-219: what the Fulfill step needs from Shopify. A hold (a deposit order's
+ * "Awaiting payment") blocks it, and the latest fulfilment's tracking shows at Shipped.
+ */
+function fulfillmentStateOf(order) {
+  const fulfillmentOrders = order.fulfillmentOrders?.nodes || [];
+  const latest = (order.fulfillments || [])
+    .filter((fulfillment) => fulfillment.status === "SUCCESS")
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+  const tracking = latest?.trackingInfo?.[0];
+  return {
+    openIds: fulfillmentOrders.filter((fo) => FULFILLABLE_STATUSES.has(fo.status)).map((fo) => fo.id),
+    holds: fulfillmentOrders
+      .filter((fo) => fo.status === "ON_HOLD")
+      .flatMap((fo) => fo.fulfillmentHolds || [])
+      .map((hold) => hold.reasonNotes || hold.reason),
+    latest: latest
+      ? { id: latest.id, company: tracking?.company || "", number: tracking?.number || "", url: tracking?.url || "" }
+      : null,
+  };
+}
+
+/** Carrier and tracking from the Fulfill and Edit tracking forms, with field errors. */
+function trackingFromForm(formData, { required }) {
+  const carrier = String(formData.get("carrier") || "").trim();
+  const other = carrier === OTHER_CARRIER;
+  const company = other ? String(formData.get("otherCarrier") || "").trim() : carrier;
+  const number = String(formData.get("trackingNumber") || "").trim();
+  const url = other ? String(formData.get("trackingUrl") || "").trim() : "";
+  const fieldErrors = {};
+  if (other && !company) fieldErrors.otherCarrier = "Enter the carrier name.";
+  else if (!company && (required || number)) fieldErrors.carrier = "Choose the carrier.";
+  else if (company && !other && !CARRIERS.includes(company)) fieldErrors.carrier = "Choose a carrier from the list.";
+  if (required && !number) fieldErrors.trackingNumber = "Enter the tracking number.";
+  if (url && !validateHttpUrl(url)) fieldErrors.trackingUrl = "Enter a full link starting with https://";
+  return { company, number, url, fieldErrors };
+}
+
+function trackingInfoInput({ company, number, url }) {
+  return {
+    ...(company ? { company } : {}),
+    ...(number ? { number } : {}),
+    ...(url ? { url } : {}),
+  };
+}
+
 async function getStatusHistory(admin, orderId) {
   const response = await admin.graphql(
     `#graphql
@@ -1616,7 +1736,7 @@ async function sendCustomerStatusEmail({
 
     orderDate: order.createdAt,
 
-    lineItems: order.lineItems?.nodes || [],
+    lineItems: emailLineItems(order),
   };
 
   switch (status) {
@@ -1930,9 +2050,59 @@ export async function loader({ request, params }) {
       }
     }
 
+    let quote = null;
+    const companyDrafts = order.purchasingEntity?.company?.draftOrders?.nodes || [];
+    const companyMatch = companyDrafts.find((d) => d.order?.id === order.id);
+    if (companyMatch) {
+      quote = {
+        id: companyMatch.id,
+        name: companyMatch.name,
+        numericId: String(companyMatch.id).replace(/\D/g, ""),
+      };
+    } else if (order.customer?.id) {
+      try {
+        const customerNumericId = String(order.customer.id).replace(/\D/g, "");
+        const res = await admin.graphql(
+          `#graphql
+            query FindQuoteByCustomer($query: String!) {
+              draftOrders(first: 50, query: $query) {
+                nodes {
+                  id
+                  name
+                  order {
+                    id
+                  }
+                }
+              }
+            }`,
+          {
+            variables: {
+              query: `customer_id:${customerNumericId} status:completed`,
+            },
+          },
+        );
+        const json = await res.json();
+        const customerDrafts = json?.data?.draftOrders?.nodes || [];
+        const match = customerDrafts.find((d) => d.order?.id === order.id);
+        if (match) {
+          quote = {
+            id: match.id,
+            name: match.name,
+            numericId: String(match.id).replace(/\D/g, ""),
+          };
+        }
+      } catch (err) {
+        console.warn("[production-orders] find quote failed:", err?.message || err);
+      }
+    }
+
     return {
       order: {
         ...order,
+        quoteDraftId: quote?.numericId || null,
+        quoteName: quote?.name || null,
+        lineArtwork: lineArtworkOf(order),
+        fulfillment: fulfillmentStateOf(order),
         calculatedCartons: calculateOrderPackaging(order.lineItems?.nodes).cartonsLabel,
         calculatedGrossWeight: calculateOrderPackaging(order.lineItems?.nodes).grossWeightLabel,
         calculatedCbm: calculateOrderPackaging(order.lineItems?.nodes).cbmLabel,
@@ -2142,7 +2312,7 @@ export async function action({ request, params }) {
         orderName: order.name,
         orderDate: order.createdAt,
         estimatedShipDate,
-        lineItems: order.lineItems?.nodes || [],
+        lineItems: emailLineItems(order),
       });
 
       return {
@@ -2182,7 +2352,7 @@ export async function action({ request, params }) {
         customerName: order.customer?.displayName || order.shippingAddress?.name || "Customer",
         orderName: order.name,
         orderDate: order.createdAt,
-        lineItems: order.lineItems?.nodes || [],
+        lineItems: emailLineItems(order),
         collectionDetails,
         pickupConfig: pickupConfig.values || {},
         // The same commercial invoice and packing list as the first email,
@@ -2193,6 +2363,133 @@ export async function action({ request, params }) {
       return {
         success: true,
         message: `Ready for Collection email resent to ${customerEmail}.`,
+      };
+    }
+
+    // HYV-219: fulfil in Shopify with the carrier and tracking, so staff update one
+    // place. Shopify emails the customer and fulfillments/create moves it to Shipped.
+    if (intent === "fulfill_order") {
+      const [order, history] = await Promise.all([
+        getOrder(admin, orderId),
+        getStatusHistory(admin, orderId),
+      ]);
+      const customerFreight = customerArrangesFreight(order);
+      const step = getNextStepInfo(
+        {
+          productionStatus:
+            order.productionStatus?.value ||
+            (order.tags ?? []).find((tag) => tag.startsWith("hyve-status:"))?.replace("hyve-status:", "") ||
+            "",
+          customerArrangedFreight: customerFreight,
+          productionApprovalStatus: order.productionApprovalStatus?.value || "",
+        },
+        history,
+      );
+      if (!isFulfillStep(step)) {
+        return { success: false, fieldErrors: {}, formError: "This order isn't ready to be fulfilled yet." };
+      }
+      // A deposit order ships only once fully paid (HYV-150).
+      const paymentHold = paymentBlocksMove(depositState(await loadDepositOrder(admin, orderId)), "shipped");
+      if (paymentHold) {
+        return { success: false, fieldErrors: {}, formError: paymentHold };
+      }
+
+      // FOB: the customer's forwarder collects, so tracking may not be known.
+      const tracking = trackingFromForm(formData, { required: !customerFreight });
+      if (Object.keys(tracking.fieldErrors).length) {
+        return { success: false, fieldErrors: tracking.fieldErrors, formError: "Please correct the highlighted fields." };
+      }
+
+      const fulfillment = fulfillmentStateOf(order);
+      if (fulfillment.holds.length) {
+        return {
+          success: false,
+          fieldErrors: {},
+          formError: `Shopify is holding this order, so it can't be fulfilled yet: ${fulfillment.holds.join("; ")}`,
+        };
+      }
+      if (!fulfillment.openIds.length) {
+        return { success: false, fieldErrors: {}, formError: "Nothing is left to fulfill on this order in Shopify." };
+      }
+
+      const notifyCustomer = formData.get("notifyCustomer") === "true";
+      const trackingInfo = trackingInfoInput(tracking);
+      const response = await admin.graphql(
+        `#graphql
+          mutation FulfillProductionOrder($fulfillment: FulfillmentInput!) {
+            fulfillmentCreate(fulfillment: $fulfillment) {
+              fulfillment { id }
+              userErrors { field message }
+            }
+          }
+        `,
+        {
+          variables: {
+            fulfillment: {
+              lineItemsByFulfillmentOrder: fulfillment.openIds.map((fulfillmentOrderId) => ({ fulfillmentOrderId })),
+              notifyCustomer,
+              ...(Object.keys(trackingInfo).length ? { trackingInfo } : {}),
+            },
+          },
+        },
+      );
+      const data = await parseGraphQL(response, "FulfillProductionOrder");
+      throwUserErrors(data.data?.fulfillmentCreate?.userErrors, "Fulfill order");
+
+      return {
+        success: true,
+        message: `${order.name} fulfilled in Shopify${notifyCustomer ? " and the shipping email sent" : ""}. It moves to Shipped in a few seconds.`,
+      };
+    }
+
+    // HYV-219: correct the carrier or tracking on the order's latest fulfilment.
+    if (intent === "update_tracking") {
+      const order = await getOrder(admin, orderId);
+      const latest = fulfillmentStateOf(order).latest;
+      if (!latest) {
+        return { success: false, fieldErrors: {}, formError: "This order has no Shopify fulfillment to update." };
+      }
+
+      const tracking = trackingFromForm(formData, { required: !customerArrangesFreight(order) });
+      if (!tracking.company && !tracking.number) {
+        tracking.fieldErrors.carrier ||= "Choose the carrier.";
+      }
+      if (Object.keys(tracking.fieldErrors).length) {
+        return { success: false, fieldErrors: tracking.fieldErrors, formError: "Please correct the highlighted fields." };
+      }
+
+      const notifyCustomer = formData.get("notifyCustomer") === "true";
+      const response = await admin.graphql(
+        `#graphql
+          mutation UpdateProductionOrderTracking(
+            $fulfillmentId: ID!
+            $trackingInfoInput: FulfillmentTrackingInput!
+            $notifyCustomer: Boolean
+          ) {
+            fulfillmentTrackingInfoUpdate(
+              fulfillmentId: $fulfillmentId
+              trackingInfoInput: $trackingInfoInput
+              notifyCustomer: $notifyCustomer
+            ) {
+              fulfillment { id }
+              userErrors { field message }
+            }
+          }
+        `,
+        {
+          variables: {
+            fulfillmentId: latest.id,
+            trackingInfoInput: trackingInfoInput(tracking),
+            notifyCustomer,
+          },
+        },
+      );
+      const data = await parseGraphQL(response, "UpdateProductionOrderTracking");
+      throwUserErrors(data.data?.fulfillmentTrackingInfoUpdate?.userErrors, "Update tracking");
+
+      return {
+        success: true,
+        message: `Tracking updated${notifyCustomer ? " and the customer emailed" : ""}.`,
       };
     }
 
@@ -2979,7 +3276,7 @@ export async function action({ request, params }) {
             customerName: order.customer?.displayName || order.shippingAddress?.name || "Customer",
             orderName: order.name,
             orderDate: order.createdAt,
-            lineItems: order.lineItems?.nodes || [],
+            lineItems: emailLineItems(order),
             sampleVersion: nextVersion,
             fileUrl,
             note,
@@ -3617,14 +3914,6 @@ ${collectionAudit}`
         }
       } catch (csError) {
         console.error("On-hold Customer Service notification failed:", csError);
-      }
-    }
-
-    if (nextStatus === "artwork-received") {
-      try {
-        await syncLineItemArtworkReceived(admin, order);
-      } catch (artError) {
-        console.error("On Artwork Received line item update failed:", artError);
       }
     }
 
@@ -4809,6 +5098,17 @@ export default function ProductionOrderDetailsPage() {
   const [holdReasonInput, setHoldReasonInput] = useState("");
   const [isEditingCollection, setIsEditingCollection] = useState(false);
   const [isEditingPackingDetails, setIsEditingPackingDetails] = useState(false);
+  // HYV-219 carrier and tracking, for Fulfill Order and Edit tracking.
+  const [carrier, setCarrier] = useState("");
+  const [otherCarrier, setOtherCarrier] = useState("");
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [trackingUrl, setTrackingUrl] = useState("");
+  const [notifyCustomer, setNotifyCustomer] = useState(true);
+  const [isEditingTracking, setIsEditingTracking] = useState(false);
+  // The server's field errors, each cleared as soon as its field is edited.
+  const [trackingErrors, setTrackingErrors] = useState({});
+  const clearTrackingError = (key) =>
+    setTrackingErrors((errors) => ({ ...errors, [key]: "" }));
 
   useEffect(() => {
     setProofUrl(order?.proofUrl || "");
@@ -4843,6 +5143,10 @@ export default function ProductionOrderDetailsPage() {
   }, [order, loaderData?.history]);
 
   useEffect(() => {
+    setTrackingErrors(actionData?.fieldErrors || {});
+  }, [actionData]);
+
+  useEffect(() => {
     if (actionData?.success && actionData?.message) {
       shopify.toast.show(actionData.message);
 
@@ -4852,6 +5156,7 @@ export default function ProductionOrderDetailsPage() {
       setPhysicalSampleFileUrl("");
       setPhysicalSampleNote("");
       setPhysicalSampleDecisionNote("");
+      setIsEditingTracking(false);
     }
     if (actionData?.formError) {
       shopify.toast.show(actionData.formError, { isError: true });
@@ -4871,6 +5176,168 @@ export default function ProductionOrderDetailsPage() {
   const recordingDeposit = busy && navigation.formData?.get("intent") === "record_deposit";
   const payment = order?.payment;
   const paymentMoney = (amount) => `${payment?.currency || ""} ${Number(amount || 0).toFixed(2)}`;
+
+  const fulfilling = busy && navigation.formData?.get("intent") === "fulfill_order";
+  const savingTracking = busy && navigation.formData?.get("intent") === "update_tracking";
+  const latestFulfillment = order?.fulfillment?.latest;
+  // Already fulfilled, waiting for fulfillments/create to move it to Shipped.
+  const awaitingShipped = Boolean(
+    order?.fulfillment && !payment?.balanceDue && !order.fulfillment.holds.length && !order.fulfillment.openIds.length,
+  );
+  // Why Fulfill Order can't run yet, if it can't.
+  const fulfillBlock = !order?.fulfillment
+    ? ""
+    : payment?.balanceDue
+      ? `${paymentMoney(payment.outstanding)} is still due. The order can be fulfilled once it's fully paid.`
+      : order.fulfillment.holds.length
+        ? `Shopify is holding this order: ${order.fulfillment.holds.join("; ")}`
+        : !order.fulfillment.openIds.length
+          ? "Fulfilled in Shopify. The order moves to Shipped in a few seconds; refresh the page."
+          : "";
+
+  function submitTracking(intent) {
+    const formData = new FormData();
+    formData.set("intent", intent);
+    formData.set("carrier", carrier);
+    formData.set("otherCarrier", otherCarrier);
+    formData.set("trackingNumber", trackingNumber);
+    formData.set("trackingUrl", trackingUrl);
+    formData.set("notifyCustomer", notifyCustomer ? "true" : "false");
+    submit(formData, { method: "post" });
+  }
+
+  function startEditingTracking() {
+    const company = latestFulfillment?.company || "";
+    const known = CARRIERS.includes(company);
+    setCarrier(known ? company : company ? OTHER_CARRIER : "");
+    setOtherCarrier(known ? "" : company);
+    setTrackingNumber(latestFulfillment?.number || "");
+    setTrackingUrl(known ? "" : latestFulfillment?.url || "");
+    setNotifyCustomer(true);
+    setTrackingErrors({});
+    setIsEditingTracking(true);
+  }
+
+  const trackingFields = (required) => (
+    <s-stack direction="block" gap="base">
+      <s-grid gridTemplateColumns="1fr 1fr" gap="base">
+        <s-select
+          label="Carrier"
+          value={carrier}
+          error={trackingErrors.carrier || undefined}
+          onChange={(event) => { setCarrier(event.currentTarget.value); clearTrackingError("carrier"); }}
+        >
+          <s-option value="">{required ? "Select carrier" : "No carrier"}</s-option>
+          {CARRIERS.map((name) => (
+            <s-option key={name} value={name}>{name}</s-option>
+          ))}
+          <s-option value={OTHER_CARRIER}>Other</s-option>
+        </s-select>
+        <s-text-field
+          label={required ? "Tracking number" : "Tracking number (Optional)"}
+          value={trackingNumber}
+          error={trackingErrors.trackingNumber || undefined}
+          onInput={(event) => { setTrackingNumber(event.currentTarget.value); clearTrackingError("trackingNumber"); }}
+        />
+      </s-grid>
+      {carrier === OTHER_CARRIER && (
+        <s-grid gridTemplateColumns="1fr 1fr" gap="base">
+          <s-text-field
+            label="Carrier name"
+            value={otherCarrier}
+            error={trackingErrors.otherCarrier || undefined}
+            onInput={(event) => { setOtherCarrier(event.currentTarget.value); clearTrackingError("otherCarrier"); }}
+          />
+          <s-text-field
+            label="Tracking link (Optional)"
+            placeholder="https://"
+            value={trackingUrl}
+            error={trackingErrors.trackingUrl || undefined}
+            onInput={(event) => { setTrackingUrl(event.currentTarget.value); clearTrackingError("trackingUrl"); }}
+          />
+        </s-grid>
+      )}
+      <s-checkbox
+        label="Email the customer the tracking details"
+        checked={notifyCustomer}
+        onChange={(event) => setNotifyCustomer(Boolean(event.currentTarget.checked))}
+      />
+    </s-stack>
+  );
+
+  const [downloadingInvoice, setDownloadingInvoice] = useState(false);
+  const [downloadingQuotation, setDownloadingQuotation] = useState(false);
+
+  const downloadInvoice = useCallback(async () => {
+    if (!order?.id) return;
+    const numericId = String(order.id).split("/").pop();
+    setDownloadingInvoice(true);
+    try {
+      const response = await fetch(`/app/invoice-pdf/${numericId}`);
+      if (!response.ok) {
+        throw new Error(`Failed to generate invoice: ${response.status}`);
+      }
+      const header = response.headers.get("Content-Disposition") || "";
+      const filenameMatch = /filename="?([^"]+)"?/.exec(header);
+      const filename =
+        filenameMatch?.[1] || `Invoice-${String(order.name || "").replace(/^#/, "")}.pdf`;
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      if (typeof shopify !== "undefined" && shopify.toast?.show) {
+        shopify.toast.show("Invoice downloaded.");
+      }
+    } catch (error) {
+      console.error("[production-order] invoice download failed:", error);
+      if (typeof shopify !== "undefined" && shopify.toast?.show) {
+        shopify.toast.show("The invoice couldn't be generated. Please try again.", { isError: true });
+      }
+    } finally {
+      setDownloadingInvoice(false);
+    }
+  }, [order?.id, order?.name]);
+
+  const downloadQuotation = useCallback(async () => {
+    if (!order?.quoteDraftId) return;
+    setDownloadingQuotation(true);
+    try {
+      const response = await fetch(`/app/quote-pdf/${order.quoteDraftId}`);
+      if (!response.ok) {
+        throw new Error(`Failed to generate quotation: ${response.status}`);
+      }
+      const header = response.headers.get("Content-Disposition") || "";
+      const filenameMatch = /filename="?([^"]+)"?/.exec(header);
+      const filename =
+        filenameMatch?.[1] || `Quotation-${String(order.quoteName || order.quoteDraftId).replace(/^#/, "")}.pdf`;
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      if (typeof shopify !== "undefined" && shopify.toast?.show) {
+        shopify.toast.show("Quotation downloaded.");
+      }
+    } catch (error) {
+      console.error("[production-order] quotation download failed:", error);
+      if (typeof shopify !== "undefined" && shopify.toast?.show) {
+        shopify.toast.show("The quotation couldn't be generated. Please try again.", { isError: true });
+      }
+    } finally {
+      setDownloadingQuotation(false);
+    }
+  }, [order?.quoteDraftId, order?.quoteName]);
 
   const [downloadingPackingList, setDownloadingPackingList] = useState(false);
 
@@ -5224,6 +5691,22 @@ export default function ProductionOrderDetailsPage() {
             Put on Hold
           </s-button>
         )}
+        {order.quoteDraftId && (
+          <s-button
+            variant="secondary"
+            disabled={downloadingQuotation ? true : undefined}
+            onClick={downloadQuotation}
+          >
+            {downloadingQuotation ? "Generating..." : "Quotation"}
+          </s-button>
+        )}
+        <s-button
+          variant="secondary"
+          disabled={downloadingInvoice ? true : undefined}
+          onClick={downloadInvoice}
+        >
+          {downloadingInvoice ? "Generating..." : "Invoice"}
+        </s-button>
         <s-button
           variant="secondary"
           disabled={downloadingPackingList ? true : undefined}
@@ -5656,14 +6139,14 @@ export default function ProductionOrderDetailsPage() {
                                     Edit Specifications
                                   </s-button>
                                 )}
-                              <s-button
-                                variant="secondary"
-                                disabled={downloadingPackingList ? true : undefined}
-                                onClick={downloadPackingList}
-                              >
-                                {downloadingPackingList ? "Generating..." : "Download Packing List"}
-                              </s-button>
-                            </s-stack>
+                                <s-button
+                                  variant="secondary"
+                                  disabled={downloadingPackingList ? true : undefined}
+                                  onClick={downloadPackingList}
+                                >
+                                  {downloadingPackingList ? "Generating..." : "Download Packing List"}
+                                </s-button>
+                              </s-stack>
 
                             </s-stack>
 
@@ -5873,23 +6356,65 @@ export default function ProductionOrderDetailsPage() {
                         </s-box>
                       )}
 
-                      {/* Contextual guidance: Shipped */}
-                      {nextStepInfo.nextStatus === "shipped" && (
+                      {/* HYV-219: carrier and tracking on the latest Shopify fulfillment */}
+                      {order.productionStatus === "shipped" && latestFulfillment && (
                         <s-box padding="base" border="base" borderRadius="base" background="subdued">
                           <s-stack direction="block" gap="base">
-                            <s-banner tone="warning">
-                              <s-paragraph>
-                                Please fulfill the order and update tracking from Shopify Admin to notify the customer with carrier tracking.
-                              </s-paragraph>
-                            </s-banner>
-                            <s-button href={`shopify:admin/orders/${order.id.split('/').pop()}`} target="_blank">
-                              Open Order in Shopify Admin ↗
-                            </s-button>
+                            <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+                              <s-heading>Tracking</s-heading>
+                              {!isEditingTracking && (
+                                <s-button variant="secondary" onClick={startEditingTracking}>
+                                  Edit Tracking
+                                </s-button>
+                              )}
+                            </s-stack>
+                            {isEditingTracking ? (
+                              <>
+                                {trackingFields(!order.customerArrangedFreight)}
+                                <s-stack direction="inline" gap="small">
+                                  <s-button variant="primary" disabled={busy} onClick={() => submitTracking("update_tracking")}>
+                                    {savingTracking ? "Saving..." : "Save Tracking"}
+                                  </s-button>
+                                  <s-button variant="secondary" disabled={busy} onClick={() => setIsEditingTracking(false)}>
+                                    Cancel
+                                  </s-button>
+                                </s-stack>
+                              </>
+                            ) : latestFulfillment.company || latestFulfillment.number ? (
+                              <s-stack direction="inline" gap="small" alignItems="center">
+                                <s-text>
+                                  {[latestFulfillment.company, latestFulfillment.number].filter(Boolean).join(" · ")}
+                                </s-text>
+                                {latestFulfillment.url && (
+                                  <s-link href={latestFulfillment.url} target="_blank">
+                                    Track ↗
+                                  </s-link>
+                                )}
+                              </s-stack>
+                            ) : (
+                              <s-text tone="subdued">No carrier or tracking number was added.</s-text>
+                            )}
                           </s-stack>
                         </s-box>
                       )}
 
-                      {nextStepInfo.nextStatus !== "shipped" && (
+                      {/* HYV-219: fulfil in Shopify from here, with the carrier and tracking */}
+                      {isFulfillStep(nextStepInfo) && (
+                        <s-box padding="base" border="base" borderRadius="base" background="subdued">
+                          <s-stack direction="block" gap="base">
+                            <s-heading>Fulfill Order</s-heading>
+                            {fulfillBlock ? (
+                              <s-banner tone={awaitingShipped ? "info" : "warning"}>
+                                <s-paragraph>{fulfillBlock}</s-paragraph>
+                              </s-banner>
+                            ) : (
+                              trackingFields(!order.customerArrangedFreight)
+                            )}
+                          </s-stack>
+                        </s-box>
+                      )}
+
+                      {nextStepInfo.nextStatus !== "shipped" && nextStepInfo.nextStatus !== "fulfill-in-shopify" && !nextStepInfo.isShopifyFulfillment && (
                         <s-text-area
                           label="Internal production note (Optional)"
                           value={note}
@@ -5936,7 +6461,27 @@ export default function ProductionOrderDetailsPage() {
                             </s-button>
                           )}
 
-                          {nextStepInfo.nextStatus !== "shipped" && nextStepInfo.nextStatus !== "sample-review" && (
+                          {isFulfillStep(nextStepInfo) ? (
+                            !fulfillBlock && (
+                              <>
+                                {/* A partial shipment is still done in Shopify. */}
+                                <s-button
+                                  variant="secondary"
+                                  href={`shopify:admin/orders/${order.id.split('/').pop()}`}
+                                  target="_blank"
+                                >
+                                  Partial Shipment in Shopify ↗
+                                </s-button>
+                                <s-button
+                                  variant="primary"
+                                  disabled={busy || order.creditReviewHold}
+                                  onClick={() => submitTracking("fulfill_order")}
+                                >
+                                  {fulfilling ? "Fulfilling..." : "Fulfill Order"}
+                                </s-button>
+                              </>
+                            )
+                          ) : nextStepInfo.nextStatus !== "sample-review" && (
                             <s-button
                               variant="primary"
                               disabled={busy || order.creditReviewHold}
@@ -5982,13 +6527,8 @@ export default function ProductionOrderDetailsPage() {
                         /^Artwork:\s*/i.test(attribute.key) &&
                         attribute.value,
                     );
-                    const orderZoneArtworks = (order.customAttributes || []).filter(
-                      (attribute) =>
-                        attribute.key &&
-                        /^Artwork:\s*/i.test(attribute.key) &&
-                        attribute.value &&
-                        validateHttpUrl(attribute.value),
-                    );
+                    // Sent after the order, for this line's own positions (HYV-212).
+                    const lineArtwork = order.lineArtwork?.[item.id] || { status: artwork?.value, later: [] };
                     const itemTotal = Number(price?.amount || 0) * Number(item.quantity || 1);
 
                     return (
@@ -6074,7 +6614,7 @@ export default function ProductionOrderDetailsPage() {
                                     </s-button>
                                   ) : (
                                     <s-text color="subdued" style={{ fontSize: 13 }}>
-                                      Artwork: {artwork.value}
+                                      Artwork: {lineArtwork.status || artwork.value}
                                     </s-text>
                                   )}
                                 </div>
@@ -6104,16 +6644,14 @@ export default function ProductionOrderDetailsPage() {
                                 </div>
                               ))}
 
-                              {/* Order-level late-uploaded artwork files if item has no direct artwork link */}
-                              {!validateHttpUrl(artwork?.value) &&
-                                lineZoneArtworks.every((z) => !validateHttpUrl(z.value)) &&
-                                orderZoneArtworks.map((zone) => (
-                                  <div key={`order-${zone.key}`} style={{ marginTop: "4px" }}>
-                                    <s-button href={zone.value} target="_blank">
-                                      View {zone.key.replace(/^Artwork:\s*/i, "")} File (Uploaded Later) ↗
-                                    </s-button>
-                                  </div>
-                                ))}
+                              {/* Artwork sent after the order for this line's positions */}
+                              {lineArtwork.later.map((zone) => (
+                                <div key={`later-${zone.key}`} style={{ marginTop: "4px" }}>
+                                  <s-button href={zone.url} target="_blank">
+                                    View {zone.label} File (Uploaded Later) ↗
+                                  </s-button>
+                                </div>
+                              ))}
                             </s-stack>
                           </div>
                         </s-stack>
@@ -6352,10 +6890,25 @@ export default function ProductionOrderDetailsPage() {
 
           {/* Right Column (Contextual Profiles & Controls) */}
           <s-stack direction="block" gap="base">
-            {/* Documents: the proforma invoice for customs and payment (HYV-118), and packing list (HYV-160). */}
+            {/* Documents: invoice, proforma invoice, quote, and packing list. */}
             <s-section heading="Documents">
-              <s-stack direction="block" gap="small-300">
-                <s-text tone="subdued">For customs, shipping, and payment.</s-text>
+              <s-text tone="subdued">For customs, shipping, and payment.</s-text>
+              <s-stack direction="inline" gap="small-300" paddingBlock="base large-500">
+
+                <s-button
+                  onClick={downloadInvoice}
+                  disabled={downloadingInvoice ? true : undefined}
+                >
+                  {downloadingInvoice ? "Generating Invoice…" : "Download Invoice"}
+                </s-button>
+                {order.quoteDraftId && (
+                  <s-button
+                    onClick={downloadQuotation}
+                    disabled={downloadingQuotation ? true : undefined}
+                  >
+                    {downloadingQuotation ? "Generating Quotation…" : "Download Quotation"}
+                  </s-button>
+                )}
                 <s-button href={`/app/proforma/${order.id.split("/").pop()}`}>Proforma Invoice</s-button>
                 <s-button
                   onClick={downloadPackingList}

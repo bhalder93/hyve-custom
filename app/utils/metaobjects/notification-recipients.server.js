@@ -19,6 +19,10 @@ export const RECIPIENT_ROLES = [
     value: "CREDIT_REVIEW",
   },
   {
+    label: "Sales",
+    value: "SALES",
+  },
+  {
     label: "Management",
     value: "MANAGEMENT",
   },

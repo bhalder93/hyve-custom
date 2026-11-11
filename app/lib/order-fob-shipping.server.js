@@ -178,7 +178,7 @@ export async function addFobShippingLine(admin, orderId, currencyCode = "USD") {
       };
     }
 
-    console.log(`[fob-shipping] Successfully added "${FOB_SHIPPING_TITLE}" (cost 0) to ${orderId}`);
+    // console.log(`[fob-shipping] Successfully added "${FOB_SHIPPING_TITLE}" (cost 0) to ${orderId}`);
     return { ok: true };
   } catch (err) {
     console.error(`[fob-shipping] Failed to add FOB shipping line to ${orderId}:`, err);
@@ -220,7 +220,7 @@ export async function checkAndAddFobShippingIfStorefrontQuote(
 
     // Check 2: Does it already have a shipping method added?
     if (hasShippingMethod(payload, currentOrder)) {
-      console.log(`[fob-shipping] Order ${orderName} already has a shipping method.`);
+      // console.log(`[fob-shipping] Order ${orderName} already has a shipping method.`);
       return {
         evaluated: true,
         applied: false,
@@ -228,9 +228,9 @@ export async function checkAndAddFobShippingIfStorefrontQuote(
       };
     }
 
-    console.log(
-      `[fob-shipping] Order ${orderName} placed from storefront-quote draft order with NO shipping method. Adding "${FOB_SHIPPING_TITLE}" cost 0...`,
-    );
+    // console.log(
+    //   `[fob-shipping] Order ${orderName} placed from storefront-quote draft order with NO shipping method. Adding "${FOB_SHIPPING_TITLE}" cost 0...`,
+    // );
 
     const currencyCode =
       currentOrder?.currencyCode || payload?.currency || "USD";
@@ -363,14 +363,14 @@ export async function copyFobForwarderMetafieldsToOrder(admin, { order, payload 
     (payload?.customer?.id ? `gid://shopify/Customer/${payload.customer.id}` : null);
 
   if (!customerId) {
-    console.log(`[fob] No customer associated with order ${orderGid}, skipping forwarder copy.`);
+    //console.log(`[fob] No customer associated with order ${orderGid}, skipping forwarder copy.`);
     return { ok: false, reason: "No customer found" };
   }
 
   const { forwarderName, forwarderAccount } = await getCustomerForwarderSettings(admin, customerId);
 
   if (!forwarderName && !forwarderAccount) {
-    console.log(`[fob] Customer ${customerId} has no forwarder settings configured.`);
+    // console.log(`[fob] Customer ${customerId} has no forwarder settings configured.`);
     return { ok: true, copied: false, reason: "No forwarder settings configured" };
   }
 
@@ -439,10 +439,10 @@ export async function copyFobForwarderMetafieldsToOrder(admin, { order, payload 
       return { ok: false, errors: userErrors };
     }
 
-    console.log(`[fob] Copied forwarder details to order ${orderGid}:`, {
-      forwarderName,
-      forwarderAccount,
-    });
+    // console.log(`[fob] Copied forwarder details to order ${orderGid}:`, {
+    //   forwarderName,
+    //   forwarderAccount,
+    // });
 
     return { ok: true, copied: true, forwarderName, forwarderAccount };
   } catch (err) {

@@ -370,7 +370,7 @@ export const action = async ({ request }) => {
         pdfBuffer,
         filename: safeRef + ".pdf",
       });
-      console.log("[quote-email] sent", { messageId: info?.messageId, accepted: info?.accepted?.length });
+      //  console.log("[quote-email] sent", { messageId: info?.messageId, accepted: info?.accepted?.length });
     } catch (err) {
       console.error("[quote-email] send failed:", err);
       return Response.json(

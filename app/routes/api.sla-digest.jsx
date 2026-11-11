@@ -28,7 +28,7 @@ export async function action({ request }) {
   try {
     const { admin } = await unauthenticated.admin(shop);
     const result = await sendBreachDigest(admin);
-    console.log("[sla-digest]", JSON.stringify({ ...result, to: result.to?.length || 0 }));
+    // console.log("[sla-digest]", JSON.stringify({ ...result, to: result.to?.length || 0 }));
 
     // Once a day: an invoice that fell due overnight makes its company's next
     // order go to credit review (HYV-198).
@@ -39,7 +39,7 @@ export async function action({ request }) {
         applications.map((application) => application.company_id),
         refreshLocationCredit,
       );
-      console.log("[sla-digest] credit refreshed", credit.done, credit.failed.length ? credit.failed : "");
+      // console.log("[sla-digest] credit refreshed", credit.done, credit.failed.length ? credit.failed : "");
     } catch (creditError) {
       console.error("[sla-digest] credit refresh failed", creditError?.message || creditError);
     }

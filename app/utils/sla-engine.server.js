@@ -8,6 +8,7 @@ import {
 } from "./email.server";
 import { proofDecisionLinks } from "../lib/proof.server";
 import { productionStatusOf, recordStatusHistory, SOURCES } from "../lib/order-status.server";
+import { emailLineItems } from "../lib/portal.server";
 import { customerArrangesFreight, STATUS_OPTIONS } from "../lib/production-statuses";
 import { RECIPIENT_ROLES } from "./metaobjects/notification-recipients.server";
 import { adminOrderUrl } from "../lib/admin-links.server";
@@ -293,7 +294,7 @@ export function isBlankOrder(
           attributes,
         ) ||
         attributes.length ===
-          0
+        0
       );
     },
   );
@@ -336,9 +337,9 @@ function getCurrentStatus(
 
   return statusTag
     ? statusTag.replace(
-        STATUS_TAG_PREFIX,
-        "",
-      )
+      STATUS_TAG_PREFIX,
+      "",
+    )
     : "";
 }
 
@@ -502,6 +503,12 @@ async function getOrdersByStatus(
                 updatedAt
                 email
                 tags
+
+                # Artwork sent after the order, per line (HYV-212).
+                customAttributes {
+                  key
+                  value
+                }
 
                 shippingLine {
                   title
@@ -1247,7 +1254,7 @@ async function processStandardSla(
         customerName: order.customer?.displayName || "Customer",
         orderName: order.name,
         orderDate: order.createdAt,
-        lineItems: order?.lineItems?.nodes || [],
+        lineItems: emailLineItems(order),
       }).catch((error) => console.error(`[sla] artwork reminder failed for ${order.name}:`, error?.message || error));
     }
   }
@@ -1297,7 +1304,7 @@ async function processProductionDue(
 
   const rule =
     SLA_RULES[
-      "in-production"
+    "in-production"
     ];
 
   if (
@@ -1742,10 +1749,7 @@ async function processProofSent(
         reminder.day,
 
       lineItems:
-        order
-          ?.lineItems
-          ?.nodes ||
-        [],
+        emailLineItems(order),
     });
 
     await addTags(
@@ -2127,7 +2131,7 @@ async function processOrder(
 
   const rule =
     SLA_RULES[
-      status
+    status
     ];
 
   if (!rule) {
@@ -2305,10 +2309,10 @@ export async function runSlaEngine(
     completedAt.getTime() -
     startedAt.getTime();
 
-  console.log(
-    "Hyve SLA engine completed.",
-    summary,
-  );
+  // console.log(
+  //   "Hyve SLA engine completed.",
+  //   summary,
+  // );
 
   return summary;
 }

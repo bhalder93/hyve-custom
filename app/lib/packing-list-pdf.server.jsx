@@ -22,26 +22,6 @@ const own = StyleSheet.create({
   summaryRow: { flexDirection: "row", justifyContent: "flex-end", paddingVertical: 3 },
   summaryLabel: { width: 150, textAlign: "right", paddingRight: 10, fontFamily: "Helvetica-Bold" },
   summaryValue: { width: 110, textAlign: "right", paddingRight: 5 },
-  warningBox: {
-    marginTop: 10,
-    marginBottom: 8,
-    padding: 8,
-    backgroundColor: "#fffbeb",
-    borderWidth: 1,
-    borderColor: "#f59e0b",
-    borderRadius: 4,
-  },
-  warningTitle: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 9,
-    color: "#b45309",
-    marginBottom: 3,
-  },
-  warningItem: {
-    fontSize: 8,
-    color: "#92400e",
-    lineHeight: 1.3,
-  },
 });
 
 /** "2026-10-19" as "19 Oct 2026", as the other documents print dates. */
@@ -62,9 +42,6 @@ function withUnit(value, unit, pattern) {
 function PackingListDoc({ doc, collection }) {
   const items = (Array.isArray(doc.rows) ? doc.rows : []).filter((row) => row.kind === "item");
   const totalUnits = items.reduce((sum, row) => sum + (Number(row.qty) || 0), 0);
-  const warnings = (Array.isArray(collection?.packingWarnings) && collection.packingWarnings.length > 0)
-    ? collection.packingWarnings
-    : (Array.isArray(doc?.packingWarnings) ? doc.packingWarnings : []);
 
   const forwarderName = collection?.forwarderName || doc.forwarderName || "";
   const forwarderAccount = collection?.forwarderAccount || doc.forwarderAccount || "";
@@ -159,15 +136,6 @@ function PackingListDoc({ doc, collection }) {
             </View>
           ))}
         </View>
-
-        {warnings.length > 0 ? (
-          <View style={own.warningBox} wrap={false}>
-            <Text style={own.warningTitle}>Packing Calculation Notice:</Text>
-            {warnings.map((w, idx) => (
-              <Text key={idx} style={own.warningItem}>• {w}</Text>
-            ))}
-          </View>
-        ) : null}
 
         <View style={own.summary} wrap={false}>
           <View style={own.summaryRow}>

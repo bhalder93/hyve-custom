@@ -51,26 +51,6 @@ const own = StyleSheet.create({
   },
   dueLabel: { width: 130, textAlign: "right", paddingRight: 10, fontFamily: "Helvetica-Bold", fontSize: 11 },
   dueValue: { width: COL.total + 8, textAlign: "right", paddingRight: 5, fontFamily: "Helvetica-Bold", fontSize: 11 },
-  warningBox: {
-    marginTop: 10,
-    marginBottom: 8,
-    padding: 8,
-    backgroundColor: "#fffbeb",
-    borderWidth: 1,
-    borderColor: "#f59e0b",
-    borderRadius: 4,
-  },
-  warningTitle: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 9,
-    color: "#b45309",
-    marginBottom: 3,
-  },
-  warningItem: {
-    fontSize: 8,
-    color: "#92400e",
-    lineHeight: 1.3,
-  },
 });
 
 function InvoiceDoc({ doc, withImages }) {
@@ -204,15 +184,6 @@ function InvoiceDoc({ doc, withImages }) {
             <Text style={[own.dueValue, { color: settled ? "#16a34a" : tone.fg }]}>{money(doc.outstanding, currency)}</Text>
           </View>
         </View>
-
-        {Array.isArray(doc.packingWarnings) && doc.packingWarnings.length > 0 ? (
-          <View style={own.warningBox} wrap={false}>
-            <Text style={own.warningTitle}>Packing Calculation Notice:</Text>
-            {doc.packingWarnings.map((w, idx) => (
-              <Text key={idx} style={own.warningItem}>• {w}</Text>
-            ))}
-          </View>
-        ) : null}
 
         <View style={styles.blocks} wrap={false}>
           <View style={styles.block}>

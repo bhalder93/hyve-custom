@@ -172,7 +172,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { admin } = await authenticate.public.appProxy(request);
+  const { admin, session } = await authenticate.public.appProxy(request);
 
   try {
     const formData = await request.formData();
@@ -276,6 +276,21 @@ export const action = async ({ request }) => {
                   id
                   name
                   email
+                  purchasingEntity {
+                    ... on Customer {
+                      displayName
+                      defaultEmailAddress { emailAddress }
+                    }
+                    ... on PurchasingCompany {
+                      company { name }
+                      contact {
+                        customer {
+                          displayName
+                          defaultEmailAddress { emailAddress }
+                        }
+                      }
+                    }
+                  }
                 }
                 userErrors {
                   field
@@ -288,11 +303,20 @@ export const action = async ({ request }) => {
 
           const draft = (await created.json())?.data?.draftOrderCreate?.draftOrder;
           if (draft?.name) {
+            // A company draft carries no email of its own, so the buyer and
+            // company come from its purchasing entity: without them the sales
+            // email read "a customer" with no contact.
+            const entity = draft.purchasingEntity || {};
+            const buyer = entity.contact?.customer || entity;
+            const shop = session?.shop ? String(session.shop).replace(/\.myshopify\.com$/, "") : "";
             await notifyQuoteRaised(admin, {
               ref: draft.name.replace(/^#D/, "Q-").replace(/^#(?!D)/, "Q-"),
-              email: draft.email || "",
-              items,
+              customer: buyer.displayName || "",
+              email: draft.email || buyer.defaultEmailAddress?.emailAddress || "",
+              company: entity.company?.name || "",
+              items: `${items} x${quantity}`,
               source: "Portal — Request Quote",
+              adminUrl: shop && draft.id ? `https://admin.shopify.com/store/${shop}/draft_orders/${draft.id.split("/").pop()}` : "",
             });
           }
         } catch (draftErr) {

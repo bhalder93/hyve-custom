@@ -93,7 +93,7 @@ function row(inv) {
         </p>
         <p class="hyve-inv__row-dates">
           Issued: ${esc(inv.issuedLabel)}
-          ${inv.status === "paid" ? ` &middot; Paid: ${esc(inv.paidLabel)}` : ` &middot; <span class="${inv.status === "overdue" ? "is-overdue" : "is-due"}">Due: ${esc(inv.dueLabel)}</span>`}
+          ${inv.status === "paid" ? ` &middot; Paid${inv.paidLabel ? `: ${esc(inv.paidLabel)}` : ""}` : ` &middot; <span class="${inv.status === "overdue" ? "is-overdue" : "is-due"}">Due: ${esc(inv.dueLabel)}</span>`}
           ${inv.shipDateLabel ? ` &middot; Estimated ship date: ${esc(inv.shipDateLabel)}` : ""}
         </p>
       </div>

@@ -29,6 +29,7 @@ const SOURCE_QUERY = `#graphql
       }
       lineItems(first: 100) {
         nodes {
+          id
           quantity: currentQuantity
           variant { id availableForSale product { handle } }
           customAttributes { key value }
@@ -70,7 +71,7 @@ function cartProperties(line, orderAttributes) {
   }
   if (props["Full Colour Wrap"] && !props._fcw) props._fcw = "true";
 
-  const zones = zonesFromAttributes(line.customAttributes || [], orderAttributes);
+  const zones = zonesFromAttributes(line.customAttributes || [], orderAttributes, line.id, line);
   for (const zone of zones) {
     if (zone.url && !props[zone.key]) props[zone.key] = zone.url;
   }

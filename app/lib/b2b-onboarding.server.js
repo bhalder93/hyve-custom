@@ -30,6 +30,7 @@ export async function completeB2BOnboarding(
     salesRepEmail,
     salesRepPhone,
     taxRegistrationNumber,
+    fallbackCountry,
   } = {},
 ) {
   const steps = [];
@@ -40,14 +41,32 @@ export async function completeB2BOnboarding(
   }
 
   const company = await readCompany(admin, companyGid);
-  const locationId = company?.locations?.nodes?.[0]?.id || null;
+  let locationId = company?.locations?.nodes?.[0]?.id || null;
   const contact = company?.contacts?.nodes?.[0] || null;
+
+  if (!locationId) {
+    try {
+      const res = await gql(admin, `#graphql
+        mutation EnsureCompanyLocation($companyId: ID!, $input: CompanyLocationInput!) {
+          companyLocationCreate(companyId: $companyId, input: $input) {
+            companyLocation { id name }
+            userErrors { field message }
+          }
+        }`, {
+        companyId: companyGid,
+        input: { name: "Headquarters" },
+      });
+      locationId = res?.companyLocationCreate?.companyLocation?.id || null;
+    } catch {
+      // Ignore fallback error
+    }
+  }
 
   if (!locationId) {
     record("location", false, "The company has no location, so nothing can be attached to it.");
     return { ok: false, steps, locationId: null };
   }
-  record("location", true, company.locations.nodes[0].name || "Location ready");
+  record("location", true, company?.locations?.nodes?.[0]?.name || "Location ready");
 
   // 2. Ordering permission.
   if (contact) {
@@ -220,7 +239,7 @@ export async function completeB2BOnboarding(
   // elsewhere (HYV-195). Every address checks out in it, wherever it ships
   // (HYV-183).
   const { keepCompanyCurrency } = await import("./company-currency.server");
-  const kept = await keepCompanyCurrency(admin, companyGid);
+  const kept = await keepCompanyCurrency(admin, companyGid, fallbackCountry);
   record("checkout currency", kept.ok, kept.detail);
 
   return { ok: steps.every((s) => s.ok), steps, locationId };

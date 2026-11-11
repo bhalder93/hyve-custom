@@ -237,8 +237,29 @@ export function artworkPending(order) {
     (line) =>
       (line?.customAttributes || []).some(
         (attr) => attr?.key === "Artwork" && String(attr.value || "").trim() === ARTWORK_PENDING,
-      ) && !artworkSupplied(line.customAttributes, order?.customAttributes),
+      ) && !artworkSupplied(line.customAttributes, order?.customAttributes, line.id, line),
   );
+}
+
+/**
+ * An order's lines as the buyer's emails list them. A send-later line whose own
+ * files have come in reads "Received": its "Artwork Pending" can't change once
+ * the order exists, so the email would otherwise say pending after the files
+ * arrived (HYV-89, HYV-212). A Design It For Me line keeps its own value.
+ */
+export function emailLineItems(order) {
+  return (order?.lineItems?.nodes || []).map((line) => {
+    const pending = (line?.customAttributes || []).some(
+      (attr) => attr?.key === "Artwork" && String(attr.value || "").trim() === ARTWORK_PENDING,
+    );
+    if (!pending || !artworkSupplied(line.customAttributes, order?.customAttributes, line.id, line)) return line;
+    return {
+      ...line,
+      customAttributes: line.customAttributes.map((attr) =>
+        attr?.key === "Artwork" ? { ...attr, value: "Received" } : attr,
+      ),
+    };
+  });
 }
 
 function normalizeTags(tags) {

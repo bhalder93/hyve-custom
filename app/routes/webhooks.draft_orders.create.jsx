@@ -18,7 +18,7 @@ export async function action({ request }) {
   // Answered at once and sent after: Shopify allows a webhook 5 seconds, and
   // reading who made the draft can take longer, which Shopify would retry.
   const draftGid = payload?.id ? `gid://shopify/DraftOrder/${payload.id}` : "";
-  console.log("[draft_orders/create] received", shop, draftGid);
+  //console.log("[draft_orders/create] received", shop, draftGid);
   if (admin && draftGid) {
     notifyCreditReview(admin, draftGid)
       .then((result) => {

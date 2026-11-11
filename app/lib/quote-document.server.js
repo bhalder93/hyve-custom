@@ -14,9 +14,9 @@ import { quoteReference, formatCountryOfOrigin } from "./quote-labels.js";
 import { bankAccountFor, bankCountryFor } from "./bank-details.server.js";
 import { FOB_INCOTERM, incotermFromShipping } from "./incoterm.js";
 
-/** How long a quote stands. The scheduled sweep that withdraws quotes uses the
- *  same figure — change both together. */
-export const QUOTE_VALID_DAYS = 14;
+/** How long a quote stands: 30 days (Michael, Nov 7). The SLA run withdraws a
+ *  quote once it passes (quote-withdraw.server.js). */
+export const QUOTE_VALID_DAYS = 30;
 
 /**
  * The day a quote stops standing, QUOTE_VALID_DAYS after it was raised. The

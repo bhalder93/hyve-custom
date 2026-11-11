@@ -8,6 +8,7 @@ import {
   runSlaEngine,
 } from "../utils/sla-engine.server";
 import { sendQuoteExpiryReminders } from "../lib/quote-expiry-reminders.server";
+import { withdrawExpiredQuotes } from "../lib/quote-withdraw.server";
 import { sendMissedCreditReviewAlerts } from "../lib/credit-review.server";
 
 /* -------------------------------------------------------------------------- */
@@ -279,6 +280,11 @@ export async function action({
     // failure is reported, never allowed to fail the SLA run.
     summary.quoteReminders = await sendQuoteExpiryReminders(admin).catch(
       (error) => ({ sent: 0, errors: [error?.message || String(error)] }),
+    );
+
+    // Expired quotes archived and deleted, so their checkout link stops.
+    summary.quotesWithdrawn = await withdrawExpiredQuotes(admin).catch(
+      (error) => ({ withdrawn: [], errors: [error?.message || String(error)] }),
     );
 
     // HYV-162: the credit review alert, for any order the draft webhook

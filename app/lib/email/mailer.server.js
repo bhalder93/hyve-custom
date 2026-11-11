@@ -193,11 +193,11 @@ async function sendViaMicrosoftGraph({
   const messageId = `<ms-graph-${Date.now()}@${domain}>`;
   const accepted = toRecipients.map((r) => r.emailAddress.address);
 
-  console.log("[EMAIL:SENT:MS_GRAPH]", {
-    to: accepted.join(", "),
-    subject,
-    messageId,
-  });
+  // console.log("[EMAIL:SENT:MS_GRAPH]", {
+  //   to: accepted.join(", "),
+  //   subject,
+  //   messageId,
+  // });
 
   return {
     messageId,
@@ -309,11 +309,11 @@ export async function sendMail({
     attachments,
   });
 
-  console.log("[EMAIL:SENT]", {
-    to,
-    subject,
-    messageId: result.messageId,
-  });
+  // console.log("[EMAIL:SENT]", {
+  //   to,
+  //   subject,
+  //   messageId: result.messageId,
+  // });
 
   return {
     ok: true,

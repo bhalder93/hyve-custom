@@ -868,13 +868,13 @@ export async function action({ request }) {
     const { admin, payload, shop, topic, webhookId } =
       await authenticate.webhook(request);
 
-    console.log(`[${topic}] received`, {
-      shop,
+    // console.log(`[${topic}] received`, {
+    //   shop,
 
-      webhookId,
+    //   webhookId,
 
-      orderId: payload?.admin_graphql_api_id || payload?.id,
-    });
+    //   orderId: payload?.admin_graphql_api_id || payload?.id,
+    // });
 
     /* -------------------------------------------------------------------- */
     /* Admin session                                                        */
@@ -934,9 +934,9 @@ export async function action({ request }) {
           : [];
 
       if (!existingTags.includes(CUSTOMER_ARRANGED_FREIGHT_TAG)) {
-        console.log(
-          `Order ${order.name} shipping method contains FOB. Adding tag "${CUSTOMER_ARRANGED_FREIGHT_TAG}".`,
-        );
+        // console.log(
+        //   `Order ${order.name} shipping method contains FOB. Adding tag "${CUSTOMER_ARRANGED_FREIGHT_TAG}".`,
+        // );
         await addTags(admin, order.id, [CUSTOMER_ARRANGED_FREIGHT_TAG]);
         if (!Array.isArray(order.tags)) {
           order.tags = [...existingTags];
@@ -992,15 +992,15 @@ export async function action({ request }) {
 
     const analysis = analyzeLineItems(lineItems);
 
-    console.log(`Production initialization analysis for ${order.name}`, {
-      blankOrder,
+    // console.log(`Production initialization analysis for ${order.name}`, {
+    //   blankOrder,
 
-      artworkRequired,
+    //   artworkRequired,
 
-      rush,
+    //   rush,
 
-      lineItems: analysis,
-    });
+    //   lineItems: analysis,
+    // });
 
     /* -------------------------------------------------------------------- */
     /* Existing production state                                            */
@@ -1023,9 +1023,9 @@ export async function action({ request }) {
     /* ==================================================================== */
 
     if (blankOrder) {
-      console.log(
-        `Order ${order.name} identified as blank order. Production initialization skipped.`,
-      );
+      // console.log(
+      //   `Order ${order.name} identified as blank order. Production initialization skipped.`,
+      // );
 
       /* ------------------------------------------------------------------ */
       /* Remove any incorrect production status tags                       */
@@ -1107,19 +1107,19 @@ export async function action({ request }) {
         console.error(`Credit review hold failed for ${order.name}:`, holdError?.message || holdError);
       }
 
-      console.log(`Blank order initialization complete: ${order.name}`, {
-        orderId: order.id,
+      // console.log(`Blank order initialization complete: ${order.name}`, {
+      //   orderId: order.id,
 
-        blankOrder: true,
+      //   blankOrder: true,
 
-        artworkRequired: false,
+      //   artworkRequired: false,
 
-        rush: false,
+      //   rush: false,
 
-        productionStatus: null,
+      //   productionStatus: null,
 
-        statusTagsRemoved: statusTags,
-      });
+      //   statusTagsRemoved: statusTags,
+      // });
 
       return new Response(null, {
         status: 200,
@@ -1143,7 +1143,7 @@ export async function action({ request }) {
     /* -------------------------------------------------------------------- */
     /* Physical Sample Detection                                            */
     /* -------------------------------------------------------------------- */
-    
+
     const envSampleVariant = (process.env.PHYSICAL_SAMPLE_VARIANT_ID || "gid://shopify/ProductVariant/68280437997819").replace(/^["']|["']$/g, "").trim();
     const sampleVariantNum = envSampleVariant.split("/").pop();
     const physicalSampleRequired = lineItems.some(
@@ -1187,9 +1187,9 @@ export async function action({ request }) {
        * move an already-progressed order
        * backwards.
        */
-      console.log(
-        `Order ${order.name} already progressed to "${metafieldStatus}". Initial status will not be reset.`,
-      );
+      // console.log(
+      //   `Order ${order.name} already progressed to "${metafieldStatus}". Initial status will not be reset.`,
+      // );
     }
 
     /* -------------------------------------------------------------------- */

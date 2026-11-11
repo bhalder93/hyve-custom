@@ -414,7 +414,7 @@ const ORDER_TAGS = `#graphql
       # send-later artwork means the proof waits for it.
       artworkRequired: metafield(namespace: "$app", key: "artwork_required") { value }
       customAttributes { key value }
-      lineItems(first: 100) { nodes { customAttributes { key value } } }
+      lineItems(first: 100) { nodes { id customAttributes { key value } } }
     }
   }`;
 

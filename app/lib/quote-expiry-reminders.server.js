@@ -2,8 +2,8 @@
  * A reminder before a quote expires (HYV-110, NTF-02).
  *
  * A quote is an open draft order, valid until the day its PDF prints
- * (quoteValidUntil); the scheduled Flow withdraws it after that
- * (expired-quotes.server.js). REMINDER_DAYS_BEFORE ahead of that day the buyer
+ * (quoteValidUntil); the same SLA run withdraws it after that
+ * (quote-withdraw.server.js). REMINDER_DAYS_BEFORE ahead of that day the buyer
  * gets one email with the link to review and order it. Each quote is tagged
  * once reminded, so the 15-minute SLA run that calls this never sends a second
  * one.

@@ -712,11 +712,10 @@ export async function runAndRecord(admin, { catalogIds, trigger }) {
     const ids = catalogIds?.length ? catalogIds : tierCatalogs.map((c) => c.id);
     const outcome = await updateTierPrices(admin, ids);
     // Every company's tier label, for the product page badge (HYV-192).
-    const tierLabels = await syncAllCompanyTiers(admin, tierCatalogs.map((c) => c.title)).catch((error) => {
+    await syncAllCompanyTiers(admin, tierCatalogs.map((c) => c.title)).catch((error) => {
       console.warn("[tier-prices] tier labels not synced", error?.message || error);
       return null;
     });
-    if (tierLabels) console.log("[tier-prices] tier labels", JSON.stringify(tierLabels));
     await saveLastRun(admin, {
       trigger,
       startedAt,
@@ -728,7 +727,7 @@ export async function runAndRecord(admin, { catalogIds, trigger }) {
     return { ok: true, ...outcome };
   } catch (error) {
     const message = error?.message || String(error);
-    await saveLastRun(admin, { trigger, startedAt, finishedAt: new Date().toISOString(), ok: false, error: message }).catch(() => {});
+    await saveLastRun(admin, { trigger, startedAt, finishedAt: new Date().toISOString(), ok: false, error: message }).catch(() => { });
     return { ok: false, error: message };
   }
 }

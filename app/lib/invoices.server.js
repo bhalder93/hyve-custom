@@ -117,20 +117,24 @@ function toInvoice(order) {
   // The schedule still to pay: a 30% deposit order (HYV-150) has its deposit
   // settled first and the balance after it.
   const schedules = order.paymentTerms?.paymentSchedules?.nodes || [];
-  const schedule = schedules.find((s) => !s.completedAt) || schedules[0];
-  if (!schedule) return null;
+  const schedule = schedules.find((s) => !s.completedAt) || schedules[0] || null;
+  // Once a deposit order's deposit is paid, Shopify drops its schedule: the
+  // balance gets one only at fulfillment. It still owes the balance, due
+  // before shipment, so it stays on the list.
+  const deposit = Boolean(order.depositDue?.value);
+  if (!schedule && !deposit) return null;
 
   const currency =
     order.totalPriceSet?.presentmentMoney?.currencyCode ||
-    schedule.totalBalance?.currencyCode ||
+    schedule?.totalBalance?.currencyCode ||
     "";
   const outstanding = Number(order.totalOutstandingSet?.presentmentMoney?.amount ?? 0);
   // The amount billed, which is the order's total. A schedule's `totalBalance`
   // drops to zero the moment it is settled, so reading the invoice amount from
   // it made every paid invoice display as nil.
-  const total = Number(order.totalPriceSet?.presentmentMoney?.amount ?? schedule.totalBalance?.amount ?? 0);
-  const paid = Boolean(schedule.completedAt) || outstanding <= 0;
-  const dueAt = schedule.dueAt ? new Date(schedule.dueAt) : null;
+  const total = Number(order.totalPriceSet?.presentmentMoney?.amount ?? schedule?.totalBalance?.amount ?? 0);
+  const paid = Boolean(schedule?.completedAt) || outstanding <= 0;
+  const dueAt = schedule?.dueAt ? new Date(schedule.dueAt) : null;
   const days = dueAt ? Math.ceil((dueAt.getTime() - Date.now()) / DAY_MS) : null;
 
   const outstandingNow = paid ? 0 : outstanding;
@@ -153,10 +157,10 @@ function toInvoice(order) {
     outstanding: outstandingNow,
     totalLabel: formatMoney(total, currency),
     outstandingLabel: formatMoney(outstandingNow, currency),
-    issuedLabel: formatDate(schedule.issuedAt || order.createdAt),
+    issuedLabel: formatDate(schedule?.issuedAt || order.createdAt),
     // A deposit order's balance has no date: it's due before shipment (HYV-150).
-    dueLabel: formatDate(schedule.dueAt) || (order.depositDue?.value ? "Before shipment" : ""),
-    paidLabel: formatDate(schedule.completedAt),
+    dueLabel: formatDate(schedule?.dueAt) || (deposit ? "Before shipment" : ""),
+    paidLabel: formatDate(schedule?.completedAt),
     shipDateLabel: formatDate(order.estimatedShipDate?.value),
     daysUntilDue: days,
     termsName: order.paymentTerms?.paymentTermsName || "",

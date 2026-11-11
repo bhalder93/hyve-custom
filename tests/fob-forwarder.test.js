@@ -242,3 +242,13 @@ test("resolves forwarderName and forwarderAccount with order and customer fallba
   assert.equal(res3.forwarderAccount, "DBS-555");
 });
 
+test("customerArrangesFreight identifies FOB shipping correctly", async () => {
+  const { customerArrangesFreight, CUSTOMER_ARRANGED_FREIGHT_TAG } = await import("../app/lib/production-statuses.js");
+
+  assert.equal(customerArrangesFreight({ tags: [CUSTOMER_ARRANGED_FREIGHT_TAG] }), true);
+  assert.equal(customerArrangesFreight({ tags: "hyve-freight:customer-arranged, other-tag" }), true);
+  assert.equal(customerArrangesFreight({ shippingLine: { title: "FOB (Freight Arranged Separately)" } }), true);
+  assert.equal(customerArrangesFreight({ shippingLine: { title: "Standard Express Courier" } }), false);
+});
+
+

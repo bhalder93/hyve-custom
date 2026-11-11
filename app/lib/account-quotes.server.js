@@ -234,13 +234,21 @@ export function quoteStatus(node) {
 
   if (isExpired) return QUOTE_STATUSES.EXPIRED;
 
+  return withBuyer(node) ? QUOTE_STATUSES.SENT : QUOTE_STATUSES.CREATED;
+}
+
+/**
+ * The buyer has the quote's checkout link: Shopify sent it, staff emailed it,
+ * the buyer made it from their cart, or staff approved a request. A draft
+ * still with sales, or a request Hyve hasn't priced, is not.
+ */
+export function withBuyer(node) {
+  const tags = node?.tags || [];
   const fromCart = tags.includes("storefront-quote") && !tags.includes("awaiting_review");
   // `quote-sent`: staff emailed it from Hyve Custom (HYV-166) instead of
   // Shopify's Send invoice, which is what sets invoiceSentAt.
   const emailedByStaff = tags.includes("quote-sent");
-  return node?.invoiceSentAt || emailedByStaff || fromCart || decision === true
-    ? QUOTE_STATUSES.SENT
-    : QUOTE_STATUSES.CREATED;
+  return Boolean(node?.invoiceSentAt || emailedByStaff || fromCart || quoteDecision(node) === true);
 }
 
 /**

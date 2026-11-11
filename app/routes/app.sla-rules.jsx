@@ -287,13 +287,13 @@ export const loader = async ({ request }) => {
     let rules = await getSlaRules(admin);
 
     if (rules.length === 0) {
-      console.log("No SLA rules found. Creating default SLA rules...");
+      // console.log("No SLA rules found. Creating default SLA rules...");
 
       await createDefaultSlaRules(admin);
 
       rules = await getSlaRules(admin);
 
-      console.log(`${rules.length} SLA rules initialized.`);
+      //console.log(`${rules.length} SLA rules initialized.`);
     }
 
     return {
@@ -346,7 +346,7 @@ function validateRule(rule) {
 
 
 export const action = async ({ request }) => {
-  console.log("Action Reached.....");
+  // console.log("Action Reached.....");
   const { admin, sessionToken } = await authenticate.admin(request);
   try {
     // Parse the JSON payload instead of formData
@@ -360,7 +360,7 @@ export const action = async ({ request }) => {
         error: "Unsupported action.",
       };
     }
-    
+
 
     const rule = {
       handle: String(data.handle || "").trim(),
@@ -565,9 +565,9 @@ export default function SlaRulesPage() {
       current.map((rule, i) =>
         i === index
           ? {
-              ...rule,
-              [key]: value,
-            }
+            ...rule,
+            [key]: value,
+          }
           : rule,
       ),
     );
@@ -596,7 +596,7 @@ export default function SlaRulesPage() {
     });
   }
 
- function saveRule(rule) {
+  function saveRule(rule) {
     if (isSaving) {
       return;
     }

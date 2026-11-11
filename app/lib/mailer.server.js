@@ -31,7 +31,7 @@ export async function sendEmail({ to, subject, html, text, attachments = [] }) {
     replyTo: defaultReplyTo(),
   });
 
-  console.log("[EMAIL:SENT]", { to, subject, messageId: result.messageId });
+  // console.log("[EMAIL:SENT]", { to, subject, messageId: result.messageId });
   return result;
 }
 

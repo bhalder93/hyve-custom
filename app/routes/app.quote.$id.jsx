@@ -220,6 +220,7 @@ async function fetchQuote(admin, draftOrderGid) {
     // Hyve's own Approve/Reject decision.
     listStatus: isExpired ? "expired" : listStatus,
     isExpired,
+    validUntil: draftOrder.createdAt ? quoteValidUntil(draftOrder.createdAt).label : "",
   };
 }
 
@@ -725,18 +726,8 @@ export default function QuoteDetailPage() {
   const isOrderCreated = Boolean(quote.order?.id);
   const isOpen = !isOrderCreated && quote.status !== "COMPLETED";
 
-  const isExpired =
-    Boolean(quote.isExpired) ||
-    quote.listStatus === "expired" ||
-    quote.quoteStatus?.key === STATUS_KEYS.EXPIRED ||
-    quote.status === "EXPIRED" ||
-    (quote.tags || []).some((t) => /^(quote[-_]?)?expired$/i.test(String(t).trim())) ||
-    Boolean(
-      !isOrderCreated &&
-      quote.status !== "COMPLETED" &&
-      quote.createdAt &&
-      new Date(quote.createdAt).getTime() + 14 * 24 * 60 * 60 * 1000 < Date.now()
-    );
+  // The loader works out expiry, with the 30-day validity (QUOTE_VALID_DAYS).
+  const isExpired = Boolean(quote.isExpired) || quote.quoteStatus?.key === STATUS_KEYS.EXPIRED;
 
   // Editing reprices the whole quote, so it waits until the prices can be read.
   const canEdit = isOpen && !isExpired && !editor?.error;
@@ -887,7 +878,7 @@ export default function QuoteDetailPage() {
             {isExpired ? (
               <s-banner tone="critical" heading="This quote has expired">
                 <s-paragraph>
-                  This quote has passed its 14-day validity period and can no longer be edited, approved, or declined.
+                  This quote expired{quote.validUntil ? ` on ${quote.validUntil}` : ""} and can no longer be edited, approved, or declined.
                 </s-paragraph>
               </s-banner>
             ) : null}

@@ -3,8 +3,8 @@
  *
  * Every quote is a sales lead, so one of these goes out whenever a quote is
  * created — from the cart, from a share link, or from the portal's own request
- * form. It never throws: the quote exists by the time this runs, and a mail
- * failure must not undo it.
+ * form — to the store's address and the Sales recipients. It never throws: the
+ * quote exists by the time this runs, and a mail failure must not undo it.
  */
 import { internalNotifyTarget } from "./internal-notify.server";
 
@@ -21,9 +21,23 @@ import { internalNotifyTarget } from "./internal-notify.server";
  */
 export async function notifyQuoteRaised(admin, quote) {
   try {
-    const { shopName, to } = await internalNotifyTarget(admin);
+    const { shopName, to: shopAddress } = await internalNotifyTarget(admin);
+    // The store's address and the Sales team in Notification Recipients
+    // (Michael, Nov 7: Bruce and his team, not just the store mailbox).
+    const { getNotificationRecipients } = await import("../utils/metaobjects/notification-recipients.server");
+    const recipients = await getNotificationRecipients(admin).catch((error) => {
+      console.warn("[quote] recipients failed", error?.message || error);
+      return [];
+    });
+    const to = [
+      ...new Set(
+        [shopAddress, ...recipients.filter((r) => r.enabled && r.role === "SALES").map((r) => r.email)]
+          .map((email) => String(email || "").trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    ].join(", ");
     if (!to) {
-      console.warn("[quote] no internal address on the shop — notification skipped");
+      console.warn("[quote] no internal address or Sales recipient — notification skipped");
       return;
     }
 

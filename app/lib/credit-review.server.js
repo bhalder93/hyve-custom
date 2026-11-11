@@ -321,7 +321,7 @@ export async function holdOrderForCreditReview(admin, orderGid, { flagged = fals
     sent: false,
     reason: error?.message || String(error),
   }));
-  console.log("[credit-review] held", order.name, alert.sent ? `alert sent to ${alert.to.join(", ")}` : `no alert: ${alert.reason}`);
+  //console.log("[credit-review] held", order.name, alert.sent ? `alert sent to ${alert.to.join(", ")}` : `no alert: ${alert.reason}`);
   return { held: true };
 }
 
@@ -466,9 +466,8 @@ async function emailDecline(row, why) {
   return emailBuyer(row, {
     title: "Order Not Approved",
     subject: `Your order${row.buyerReference ? ` ${row.buyerReference}` : ""} was not approved`,
-    body: `We couldn't approve your order on ${escapeHtml(row.terms || "payment terms")}${
-      row.kind === "order" ? ", so it has been cancelled" : ""
-    }.<br /><br /><strong>Reason:</strong> ${escapeHtml(why).replace(/\n/g, "<br />")}<br /><br />Please contact your account manager${row.salesRepEmail ? ` at ${escapeHtml(row.salesRepEmail)}` : ""} to arrange another way to pay.`,
+    body: `We couldn't approve your order on ${escapeHtml(row.terms || "payment terms")}${row.kind === "order" ? ", so it has been cancelled" : ""
+      }.<br /><br /><strong>Reason:</strong> ${escapeHtml(why).replace(/\n/g, "<br />")}<br /><br />Please contact your account manager${row.salesRepEmail ? ` at ${escapeHtml(row.salesRepEmail)}` : ""} to arrange another way to pay.`,
     details: [
       ...(row.kind === "order" ? [["Order", row.name]] : []),
       ["Submitted", formatDate(row.submittedAt) || "—"],
@@ -602,30 +601,29 @@ async function sendCreditReviewAlert(admin, node) {
   const { brandedEmail, escapeHtml } = await import("../utils/email.server");
   try {
     await sendEmail({
-    to: [...to].join(","),
-    subject: `Credit review: ${row.name} — ${row.company || row.buyer || "a distributor"}`,
-    html: brandedEmail({
-      internal: true,
-      title: "Order Waiting For Credit Review",
-      body: `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;"><strong>${escapeHtml(row.company || row.buyer)}</strong> ${
-        row.kind === "order"
-          ? `placed order <strong>${escapeHtml(row.name)}</strong> on ${escapeHtml(row.terms || "payment terms")}. It's on hold until approved.`
-          : `submitted order <strong>${escapeHtml(row.name)}</strong> on ${escapeHtml(row.terms || "payment terms")}.`
-      } Approve or decline it in ${escapeHtml(shopName)} admin → Apps → Hyve Custom → Credit Review.</p>`,
-      details: [
-        ["Order", escapeHtml(row.name)],
-        ["Company", escapeHtml(row.company || "—")],
-        ["Buyer", escapeHtml([row.buyer, row.buyerEmail].filter(Boolean).join(" · ") || "—")],
-        ["Total", escapeHtml(row.total || "—")],
-        ["Payment terms", escapeHtml(row.terms || "—")],
-        ["PO number", escapeHtml(row.poNumber || "—")],
-        ["Items", escapeHtml(row.items || "—")],
-      ],
-    }),
+      to: [...to].join(","),
+      subject: `Credit review: ${row.name} — ${row.company || row.buyer || "a distributor"}`,
+      html: brandedEmail({
+        internal: true,
+        title: "Order Waiting For Credit Review",
+        body: `<p style="margin:0 0 14px; line-height:1.7; font-size:15px;"><strong>${escapeHtml(row.company || row.buyer)}</strong> ${row.kind === "order"
+            ? `placed order <strong>${escapeHtml(row.name)}</strong> on ${escapeHtml(row.terms || "payment terms")}. It's on hold until approved.`
+            : `submitted order <strong>${escapeHtml(row.name)}</strong> on ${escapeHtml(row.terms || "payment terms")}.`
+          } Approve or decline it in ${escapeHtml(shopName)} admin → Apps → Hyve Custom → Credit Review.</p>`,
+        details: [
+          ["Order", escapeHtml(row.name)],
+          ["Company", escapeHtml(row.company || "—")],
+          ["Buyer", escapeHtml([row.buyer, row.buyerEmail].filter(Boolean).join(" · ") || "—")],
+          ["Total", escapeHtml(row.total || "—")],
+          ["Payment terms", escapeHtml(row.terms || "—")],
+          ["PO number", escapeHtml(row.poNumber || "—")],
+          ["Items", escapeHtml(row.items || "—")],
+        ],
+      }),
     });
   } catch (error) {
     // Unmarked, so the next safety-net run sends it.
-    await run(admin, TAGS_REMOVE, { id: draftGid, tags: [NOTIFIED_TAG] }).catch(() => {});
+    await run(admin, TAGS_REMOVE, { id: draftGid, tags: [NOTIFIED_TAG] }).catch(() => { });
     throw error;
   }
   return { sent: true, to: [...to] };

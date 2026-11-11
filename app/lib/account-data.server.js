@@ -74,6 +74,7 @@ const PORTAL_ORDER_FIELDS = `#graphql
           shippingLine { title }
           lineItems(first: 10) {
             nodes {
+              id
               title
               quantity
               variantTitle
@@ -353,7 +354,7 @@ const CHROME_QUERY = `#graphql
               totalPriceSet { presentmentMoney { currencyCode } }
               productionStatus: metafield(namespace: "$app", key: "production_status") { value }
               customAttributes { key value }
-              lineItems(first: 10) { nodes { customAttributes { key value } } }
+              lineItems(first: 10) { nodes { id customAttributes { key value } } }
             }
           }
           draftOrders(first: 50, sortKey: UPDATED_AT, reverse: true) {
@@ -378,7 +379,7 @@ const CHROME_QUERY = `#graphql
           customAttributes { key value }
           customer { id }
           purchasingEntity { ... on PurchasingCompany { company { id } location { id } } }
-          lineItems(first: 10) { nodes { customAttributes { key value } } }
+          lineItems(first: 10) { nodes { id customAttributes { key value } } }
         }
       }
     }

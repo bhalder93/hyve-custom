@@ -1228,18 +1228,35 @@ export const action = async ({ request, params }) => {
 
       // Checked with Shopify's fields for the country (HYV-143): Singapore
       // has no city or region, Hong Kong no postal code, and so on.
-      const approvalAddress = {
-        address1: shippingAddress1,
-        address2: shippingAddress2,
-        barangay: shippingBarangay,
-        city: shippingCity,
-        country: shippingCountryCode || shippingCountry,
-        province: shippingProvince,
-        provinceCode: shippingProvinceCode,
-        zip: shippingZip,
-      };
+      // Company shipping address is optional.
+      const hasShippingAddress = Boolean(shippingAddress1);
+      let structuredAddress = null;
 
-      const addressProblem = Object.values(addressErrors(approvalAddress))[0];
+      if (hasShippingAddress) {
+        const approvalAddress = {
+          address1: shippingAddress1,
+          address2: shippingAddress2,
+          barangay: shippingBarangay,
+          city: shippingCity,
+          country: shippingCountryCode || shippingCountry,
+          province: shippingProvince,
+          provinceCode: shippingProvinceCode,
+          zip: shippingZip,
+        };
+
+        const addressProblem = Object.values(addressErrors(approvalAddress))[0];
+        if (addressProblem) {
+          return {
+            success: false,
+            error: `${addressProblem} Fix the address before approving the application.`,
+            status: APPLICATION_STATUSES.PENDING,
+          };
+        }
+
+        // Shopify's region code, not its name, and the Barangay on the
+        // apartment line.
+        structuredAddress = shopifyAddressInput(approvalAddress);
+      }
 
       if (salesRepPhone && !validPhone(salesRepPhone)) {
         return {
@@ -1249,24 +1266,15 @@ export const action = async ({ request, params }) => {
         };
       }
 
-      if (addressProblem || !shippingPhone) {
-        return {
-          success: false,
-          error: `${addressProblem || "Phone is required."} Fix the address before approving the application.`,
-          status: APPLICATION_STATUSES.PENDING,
-        };
-      }
-
-      // A real number for the address country, as Shopify checks it.
-      if (!validPhone(shippingPhone, addressFormatFor(approvalAddress.country)?.code)) {
+      // A real number for the address country, if provided.
+      const countryForPhone = shippingCountryCode || shippingCountry;
+      if (shippingPhone && !validPhone(shippingPhone, addressFormatFor(countryForPhone)?.code)) {
         return {
           success: false,
           error: "Enter a valid phone number for the address country, e.g. +852 2345 6789.",
           status: APPLICATION_STATUSES.PENDING,
         };
       }
-
-
 
       // Checked before anything is written. Shopify refuses a second company
       // with the same external id, and finding that out at company creation
@@ -1287,18 +1295,9 @@ export const action = async ({ request, params }) => {
       }
 
       // The metafields must exist with the right types before anything is
-
       // written to them — a value whose type doesn't match is silently rejected.
-
       const definitions = await ensureCommercialDefinitions(admin);
-
       onboardingSteps = definitions.steps;
-
-
-
-      // Shopify's region code, not its name, and the Barangay on the
-      // apartment line.
-      const structuredAddress = shopifyAddressInput(approvalAddress);
 
 
 
@@ -1391,21 +1390,13 @@ export const action = async ({ request, params }) => {
 
 
       // The company exists but its location has no address, so orders from it
-
-      // can't be shipped. This says why.
-
-      if (b2bResult.locationError) {
-
+      // can't be shipped. This says why (only when an address was supplied).
+      if (hasShippingAddress && b2bResult.locationError) {
         onboardingSteps.push({
-
           name: "location address",
-
           ok: false,
-
           detail: `The company address wasn't saved in Shopify: ${b2bResult.locationError}`,
-
         });
-
       }
 
       // The applicant isn't a contact on the company, so they can't order for it.
@@ -1445,6 +1436,7 @@ export const action = async ({ request, params }) => {
         salesRepPhone: salesRepPhone || null,
 
         taxRegistrationNumber: application?.tax_registration_number || null,
+        fallbackCountry: shippingCountryCode || shippingCountry || application?.country_based || "SG",
 
       });
 
@@ -1477,7 +1469,7 @@ export const action = async ({ request, params }) => {
       updates.registered_address_json = {
         address1: shippingAddress1,
         address2: shippingAddress2,
-        barangay: approvalAddress.barangay,
+        barangay: shippingBarangay,
         city: shippingCity,
         country: shippingCountry,
         province: shippingProvince,
@@ -1488,7 +1480,7 @@ export const action = async ({ request, params }) => {
 
       // Applications from before the phone was required have none; the
       // number staff confirmed for the company address fills the gap.
-      if (!String(application.contact_phone || "").trim()) {
+      if (shippingPhone && !String(application.contact_phone || "").trim()) {
         updates.contact_phone = shippingPhone;
       }
 
@@ -1582,13 +1574,12 @@ export const action = async ({ request, params }) => {
 
 
 
+    let emailSent = false;
+
     if (status === APPLICATION_STATUSES.REJECTED) {
-
       await sendApplicationDecisionEmail(admin, application, { approved: false });
-
-    } else if (status === APPLICATION_STATUSES.APPROVED && setupComplete) {
-
-      const sent = await sendApplicationDecisionEmail(admin, application, {
+    } else if (status === APPLICATION_STATUSES.APPROVED) {
+      emailSent = await sendApplicationDecisionEmail(admin, application, {
         approved: true,
         salesRep,
         salesRepEmail,
@@ -1602,8 +1593,8 @@ export const action = async ({ request, params }) => {
 
       onboardingSteps.push({
         name: "approval email",
-        ok: sent,
-        detail: sent
+        ok: emailSent,
+        detail: emailSent
           ? `Sent to ${application.customer_email}.`
           : "Couldn't be sent. Use Send approval email to try again.",
       });
@@ -1612,35 +1603,15 @@ export const action = async ({ request, params }) => {
         approval_setup: {
           ...approvalSetup,
           steps: onboardingSteps,
-          emailSentAt: sent ? new Date().toISOString() : "",
+          emailSentAt: emailSent ? new Date().toISOString() : "",
         },
       });
-
-    } else if (status === APPLICATION_STATUSES.APPROVED) {
-
-      onboardingSteps.push({
-
-        name: "approval email",
-
-        ok: false,
-
-        detail: "Not sent, because a setup step above needs attention. Fix it, then use Send approval email.",
-
-      });
-
-      await updateDistributorApplication(admin, targetGid, {
-        approval_setup: { ...approvalSetup, steps: onboardingSteps },
-      });
-
     }
 
-
-
     return {
-
       success: true,
-
       status,
+      emailSent,
 
       rejectionMessage:
 
@@ -2354,7 +2325,6 @@ export default function DistributorDetailPage() {
         key={key}
         label={label}
         value={value}
-        required={key !== "address2" || undefined}
         onInput={(e) => set(read(e))}
       />
     );
@@ -2436,7 +2406,7 @@ export default function DistributorDetailPage() {
 
   // Everything the action checks, checked here first, so the button only
   // turns on when approval can go through and says what's missing until then.
-  const phoneValid = validPhone(shippingPhone, addressFormat?.code);
+  const phoneValid = !shippingPhone.trim() || validPhone(shippingPhone, addressFormat?.code);
   const whatsappValid = !salesRepPhone.trim() || validPhone(salesRepPhone);
   const missingForApproval = approvalMissing(addressFormat, {
     address1: shippingAddress1,
@@ -3881,7 +3851,7 @@ export default function DistributorDetailPage() {
                         {/* Company Shipping Address */}
 
                         <s-stack direction="block" gap="extra-small">
-                          <s-text type="strong">Company Shipping Address</s-text>
+                          <s-text type="strong">Company Shipping Address (Optional)</s-text>
 
                           <s-text color="subdued" type="small">
                             Pre-filled from the distributor&apos;s registered business address. Review before approving.
@@ -3928,7 +3898,6 @@ export default function DistributorDetailPage() {
                                 ? `Not a valid ${addressFormat?.name || ""} number. Check the digits, e.g. +${addressFormat?.phonePrefix || "852"} 2345 6789.`
                                 : undefined
                             }
-                            required
                             onInput={(e) =>
                               setShippingPhone(e?.currentTarget?.value ?? e?.target?.value ?? "")
                             }
@@ -4366,9 +4335,7 @@ export default function DistributorDetailPage() {
                     {approvalEmailHeld && (
                       <s-stack direction="block" gap="small">
                         <s-text color="subdued" type="small">
-                          {setupProblems.some((step) => step.name !== "approval email")
-                            ? "The approval email hasn't gone to the applicant. Fix the steps marked Check above first, then send it."
-                            : "The approval email hasn't gone to the applicant yet."}
+                          The approval email hasn&apos;t gone to the applicant yet.
                         </s-text>
                         <s-button
                           onClick={() =>
@@ -4377,7 +4344,7 @@ export default function DistributorDetailPage() {
                               { method: "post" },
                             )
                           }
-                          disabled={isSubmitting || setupProblems.some((step) => step.name !== "approval email")}
+                          disabled={isSubmitting}
                         >
                           Send approval email
                         </s-button>

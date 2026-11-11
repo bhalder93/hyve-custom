@@ -476,18 +476,18 @@ export async function action({ request }) {
     const { admin, payload, shop, topic, webhookId } =
       await authenticate.webhook(request);
 
-    console.log(`[${topic}] fulfillment webhook received`, {
-      shop,
-      webhookId,
+    // console.log(`[${topic}] fulfillment webhook received`, {
+    //   shop,
+    //   webhookId,
 
-      fulfillmentId: payload?.admin_graphql_api_id || payload?.id,
-    });
+    //   fulfillmentId: payload?.admin_graphql_api_id || payload?.id,
+    // });
 
     if (!admin) {
-      console.error("FULFILLMENTS_CREATE webhook has no Admin API client.", {
-        shop,
-        webhookId,
-      });
+      // console.error("FULFILLMENTS_CREATE webhook has no Admin API client.", {
+      //   shop,
+      //   webhookId,
+      // });
 
       return new Response(null, {
         status: 200,
@@ -497,10 +497,10 @@ export async function action({ request }) {
     const fulfillmentId = getFulfillmentGid(payload);
 
     if (!fulfillmentId) {
-      console.error("FULFILLMENTS_CREATE missing fulfillment ID.", {
-        shop,
-        webhookId,
-      });
+      // console.error("FULFILLMENTS_CREATE missing fulfillment ID.", {
+      //   shop,
+      //   webhookId,
+      // });
 
       return new Response(null, {
         status: 200,
@@ -513,17 +513,17 @@ export async function action({ request }) {
 
     const currentStatus = getCurrentStatus(order);
 
-    console.log(`Fulfillment created for ${order.name}`, {
-      fulfillmentId: fulfillment.id,
+    // console.log(`Fulfillment created for ${order.name}`, {
+    //   fulfillmentId: fulfillment.id,
 
-      currentStatus,
+    //   currentStatus,
 
-      fulfillmentStatus: fulfillment.status,
+    //   fulfillmentStatus: fulfillment.status,
 
-      orderFulfillmentStatus: order.displayFulfillmentStatus,
+    //   orderFulfillmentStatus: order.displayFulfillmentStatus,
 
-      trackingInfo: fulfillment.trackingInfo,
-    });
+    //   trackingInfo: fulfillment.trackingInfo,
+    // });
 
     /* -------------------------------------------------------------------- */
     /* Important: partial fulfillment                                      */
@@ -538,9 +538,9 @@ export async function action({ request }) {
      * after the complete Shopify order is fulfilled.
      */
     if (order.displayFulfillmentStatus !== "FULFILLED") {
-      console.log(
-        `Order ${order.name} is not fully fulfilled yet. Current Shopify fulfillment status: ${order.displayFulfillmentStatus}.`,
-      );
+      // console.log(
+      //   `Order ${order.name} is not fully fulfilled yet. Current Shopify fulfillment status: ${order.displayFulfillmentStatus}.`,
+      // );
 
       return new Response(null, {
         status: 200,
@@ -563,9 +563,9 @@ export async function action({ request }) {
      * Never move Delivered backwards to Shipped.
      */
     if (currentStatus === "delivered") {
-      console.log(
-        `Order ${order.name} is already delivered. Shipped update skipped.`,
-      );
+      // console.log(
+      //   `Order ${order.name} is already delivered. Shipped update skipped.`,
+      // );
 
       return new Response(null, {
         status: 200,
@@ -626,21 +626,21 @@ export async function action({ request }) {
 
     const customerArrangedFreight = customerArrangesFreight(order);
 
-    console.log(`Order ${order.name} moved to shipped.`, {
-      orderId: order.id,
+    // console.log(`Order ${order.name} moved to shipped.`, {
+    //   orderId: order.id,
 
-      previousStatus: currentStatus,
+    //   previousStatus: currentStatus,
 
-      productionStatus: SHIPPED_STATUS,
+    //   productionStatus: SHIPPED_STATUS,
 
-      tag: SHIPPED_TAG,
+    //   tag: SHIPPED_TAG,
 
-      fulfillmentId: fulfillment.id,
+    //   fulfillmentId: fulfillment.id,
 
-      customerArrangedFreight,
+    //   customerArrangedFreight,
 
-      changedAt,
-    });
+    //   changedAt,
+    // });
 
     /**
      * Do NOT send a custom customer email here.

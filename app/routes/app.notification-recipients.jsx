@@ -36,6 +36,11 @@ const ROLE_OPTIONS = [
       "Receives an alert when a terms order is submitted for credit review. The company's sales rep is told too.",
   },
   {
+    value: "SALES",
+    label: "Sales",
+    description: "Receives the New quote email for every quote raised. The store's contact email gets it too.",
+  },
+  {
     value: "MANAGEMENT",
     label: "Management",
     description: "Optional management visibility. Not used by default.",

@@ -28,6 +28,7 @@ export default function App() {
         <s-link href="/app/business-holidays">Holidays</s-link>
         <s-link href="/app/commercial-settings">Commercial Settings</s-link>
         <s-link href="/app/tier-prices">Tier Prices</s-link>
+        <s-link href="/app/shipping-weights">Shipping Weights</s-link>
         <s-link href="/app/sla-engine">Manual SLA</s-link>
         <s-link href="/app/pickup-config">Pickup Configuration</s-link>
         <s-link href="/app/bank-details">Bank Details</s-link>

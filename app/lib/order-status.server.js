@@ -21,6 +21,7 @@
  * both must.
  */
 import { sendArtworkReceivedEmail, sendProofApprovedEmail, sendOrderOnHoldAlert } from "../utils/email.server.js";
+import { emailLineItems } from "./portal.server.js";
 import {
   getCustomerServiceRecipients,
   getNotificationRecipients,
@@ -29,7 +30,6 @@ import {
 import { adminOrderUrl } from "./admin-links.server.js";
 import { statusEmailWanted } from "./notification-preferences.server.js";
 import { loadCommercialSettings } from "./commercial-settings.server.js";
-import { syncLineItemArtworkReceived } from "./order-artwork.server.js";
 
 const STATUS_TAG_PREFIX = "hyve-status:";
 const NOTIFIED_TAG_PREFIX = "hyve-notified:";
@@ -82,8 +82,11 @@ export const PRODUCTION_ORDER_FRAGMENT = `#graphql
     physicalSampleHistory: metafield(namespace: "$app", key: "physical_sample_history") { value }
     physicalSampleRequired: metafield(namespace: "$app", key: "physical_sample_required") { value }
     estimatedShipDate: metafield(namespace: "hyve", key: "estimated_ship_date") { value }
+    # Artwork sent after the order is saved here, per line (HYV-212).
+    customAttributes { key value }
     lineItems(first: 100) {
       nodes {
+        id
         title
         quantity
         sku
@@ -184,14 +187,6 @@ export async function changeProductionStatus(
     from, to, changedAt, productionDueAt, onHoldReason,
     changedBy: changedBy || "Customer", source, note, ipAddress, userAgent,
   });
-
-  if (to === "artwork-received") {
-    try {
-      await syncLineItemArtworkReceived(admin, order);
-    } catch (artError) {
-      console.error(`[portal] line item artwork update failed for ${order.name}:`, artError);
-    }
-  }
 
   if (to === "on-hold") {
     try {
@@ -380,7 +375,7 @@ export async function notifyCustomer(admin, order, status, productionDueAt, opti
     customerName: order.customer?.displayName || order.shippingAddress?.name || "Customer",
     orderName: order.name,
     orderDate: order.createdAt,
-    lineItems: order.lineItems?.nodes || [],
+    lineItems: emailLineItems(order),
   };
 
   let estimatedShipDate = order.estimatedShipDate?.value;

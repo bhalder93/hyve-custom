@@ -414,11 +414,11 @@ export async function findLikelyCompanyMatches(admin, application) {
   if (!application) return [];
 
   const normalizeName = (name) => String(name || "").replace(/[^\w\s]/g, "").replace(/\s+/g, "").toLowerCase();
-  
+
   const wantedName = normalizeName(application.company_name);
   const wantedReg = String(application.registration_number || "").replace(/[\s.\-/]/g, "").toUpperCase();
   const wantedTax = String(application.tax_registration_number || "").replace(/[\s.\-/]/g, "").toUpperCase();
-  
+
   const emailParts = String(application.customer_email || "").split("@");
   const wantedDomain = emailParts.length === 2 ? emailParts[1].toLowerCase() : null;
   const commonDomains = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com"];
@@ -446,36 +446,36 @@ export async function findLikelyCompanyMatches(admin, application) {
         }
       }
     `);
-    
+
     const data = await response.json();
     const companies = data?.data?.companies?.nodes || [];
-    
+
     const matches = [];
-    
+
     for (const comp of companies) {
       let matchReasons = [];
-      
+
       if (wantedName && normalizeName(comp.name) === wantedName) {
         matchReasons.push("Company Name");
       }
-      
+
       const compReg = String(comp.externalId || "").replace(/[\s.\-/]/g, "").toUpperCase();
       if (wantedReg && wantedReg !== "NA" && wantedReg !== "NIL" && wantedReg !== "NONE" && compReg === wantedReg) {
         matchReasons.push("Registration Number");
       }
-      
+
       const compTax = String(comp.locations?.nodes?.[0]?.taxRegistrationId || "").replace(/[\s.\-/]/g, "").toUpperCase();
       if (wantedTax && wantedTax !== "NA" && wantedTax !== "NIL" && wantedTax !== "NONE" && compTax === wantedTax) {
         matchReasons.push("Tax ID");
       }
-      
+
       if (checkDomain && comp.mainContact?.customer?.email) {
         const compEmailParts = comp.mainContact.customer.email.split("@");
         if (compEmailParts.length === 2 && compEmailParts[1].toLowerCase() === checkDomain) {
           matchReasons.push("Email Domain");
         }
       }
-      
+
       if (matchReasons.length > 0) {
         matches.push({
           id: comp.id,
@@ -484,7 +484,7 @@ export async function findLikelyCompanyMatches(admin, application) {
         });
       }
     }
-    
+
     return matches;
   } catch (error) {
     console.error("Error finding likely company matches:", error);
@@ -507,10 +507,12 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
   const registrationNumber = (application.registration_number || "").trim();
   const country = (application.country_based || "Singapore").trim();
   // Staff can correct the address on the approval screen; the applicant's own
-  // free-text entry is the fallback.
+  // free-text entry is the fallback. An explicit null means the address was omitted.
   const addressSource = hasAddress(options.shippingAddress)
     ? options.shippingAddress
-    : (application.registered_address || "").trim();
+    : options.shippingAddress === null
+      ? null
+      : (application.registered_address || "").trim();
   const address = addressAsText(addressSource);
   const expectedVolume = (application.expected_annual_volume || "").trim();
   const requestCredit =
@@ -768,7 +770,7 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
   try {
     if (options.linkCompanyId && options.linkCompanyId !== "new") {
       reusedCompany = true;
-      console.log("[b2b] Linking to explicitly chosen existing company:", options.linkCompanyId);
+      // console.log("[b2b] Linking to explicitly chosen existing company:", options.linkCompanyId);
       const existing = await getCompanyDetails(admin, options.linkCompanyId);
       if (existing?.id) {
         fullCompany = existing;
@@ -788,7 +790,7 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
         !existingId || existingId === String(cleanExternalId(registrationNumber) || "").toLowerCase();
       if (existing?.id && sameBusiness) {
         reusedCompany = true;
-        console.log("[b2b] Reusing existing company:", existing.id);
+        //console.log("[b2b] Reusing existing company:", existing.id);
         fullCompany = existing;
         companyGid = existing.id;
       }
@@ -812,23 +814,25 @@ Address: ${address || "—"}`;
       },
     };
 
-    // Include primary location and address
-    if (shippingAddressInput) {
-      companyCreateInput.companyLocation = {
-        name: "Headquarters",
-        billingSameAsShipping: true,
-        shippingAddress: {
-          ...shippingAddressInput,
-          // CompanyAddressInput has no companyName field — the business name
-          // goes in `recipient`. Sending companyName made Shopify reject the
-          // whole request, which threw before the retry could run.
-          recipient: companyName,
-          ...(firstName ? { firstName } : {}),
-          ...(lastName ? { lastName } : {}),
-          ...(cleanPhone.length >= 7 ? { phone: cleanPhone } : {}),
-        },
-      };
-    }
+    // Include primary location and address (address is optional)
+    companyCreateInput.companyLocation = {
+      name: "Headquarters",
+      ...(shippingAddressInput
+        ? {
+          billingSameAsShipping: true,
+          shippingAddress: {
+            ...shippingAddressInput,
+            // CompanyAddressInput has no companyName field — the business name
+            // goes in `recipient`. Sending companyName made Shopify reject the
+            // whole request, which threw before the retry could run.
+            recipient: companyName,
+            ...(firstName ? { firstName } : {}),
+            ...(lastName ? { lastName } : {}),
+            ...(cleanPhone.length >= 7 ? { phone: cleanPhone } : {}),
+          },
+        }
+        : {}),
+    };
 
     // Only when there is no customer to add as the contact afterwards. The
     // applicant already has an account by now (they sign in to apply, and step
@@ -845,56 +849,59 @@ Address: ${address || "—"}`;
     }
 
     if (!companyGid) {
-    console.log("[b2b] Executing CompanyCreate mutation for:", companyName);
+      //console.log("[b2b] Executing CompanyCreate mutation for:", companyName);
 
-    let compRes = await admin.graphql(COMPANY_CREATE_MUTATION, {
-      variables: { input: companyCreateInput },
-    });
-
-    let compData = await compRes.json();
-    let compErrors = compData?.data?.companyCreate?.userErrors || compData?.errors;
-
-    // If initial creation failed (e.g. location address format or companyContact issue), retry with base company input
-    if (compErrors && compErrors.length > 0) {
-      console.warn("[b2b] CompanyCreate initial userErrors:", JSON.stringify(compErrors));
-      // Kept for the approval screen: this is the reason the location and
-      // contact were not created, and the retry below would otherwise replace
-      // it with an error of its own.
-      locationError = compErrors[0]?.message || "The company location could not be created.";
-      companyCreateError = locationError;
-
-      // The same cleaned id as the first attempt. The retry used to send the
-      // raw registration number, so a value with a space failed here with
-      // "External Id can only contain numbers, letters…" and hid the real error.
-      const fallbackInput = {
-        company: {
-          name: companyName,
-          ...(safeExternalId ? { externalId: safeExternalId } : {}),
-          note: companyNote,
-        },
-      };
-
-      compRes = await admin.graphql(COMPANY_CREATE_MUTATION, {
-        variables: { input: fallbackInput },
+      let compRes = await admin.graphql(COMPANY_CREATE_MUTATION, {
+        variables: { input: companyCreateInput },
       });
-      compData = await compRes.json();
 
-      const retryErrors = compData?.data?.companyCreate?.userErrors || compData?.errors;
-      if (retryErrors && retryErrors.length > 0) {
-        console.error("[b2b] CompanyCreate retry also failed:", JSON.stringify(retryErrors));
-        const retryMessage = retryErrors[0]?.message || "The B2B company could not be created.";
-        companyCreateError =
-          retryMessage === locationError ? retryMessage : `${locationError} (then: ${retryMessage})`;
+      let compData = await compRes.json();
+      let compErrors = compData?.data?.companyCreate?.userErrors || compData?.errors;
+
+      // If initial creation failed (e.g. location address format or companyContact issue), retry with base company input
+      if (compErrors && compErrors.length > 0) {
+        console.warn("[b2b] CompanyCreate initial userErrors:", JSON.stringify(compErrors));
+        // Kept for the approval screen: this is the reason the location and
+        // contact were not created, and the retry below would otherwise replace
+        // it with an error of its own.
+        locationError = compErrors[0]?.message || "The company location could not be created.";
+        companyCreateError = locationError;
+
+        // The same cleaned id as the first attempt. The retry used to send the
+        // raw registration number, so a value with a space failed here with
+        // "External Id can only contain numbers, letters…" and hid the real error.
+        const fallbackInput = {
+          company: {
+            name: companyName,
+            ...(safeExternalId ? { externalId: safeExternalId } : {}),
+            note: companyNote,
+          },
+          companyLocation: {
+            name: "Headquarters",
+          },
+        };
+
+        compRes = await admin.graphql(COMPANY_CREATE_MUTATION, {
+          variables: { input: fallbackInput },
+        });
+        compData = await compRes.json();
+
+        const retryErrors = compData?.data?.companyCreate?.userErrors || compData?.errors;
+        if (retryErrors && retryErrors.length > 0) {
+          console.error("[b2b] CompanyCreate retry also failed:", JSON.stringify(retryErrors));
+          const retryMessage = retryErrors[0]?.message || "The B2B company could not be created.";
+          companyCreateError =
+            retryMessage === locationError ? retryMessage : `${locationError} (then: ${retryMessage})`;
+        }
       }
-    }
 
-    fullCompany = compData?.data?.companyCreate?.company || fullCompany;
-    companyGid = fullCompany?.id || null;
-    if (companyGid) companyCreateError = null;
+      fullCompany = compData?.data?.companyCreate?.company || fullCompany;
+      companyGid = fullCompany?.id || null;
+      if (companyGid) companyCreateError = null;
     }
 
     if (companyGid) {
-      console.log("[b2b] CompanyCreate succeeded. Company ID:", companyGid);
+      //console.log("[b2b] CompanyCreate succeeded. Company ID:", companyGid);
 
       // =====================================================================
       // 3. Ensure Customer is Assigned as Company Contact
