@@ -17,6 +17,11 @@
  *                             the cart, checkout and quote say so (HYV-200);
  *                             two-letter codes, e.g. "CN,TH,VN,ID"; blank for
  *                             none. Distributors aren't affected.
+ *   standard_credit_limit     the credit limit of a distributor location on
+ *                             payment terms that has no limit of its own
+ *                             (HYV-219, James, Nov 11: USD 20,000). Read by
+ *                             the credit check, which a location's own
+ *                             "Credit limit (USD)" overrides.
  *
  * Each is stored once, on the store, and read from there by everything that
  * acts on it. The two amounts are in shop currency (USD), read by the cart
@@ -96,6 +101,15 @@ export const COMMERCIAL_SETTINGS = [
     // Bruce, Oct 15: not ready to ship duties included to these yet (HYV-200).
     // Set once, when the setting is first created; Hyve changes it from then on.
     initial: "CN,TH,VN,ID",
+  },
+  {
+    key: "standard_credit_limit",
+    section: "credit",
+    kind: "money",
+    name: "Standard credit limit",
+    description:
+      "Credit limit in USD for a distributor on payment terms whose company location has no Credit limit (USD) of its own. An order that takes the location's unpaid balance over it is held in Credit Review. A limit set on the location overrides it.",
+    placeholder: "20000",
   },
 ];
 

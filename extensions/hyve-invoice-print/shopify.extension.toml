@@ -1,0 +1,14 @@
+api_version = "2026-10"
+
+# Print > Hyve invoice on Shopify's order page (HYV-219). Shows the same
+# invoice PDF as Download Invoice in Hyve Custom, for every order, including
+# orders without decoration, which never enter Production Orders.
+
+[[extensions]]
+name = "t:name"
+handle = "hyve-invoice-print"
+type = "ui_extension"
+
+  [[extensions.targeting]]
+  module = "./src/PrintInvoice.jsx"
+  target = "admin.order-details.print-action.render"

@@ -10,12 +10,12 @@
  *   - Interactive "+ Request Quote" modal to submit custom wholesale quote requests
  */
 
-import { esc } from "./account-shell.server";
-import { quoteValidUntil } from "./quote-document.server";
-import { formatDate, formatMoney } from "./portal.server";
-import { quoteReference, formatCountryOfOrigin } from "./quote-labels";
-import { listAllExpiredQuotes } from "./expired-quotes.server";
-import { purchasingCompanyFor } from "./purchasing-company.server";
+import { esc } from "./account-shell.server.js";
+import { quoteValidUntil } from "./quote-document.server.js";
+import { formatDate, formatMoney } from "./portal.server.js";
+import { quoteReference, formatCountryOfOrigin } from "./quote-labels.js";
+import { listAllExpiredQuotes } from "./expired-quotes.server.js";
+import { purchasingCompanyFor } from "./purchasing-company.server.js";
 
 /**
  * Quote statuses.

@@ -62,3 +62,34 @@ test("skuOnly strips decoration suffix via fallback pattern when details are abs
   };
   assert.equal(skuOnly(laserRow), "11989BLK");
 });
+
+test("itemRow with { artwork: false, brief: false } removes Artwork and Design Brief from details for invoice and packing list", () => {
+  const lineItem = {
+    title: "Executive Pen",
+    sku: "PEN-01",
+    quantity: 100,
+    variant: {
+      selectedOptions: [{ name: "Color", value: "Matte Black" }],
+    },
+    customAttributes: [
+      { key: "Imprint Locations", value: "Laser: BARREL" },
+      { key: "Artwork", value: "Design it for me" },
+      { key: "Design Brief", value: "Please engrave Acme Corp logo with tag line" },
+      { key: "Artwork Design Brief", value: "Keep it centered" },
+      { key: "Packaging Note", value: "Gift box" },
+    ],
+    originalUnitPriceSet: { presentmentMoney: { amount: "10.00", currencyCode: "USD" } },
+    discountedTotalSet: { presentmentMoney: { amount: "1000.00", currencyCode: "USD" } },
+  };
+
+  const invoiceRow = itemRow(lineItem, cents, { artwork: false, brief: false });
+
+  assert.ok(invoiceRow.details.includes("Color: Matte Black"));
+  assert.ok(invoiceRow.details.includes("Imprint Method: Laser"));
+  assert.ok(invoiceRow.details.includes("Imprint Location: BARREL"));
+  assert.ok(invoiceRow.details.includes("Packaging Note: Gift box"));
+
+  // Artwork and Design Brief must NOT be in details
+  assert.equal(invoiceRow.details.some((d) => /design\s*brief/i.test(d)), false);
+  assert.equal(invoiceRow.details.some((d) => /^Artwork\b/i.test(d)), false);
+});

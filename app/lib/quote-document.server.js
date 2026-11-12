@@ -417,7 +417,7 @@ export function isDutyLine(line) {
  * artwork state, which says nothing about what is owed and went stale once
  * the artwork arrived.
  */
-export function itemRow(li, cents, { artwork = true } = {}) {
+export function itemRow(li, cents, { artwork = true, brief = true } = {}) {
   const attributes = li.customAttributes || [];
   const { method, positions, count } = decorationOf(attributes);
   const options = (li.variant?.selectedOptions || []).filter(
@@ -460,6 +460,11 @@ export function itemRow(li, cents, { artwork = true } = {}) {
           ),
       )
       .filter((attr) => artwork || !/^artwork\b/i.test(attr.key))
+      .filter(
+        (attr) =>
+          (artwork && brief) ||
+          !/^(design\s*brief|artwork\s*design\s*brief|artwork\s*brief)\b/i.test(String(attr.key).trim()),
+      )
       .map((attr) =>
         /^https?:/i.test(String(attr.value)) ? `${attr.key}: file received` : `${attr.key}: ${attr.value}`,
       ),

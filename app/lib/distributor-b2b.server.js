@@ -2,7 +2,8 @@
  * Service to handle B2B Customer & Company creation upon distributor approval.
  */
 
-import { internationalPhone } from "./address-formats.server";
+import { addressFormatFor, internationalPhone } from "./address-formats.server";
+import { ADDRESS_FORMATS } from "./address-formats.data";
 
 export const COMPANY_CREATE_MUTATION = `#graphql
 mutation CompanyCreate($input: CompanyCreateInput!) {
@@ -205,28 +206,17 @@ mutation SetMainContact($companyId: ID!, $companyContactId: ID!) {
 }`;
 
 /**
- * Country name to ISO code.
+ * Country name to ISO code, for every country Shopify ships to (HYV-221).
  *
- * The application form collects a country as free text, and Shopify's address
- * input only accepts a two-letter code. This used to be hardcoded to SG, so
- * every distributor's address landed in Singapore whatever they typed.
+ * The form saves the country by name ("Hong Kong") and Shopify's address input
+ * only takes a code. A country it doesn't know gets no code, so no address is
+ * sent: it used to become Singapore, which put a French applicant's company in
+ * Singapore and SGD.
  */
-const COUNTRY_NAMES = [
-  ["singapore", "SG"], ["malaysia", "MY"], ["hong kong", "HK"],
-  ["philippines", "PH"], ["thailand", "TH"], ["indonesia", "ID"],
-  ["vietnam", "VN"], ["australia", "AU"], ["new zealand", "NZ"],
-  ["united states", "US"], ["united kingdom", "GB"], ["china", "CN"],
-  ["taiwan", "TW"], ["japan", "JP"], ["korea", "KR"], ["india", "IN"],
-];
+const COUNTRY_NAMES = Object.keys(ADDRESS_FORMATS).map((name) => name.toLowerCase());
 
 export function toCountryCode(country) {
-  const raw = String(country || "").trim();
-  if (!raw) return "SG";
-  if (/^[a-zA-Z]{2}$/.test(raw)) return raw.toUpperCase();
-
-  const c = raw.toLowerCase();
-  const hit = COUNTRY_NAMES.find(([name]) => c.includes(name));
-  return hit ? hit[1] : "SG";
+  return addressFormatFor(country)?.code || "";
 }
 
 /**
@@ -237,7 +227,7 @@ export function toCountryCode(country) {
  * former, and sending a field it doesn't have makes Shopify reject the whole
  * request rather than just that field.
  */
-export function parseAddressDetails(addressInput, fallbackCountry = "Singapore") {
+export function parseAddressDetails(addressInput, fallbackCountry = "") {
   if (!addressInput) return null;
 
   if (typeof addressInput === "object") {
@@ -254,13 +244,18 @@ export function parseAddressDetails(addressInput, fallbackCountry = "Singapore")
         ? rawZone.toUpperCase()
         : undefined;
 
+    const countryCode = toCountryCode(addressInput.countryCode || addressInput.country || fallbackCountry);
+    if (!countryCode) return null;
+    // Singapore's address has no city field, so Shopify's is filled with it.
+    const city = String(addressInput.city || "").trim() || (countryCode === "SG" ? "Singapore" : "");
+
     return {
       address1: address1.substring(0, 250),
       ...(addressInput.address2 ? { address2: String(addressInput.address2).trim().substring(0, 250) } : {}),
-      city: String(addressInput.city || "").trim() || "Singapore",
+      ...(city ? { city } : {}),
       ...(zoneCode ? { zoneCode } : {}),
       ...(addressInput.zip ? { zip: String(addressInput.zip).trim() } : {}),
-      countryCode: toCountryCode(addressInput.countryCode || addressInput.country || fallbackCountry),
+      countryCode,
     };
   }
 
@@ -277,6 +272,7 @@ export function parseAddressDetails(addressInput, fallbackCountry = "Singapore")
   }
 
   const countryCode = toCountryCode(fallbackCountry);
+  if (!countryCode) return null;
   const zip = raw.match(/\b\d{5,6}\b/);
   const parts = raw.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
   if (!parts.length) return null;
@@ -286,7 +282,7 @@ export function parseAddressDetails(addressInput, fallbackCountry = "Singapore")
   // city. A country name is skipped too, except in Singapore and Hong Kong,
   // where the country is the city.
   const CITY_STATES = ["SG", "HK"];
-  const isCountryName = (part) => COUNTRY_NAMES.some(([name]) => part.toLowerCase() === name);
+  const isCountryName = (part) => COUNTRY_NAMES.includes(part.toLowerCase());
   let city = "";
   for (const part of parts.slice(1).reverse()) {
     const text = part.replace(/\b\d{5,6}\b/, "").trim();
@@ -295,11 +291,11 @@ export function parseAddressDetails(addressInput, fallbackCountry = "Singapore")
     city = text;
     break;
   }
-  city = city || "Singapore";
+  city = city || (countryCode === "SG" ? "Singapore" : "");
 
   return {
     address1: (parts[0] || raw).substring(0, 250),
-    city,
+    ...(city ? { city } : {}),
     countryCode,
     ...(zip ? { zip: zip[0] } : {}),
   };
@@ -514,6 +510,11 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
       ? null
       : (application.registered_address || "").trim();
   const address = addressAsText(addressSource);
+  // The form captures the address as one block, so it's parsed into the fields
+  // Shopify's address input actually wants.
+  const shippingAddressInput = parseAddressDetails(addressSource, country);
+  // The applicant's country, for their customer address too (HYV-221).
+  const countryCode = shippingAddressInput?.countryCode || toCountryCode(country);
   const expectedVolume = (application.expected_annual_volume || "").trim();
   const requestCredit =
     application.request_credit === "true" || application.request_credit === true;
@@ -533,7 +534,7 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
   // International form (+85245346363), which Shopify asks for on addresses;
   // applicants usually type the local number.
   // Dialled from the address's country, which staff may have corrected.
-  const cleanPhone = internationalPhone(phone, options.shippingAddress?.countryCode || country);
+  const cleanPhone = internationalPhone(phone, options.shippingAddress?.countryCode || countryCode);
   const distributorTags = ["b2b", "distributor", "wholesale"];
 
   let customerGid = null;
@@ -667,7 +668,7 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
           {
             address1: (address || "Business Address").substring(0, 250),
             company: companyName,
-            country: country || "Singapore",
+            ...(countryCode ? { countryCode } : {}),
             firstName,
             lastName,
           },
@@ -763,9 +764,6 @@ export async function approveAndCreateB2BCustomer(admin, application, options = 
   // Why the applicant couldn't be added to the company, when they weren't.
   let contactError = null;
   let assignRefusal = null;
-  // The form captures the address as one block, so it's parsed into the fields
-  // Shopify's address input actually wants.
-  const shippingAddressInput = parseAddressDetails(addressSource, country);
 
   try {
     if (options.linkCompanyId && options.linkCompanyId !== "new") {

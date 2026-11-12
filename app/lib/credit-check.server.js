@@ -8,8 +8,9 @@
  * Everything else goes straight through. Customers without terms pay at
  * checkout and never reach a hold.
  *
- * Staff set the limit on the company location in Shopify admin ("Credit limit
- * (USD)"). No limit set means only the overdue rule applies.
+ * Staff can set a limit on the company location in Shopify admin ("Credit
+ * limit (USD)"). A location without one uses the standard credit limit in
+ * Hyve Custom > Commercial Settings (HYV-219, USD 20,000).
  *
  * The app keeps two figures on each location, refreshed when an order is placed,
  * paid or cancelled, and every morning (so a balance that falls overdue is
@@ -30,7 +31,7 @@ const DEFINITIONS = [
     name: "Credit limit (USD)",
     type: "number_decimal",
     pin: true,
-    description: "Orders that take the unpaid balance above this are held for credit review. Blank: only an overdue balance holds an order (HYV-198).",
+    description: "Orders that take the unpaid balance above this are held for credit review. Blank: the standard credit limit in Hyve Custom > Commercial Settings applies.",
   },
   {
     key: "credit_available",
@@ -51,7 +52,7 @@ const DEFINITIONS = [
 const DEFINITIONS_QUERY = `#graphql
   query CreditDefinitions {
     metafieldDefinitions(first: 50, ownerType: COMPANY_LOCATION, namespace: "${NAMESPACE}") {
-      nodes { key type { name } }
+      nodes { key description }
     }
   }`;
 
@@ -65,6 +66,7 @@ const DEFINITION_CREATE = `#graphql
 
 const LOCATION_QUERY = `#graphql
   query CreditLocation($id: ID!, $after: String) {
+    shop { standardLimit: metafield(namespace: "${NAMESPACE}", key: "standard_credit_limit") { value } }
     companyLocation(id: $id) {
       id
       limit: metafield(namespace: "${NAMESPACE}", key: "credit_limit") { value }
@@ -94,17 +96,41 @@ const REVIEW_OFF = `#graphql
     }
   }`;
 
+const DEFINITION_UPDATE = `#graphql
+  mutation CreditDefinitionUpdate($definition: MetafieldDefinitionUpdateInput!) {
+    metafieldDefinitionUpdate(definition: $definition) {
+      updatedDefinition { id }
+      userErrors { field message }
+    }
+  }`;
+
 async function run(admin, query, variables) {
   const body = await (await admin.graphql(query, variables ? { variables } : undefined)).json();
   if (body?.errors?.length) throw new Error(body.errors.map((e) => e.message).join(", "));
   return body?.data;
 }
 
-/** Creates the three location fields if they're missing. Storefront read lets checkout see them. */
+/**
+ * Creates the three location fields if they're missing, and brings an existing
+ * field's description up to date, as staff read it under the field in Shopify
+ * admin. Storefront read lets checkout see them.
+ */
 export async function ensureCreditDefinitions(admin) {
-  const existing = new Set(((await run(admin, DEFINITIONS_QUERY))?.metafieldDefinitions?.nodes || []).map((d) => d.key));
+  const existing = new Map(
+    ((await run(admin, DEFINITIONS_QUERY))?.metafieldDefinitions?.nodes || []).map((d) => [d.key, d.description || ""]),
+  );
   for (const d of DEFINITIONS) {
-    if (existing.has(d.key)) continue;
+    if (existing.has(d.key)) {
+      if (existing.get(d.key) === d.description) continue;
+      const updated = (
+        await run(admin, DEFINITION_UPDATE, {
+          definition: { namespace: NAMESPACE, key: d.key, ownerType: "COMPANY_LOCATION", description: d.description },
+        })
+      )?.metafieldDefinitionUpdate;
+      const updateError = updated?.userErrors?.[0];
+      if (updateError) throw new Error(`${d.name}: ${updateError.message}`);
+      continue;
+    }
     const result = (
       await run(admin, DEFINITION_CREATE, {
         definition: {
@@ -128,17 +154,21 @@ const UNPAID = new Set(["PENDING", "PARTIALLY_PAID", "AUTHORIZED", "PARTIALLY_RE
 
 /**
  * The location's unpaid balance and whether any of it is overdue, from its own
- * orders. A cancelled order owes nothing.
- * @returns {{limit: number|null, outstanding: number, overdue: boolean, terms: boolean, review: boolean}}
+ * orders. A cancelled order owes nothing. The limit is the location's own, or
+ * the standard credit limit when it has none (`standard` says which).
+ * @returns {{limit: number|null, standard: boolean, outstanding: number, overdue: boolean, terms: boolean, review: boolean}}
  */
 export async function creditPosition(admin, locationGid, now = new Date()) {
   let after = null;
   let location = null;
+  let standardRaw = null;
   let outstanding = 0;
   let overdue = false;
   do {
-    location = (await run(admin, LOCATION_QUERY, { id: locationGid, after }))?.companyLocation;
+    const data = await run(admin, LOCATION_QUERY, { id: locationGid, after });
+    location = data?.companyLocation;
     if (!location) return null;
+    standardRaw = data?.shop?.standardLimit?.value;
     for (const order of location.orders?.nodes || []) {
       if (order.cancelledAt || !UNPAID.has(order.displayFinancialStatus)) continue;
       const owed = Number(order.totalOutstandingSet?.shopMoney?.amount) || 0;
@@ -152,10 +182,12 @@ export async function creditPosition(admin, locationGid, now = new Date()) {
     after = location.orders?.pageInfo?.hasNextPage ? location.orders.pageInfo.endCursor : null;
   } while (after);
 
-  const raw = location.limit?.value;
-  const limit = raw != null && raw !== "" && Number.isFinite(Number(raw)) ? Number(raw) : null;
+  const amount = (raw) => (raw != null && raw !== "" && Number.isFinite(Number(raw)) ? Number(raw) : null);
+  const own = amount(location.limit?.value);
+  const limit = own ?? amount(standardRaw);
   return {
     limit,
+    standard: own == null && limit != null,
     outstanding: Math.round(outstanding * 100) / 100,
     overdue,
     terms: Boolean(location.buyerExperienceConfiguration?.paymentTermsTemplate?.id),
@@ -192,7 +224,7 @@ export async function refreshLocationCredit(admin, locationGid) {
     detail:
       position.limit == null
         ? `No credit limit; ${position.overdue ? "overdue balance" : "nothing overdue"}.`
-        : `USD ${(position.limit - position.outstanding).toFixed(2)} of ${position.limit.toFixed(2)} available${position.overdue ? ", overdue balance" : ""}.`,
+        : `USD ${(position.limit - position.outstanding).toFixed(2)} of ${position.limit.toFixed(2)}${position.standard ? " (standard limit)" : ""} available${position.overdue ? ", overdue balance" : ""}.`,
   };
 }
 

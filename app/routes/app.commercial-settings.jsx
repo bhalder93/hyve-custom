@@ -6,6 +6,12 @@ import {
   loadCommercialSettings,
   saveCommercialSettings,
 } from "../lib/commercial-settings.server";
+import { getAllDistributorApplications } from "../lib/distributor-metaobject.server";
+import {
+  ensureCreditDefinitions,
+  forEachDistributorLocation,
+  refreshLocationCredit,
+} from "../lib/credit-check.server";
 
 /**
  * Commercial settings, set by Hyve staff without a release: the setup charge
@@ -14,7 +20,8 @@ import {
  * the standard and rush production times (HYV-133), which the product page,
  * cart and quote promise and every production due date is counted from; and
  * the artwork deadline (HYV-102), the "by" date on an order waiting for artwork;
- * and the countries retail orders ship to without duties included (HYV-200).
+ * and the countries retail orders ship to without duties included (HYV-200);
+ * and the standard credit limit for distributors on terms (HYV-219).
  */
 
 export const loader = async ({ request }) => {
@@ -41,7 +48,31 @@ export const action = async ({ request }) => {
     COMMERCIAL_SETTINGS.map((setting) => [setting.key, String(form.get(setting.key) ?? "")]),
   );
   try {
-    return await saveCommercialSettings(admin, values);
+    const saved = await saveCommercialSettings(admin, values);
+    if (!saved.ok) return saved;
+    // Checkout reads each location's credit still available, so every
+    // distributor location is refreshed against the standard limit now,
+    // not at the next order or the morning refresh.
+    try {
+      await ensureCreditDefinitions(admin);
+      const applications = await getAllDistributorApplications(admin);
+      const credit = await forEachDistributorLocation(
+        admin,
+        applications.map((application) => application.company_id),
+        refreshLocationCredit,
+      );
+      return {
+        ok: true,
+        creditFailed: credit.failed.length
+          ? `Saved, but the credit limit couldn't be applied to ${credit.failed.length} location${credit.failed.length === 1 ? "" : "s"}: ${credit.failed.join("; ")}. It's applied at their next order or the morning refresh.`
+          : null,
+      };
+    } catch (creditError) {
+      return {
+        ok: true,
+        creditFailed: `Saved, but the credit limit couldn't be applied yet: ${creditError?.message || creditError}. It's applied at each location's next order or the morning refresh.`,
+      };
+    }
   } catch (error) {
     return { ok: false, error: error?.message || String(error) };
   }
@@ -103,6 +134,11 @@ export default function CommercialSettings() {
           <s-paragraph>{fetcher.data.error}</s-paragraph>
         </s-banner>
       ) : null}
+      {fetcher.data?.ok && fetcher.data.creditFailed ? (
+        <s-banner tone="warning" heading="Credit limit not applied everywhere">
+          <s-paragraph>{fetcher.data.creditFailed}</s-paragraph>
+        </s-banner>
+      ) : null}
 
       <s-section heading="Order thresholds">
         <s-stack direction="block" gap="base">
@@ -157,6 +193,18 @@ export default function CommercialSettings() {
               }
             />
           ))}
+        </s-stack>
+      </s-section>
+
+      <s-section heading="Credit">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>
+            For distributors on payment terms. Saving applies it to every distributor location straight away. To give
+            one distributor a different limit, set Credit limit (USD) on its company location in Shopify admin.
+          </s-paragraph>
+          {inSection("credit").map((setting) =>
+            field(setting, { label: `${setting.name} (${currency})`, min: 0, step: 0.01, inputMode: "decimal" }),
+          )}
         </s-stack>
       </s-section>
     </s-page>

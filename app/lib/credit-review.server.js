@@ -30,9 +30,19 @@
  * goes straight through. Locations still on "submit orders for review" keep
  * their drafts until the Distributors page moves them to these rules.
  */
-import { DRAFT_ORIGIN_FIELDS, submittedForReview } from "./account-quotes.server";
-import { formatDate, formatMoney } from "./portal.server";
-import { SOURCES, productionStatusOf, writeProductionStatus } from "./order-status.server";
+import { formatDate, formatMoney } from "./portal.server.js";
+import { SOURCES, productionStatusOf, writeProductionStatus } from "./order-status.server.js";
+
+export const DRAFT_ORIGIN_FIELDS = `
+  createdEvent: events(first: 1, query: "action:create") {
+    nodes { ... on BasicEvent { author attributeToUser attributeToApp } }
+  }
+  purchasingEntity { ... on PurchasingCompany { company { id } } }`;
+
+export function submittedForReview(node) {
+  const event = node?.createdEvent?.nodes?.[0] || null;
+  return Boolean(event) && !event.attributeToUser && !event.attributeToApp;
+}
 
 export const CREDIT_DECLINED_TAG = "credit-declined";
 /** On an order held for credit review: over the credit limit, an overdue balance, or a cart quote's link. */
@@ -380,10 +390,8 @@ async function declineHeldOrder(admin, orderGid, why) {
     problems.push(`tags not updated (${error?.message || error})`);
   }
 
-  const row = reviewRow(order);
-  const emailed = await emailDecline(row, why);
   if (problems.length) console.error("[credit-review] decline after cancel", order.name, problems.join("; "));
-  return { ok: true, emailed, warning: problems.length ? `Cancelled, but ${problems.join(" and ")}.` : "" };
+  return { ok: true, emailed: false, warning: problems.length ? `Cancelled, but ${problems.join(" and ")}.` : "" };
 }
 
 export async function loadReviewDraft(admin, draftGid) {
@@ -435,8 +443,8 @@ export async function approveCreditReview(admin, draftGid) {
 }
 
 /**
- * Declines the order with a reason and tells the buyer. The draft stays, so
- * the buyer's Orders can show why.
+ * Declines the order with a reason. No email goes to the customer.
+ * The draft or order stays, so the buyer's Orders can show the reason.
  * @returns {Promise<{ok:boolean, error?:string, emailed?:boolean}>}
  */
 export async function declineCreditReview(admin, draftGid, reason) {
@@ -456,25 +464,14 @@ export async function declineCreditReview(admin, draftGid, reason) {
   const error = data?.tagsAdd?.userErrors?.[0]?.message || data?.metafieldsSet?.userErrors?.[0]?.message;
   if (error) return { ok: false, error };
 
-  const emailed = await emailDecline(reviewRow(draft), why);
-  return { ok: true, emailed };
+  return { ok: true, emailed: false };
 }
 
-/** The buyer's "not approved" email, with the reason. */
+/**
+ * The buyer's "not approved" email is disabled: no Credit Review decline email goes to the customer.
+ */
 async function emailDecline(row, why) {
-  const { escapeHtml } = await import("../utils/email.server");
-  return emailBuyer(row, {
-    title: "Order Not Approved",
-    subject: `Your order${row.buyerReference ? ` ${row.buyerReference}` : ""} was not approved`,
-    body: `We couldn't approve your order on ${escapeHtml(row.terms || "payment terms")}${row.kind === "order" ? ", so it has been cancelled" : ""
-      }.<br /><br /><strong>Reason:</strong> ${escapeHtml(why).replace(/\n/g, "<br />")}<br /><br />Please contact your account manager${row.salesRepEmail ? ` at ${escapeHtml(row.salesRepEmail)}` : ""} to arrange another way to pay.`,
-    details: [
-      ...(row.kind === "order" ? [["Order", row.name]] : []),
-      ["Submitted", formatDate(row.submittedAt) || "—"],
-      ["Total", row.total],
-      ["PO number", row.poNumber || "—"],
-    ],
-  });
+  return false;
 }
 
 /** How far back the safety net looks: older drafts were in the queue already. */

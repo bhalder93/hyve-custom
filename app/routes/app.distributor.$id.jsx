@@ -135,34 +135,16 @@ function normalizeRegisteredAddress(application) {
   };
 }
 
-function countryToCode(country, fallback = "SG") {
+// A country's Shopify code from its name ("Hong Kong") or code ("HK"), for
+// every country Shopify ships to (HYV-221). An unknown country has no code,
+// not Singapore's: that stand-in put a French applicant in Singapore and SGD.
+const COUNTRY_CODE_BY_NAME = new Map(
+  Object.entries(ADDRESS_FORMATS).map(([name, format]) => [name.toLowerCase(), format.code]),
+);
+function countryToCode(country) {
   const value = String(country || "").trim();
-
-  if (/^[A-Za-z]{2}$/.test(value)) {
-    return value.toUpperCase();
-  }
-
-  const countryCodes = {
-    singapore: "SG",
-    malaysia: "MY",
-    "hong kong": "HK",
-    philippines: "PH",
-    thailand: "TH",
-    indonesia: "ID",
-    vietnam: "VN",
-    china: "CN",
-    india: "IN",
-    japan: "JP",
-    taiwan: "TW",
-    australia: "AU",
-    "new zealand": "NZ",
-    "united states": "US",
-    usa: "US",
-    "united kingdom": "GB",
-    uk: "GB",
-  };
-
-  return countryCodes[value.toLowerCase()] || fallback || "";
+  if (/^[A-Za-z]{2}$/.test(value)) return value.toUpperCase();
+  return COUNTRY_CODE_BY_NAME.get(value.toLowerCase()) || "";
 }
 
 function formatRegisteredAddress(address) {
@@ -667,10 +649,8 @@ export const loader = async ({ request, params }) => {
 
   const addressDetails = normalizeRegisteredAddress(application);
 
-  addressDetails.countryCode = countryToCode(
-    addressDetails.country,
-    countryToCode(application?.country_based, "SG"),
-  );
+  addressDetails.countryCode =
+    countryToCode(addressDetails.country) || countryToCode(application?.country_based);
 
   return {
 
@@ -909,7 +889,7 @@ export const action = async ({ request, params }) => {
       // The contact's name and phone go on it too, as at approval; they were
       // left off, so the portal's Edit Address opened with them blank. A
       // phone Shopify wouldn't take is left off rather than losing the address.
-      const countryCode = input.countryCode || countryToCode(application.country_based, "SG");
+      const countryCode = input.countryCode || countryToCode(application.country_based);
       const phone = internationalPhone(address.phone || application.contact_phone, countryCode);
       const [firstName, ...rest] = String(application.contact_person || "").trim().split(/\s+/);
       const saved = await assignLocationAddress(admin, location.id, {
@@ -1436,7 +1416,7 @@ export const action = async ({ request, params }) => {
         salesRepPhone: salesRepPhone || null,
 
         taxRegistrationNumber: application?.tax_registration_number || null,
-        fallbackCountry: shippingCountryCode || shippingCountry || application?.country_based || "SG",
+        fallbackCountry: shippingCountryCode || shippingCountry || application?.country_based || "",
 
       });
 
@@ -2268,7 +2248,7 @@ export default function DistributorDetailPage() {
 
   const [shippingCountryCode, setShippingCountryCode] = useState(
     addressDetails?.countryCode ||
-      countryToCode(addressDetails?.country || application?.country_based, "SG"),
+      countryToCode(addressDetails?.country || application?.country_based),
   );
 
   // The country's address layout from Shopify's data: by name, else by code.

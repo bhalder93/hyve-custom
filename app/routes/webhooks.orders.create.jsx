@@ -12,6 +12,7 @@ import { holdOrderForCreditReview } from "../lib/credit-review.server";
 import { CREDIT_REVIEW_ATTRIBUTE, orderLocationGid, refreshLocationCredit } from "../lib/credit-check.server";
 import { holdUntilPaid, recordOrderDeposit } from "../lib/deposit.server";
 import { productionCalendar, productionDueDate } from "../lib/order-status.server";
+import { isBlankOrder } from "../lib/blank-order";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Constants                                 */
@@ -119,37 +120,6 @@ function hasTruthyAttribute(lineItem, attributeKey) {
   const value = normalize(attribute.value);
 
   return ["yes", "true", "1", "y"].includes(value);
-}
-
-/* -------------------------------------------------------------------------- */
-/*                              Blank order rule                              */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Business rule:
- *
- * If EVERY line item has zero customAttributes,
- * the order is a blank order.
- *
- * Blank orders:
- * - are not production orders
- * - do not get hyve-status:order-placed
- * - do not get production_status
- * - do not get status_changed_at
- * - do not get production status history
- * - should not appear in Production Orders
- * - should not be processed by SLA
- */
-function isBlankOrder(lineItems) {
-  if (!Array.isArray(lineItems) || lineItems.length === 0) {
-    return true;
-  }
-
-  // A blank order has no "Artwork" attribute on any line item.
-  return lineItems.every((lineItem) => {
-    const attr = getAttribute(lineItem, "Artwork");
-    return !(attr && attr.value && attr.value.trim());
-  });
 }
 
 /* -------------------------------------------------------------------------- */

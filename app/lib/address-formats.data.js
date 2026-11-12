@@ -1192,5 +1192,9583 @@ export const ADDRESS_FORMATS = {
         "code": "ZJ"
       }
     ]
+  },
+  "Afghanistan": {
+    "code": "AF",
+    "phonePrefix": 93,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Åland Islands": {
+    "code": "AX",
+    "phonePrefix": 358,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Albania": {
+    "code": "AL",
+    "phonePrefix": 355,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Algeria": {
+    "code": "DZ",
+    "phonePrefix": 213,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Andorra": {
+    "code": "AD",
+    "phonePrefix": 376,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Angola": {
+    "code": "AO",
+    "phonePrefix": 244,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Anguilla": {
+    "code": "AI",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Antigua & Barbuda": {
+    "code": "AG",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Argentina": {
+    "code": "AR",
+    "phonePrefix": 54,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city",
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Province",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Buenos Aires Province",
+        "code": "B"
+      },
+      {
+        "name": "Catamarca",
+        "code": "K"
+      },
+      {
+        "name": "Chaco",
+        "code": "H"
+      },
+      {
+        "name": "Chubut",
+        "code": "U"
+      },
+      {
+        "name": "Buenos Aires (Autonomous City)",
+        "code": "C"
+      },
+      {
+        "name": "Córdoba",
+        "code": "X"
+      },
+      {
+        "name": "Corrientes",
+        "code": "W"
+      },
+      {
+        "name": "Entre Ríos",
+        "code": "E"
+      },
+      {
+        "name": "Formosa",
+        "code": "P"
+      },
+      {
+        "name": "Jujuy",
+        "code": "Y"
+      },
+      {
+        "name": "La Pampa",
+        "code": "L"
+      },
+      {
+        "name": "La Rioja",
+        "code": "F"
+      },
+      {
+        "name": "Mendoza",
+        "code": "M"
+      },
+      {
+        "name": "Misiones",
+        "code": "N"
+      },
+      {
+        "name": "Neuquén",
+        "code": "Q"
+      },
+      {
+        "name": "Río Negro",
+        "code": "R"
+      },
+      {
+        "name": "Salta",
+        "code": "A"
+      },
+      {
+        "name": "San Juan",
+        "code": "J"
+      },
+      {
+        "name": "San Luis",
+        "code": "D"
+      },
+      {
+        "name": "Santa Cruz",
+        "code": "Z"
+      },
+      {
+        "name": "Santa Fe",
+        "code": "S"
+      },
+      {
+        "name": "Santiago del Estero",
+        "code": "G"
+      },
+      {
+        "name": "Tierra del Fuego",
+        "code": "V"
+      },
+      {
+        "name": "Tucumán",
+        "code": "T"
+      }
+    ]
+  },
+  "Armenia": {
+    "code": "AM",
+    "phonePrefix": 374,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Aruba": {
+    "code": "AW",
+    "phonePrefix": 297,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Ascension Island": {
+    "code": "AC",
+    "phonePrefix": 247,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Australia": {
+    "code": "AU",
+    "phonePrefix": 61,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "Suburb",
+      "province": "State/territory",
+      "zip": "Postcode"
+    },
+    "zones": [
+      {
+        "name": "Australian Capital Territory",
+        "code": "ACT"
+      },
+      {
+        "name": "New South Wales",
+        "code": "NSW"
+      },
+      {
+        "name": "Northern Territory",
+        "code": "NT"
+      },
+      {
+        "name": "Queensland",
+        "code": "QLD"
+      },
+      {
+        "name": "South Australia",
+        "code": "SA"
+      },
+      {
+        "name": "Tasmania",
+        "code": "TAS"
+      },
+      {
+        "name": "Victoria",
+        "code": "VIC"
+      },
+      {
+        "name": "Western Australia",
+        "code": "WA"
+      }
+    ]
+  },
+  "Austria": {
+    "code": "AT",
+    "phonePrefix": 43,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Street and house number",
+      "address2": "Additional address",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Azerbaijan": {
+    "code": "AZ",
+    "phonePrefix": 994,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Bahamas": {
+    "code": "BS",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Bahrain": {
+    "code": "BH",
+    "phonePrefix": 973,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Bangladesh": {
+    "code": "BD",
+    "phonePrefix": 880,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Barbados": {
+    "code": "BB",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Belarus": {
+    "code": "BY",
+    "phonePrefix": 375,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Belgium": {
+    "code": "BE",
+    "phonePrefix": 32,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Belize": {
+    "code": "BZ",
+    "phonePrefix": 501,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Benin": {
+    "code": "BJ",
+    "phonePrefix": 229,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Bermuda": {
+    "code": "BM",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Bhutan": {
+    "code": "BT",
+    "phonePrefix": 975,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Bolivia": {
+    "code": "BO",
+    "phonePrefix": 591,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Bosnia & Herzegovina": {
+    "code": "BA",
+    "phonePrefix": 387,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Botswana": {
+    "code": "BW",
+    "phonePrefix": 267,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Brazil": {
+    "code": "BR",
+    "phonePrefix": 55,
+    "rows": [
+      [
+        "zip"
+      ],
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Street and house number",
+      "address2": "Apartment, suite, etc",
+      "barangay": "Neighborhood",
+      "city": "City",
+      "province": "State",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Acre",
+        "code": "AC"
+      },
+      {
+        "name": "Alagoas",
+        "code": "AL"
+      },
+      {
+        "name": "Amapá",
+        "code": "AP"
+      },
+      {
+        "name": "Amazonas",
+        "code": "AM"
+      },
+      {
+        "name": "Bahia",
+        "code": "BA"
+      },
+      {
+        "name": "Ceará",
+        "code": "CE"
+      },
+      {
+        "name": "Federal District",
+        "code": "DF"
+      },
+      {
+        "name": "Espírito Santo",
+        "code": "ES"
+      },
+      {
+        "name": "Goiás",
+        "code": "GO"
+      },
+      {
+        "name": "Maranhão",
+        "code": "MA"
+      },
+      {
+        "name": "Mato Grosso",
+        "code": "MT"
+      },
+      {
+        "name": "Mato Grosso do Sul",
+        "code": "MS"
+      },
+      {
+        "name": "Minas Gerais",
+        "code": "MG"
+      },
+      {
+        "name": "Pará",
+        "code": "PA"
+      },
+      {
+        "name": "Paraíba",
+        "code": "PB"
+      },
+      {
+        "name": "Paraná",
+        "code": "PR"
+      },
+      {
+        "name": "Pernambuco",
+        "code": "PE"
+      },
+      {
+        "name": "Piauí",
+        "code": "PI"
+      },
+      {
+        "name": "Rio Grande do Norte",
+        "code": "RN"
+      },
+      {
+        "name": "Rio Grande do Sul",
+        "code": "RS"
+      },
+      {
+        "name": "Rio de Janeiro",
+        "code": "RJ"
+      },
+      {
+        "name": "Rondônia",
+        "code": "RO"
+      },
+      {
+        "name": "Roraima",
+        "code": "RR"
+      },
+      {
+        "name": "Santa Catarina",
+        "code": "SC"
+      },
+      {
+        "name": "São Paulo",
+        "code": "SP"
+      },
+      {
+        "name": "Sergipe",
+        "code": "SE"
+      },
+      {
+        "name": "Tocantins",
+        "code": "TO"
+      }
+    ]
+  },
+  "British Indian Ocean Territory": {
+    "code": "IO",
+    "phonePrefix": 246,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "British Virgin Islands": {
+    "code": "VG",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Brunei": {
+    "code": "BN",
+    "phonePrefix": 673,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Bulgaria": {
+    "code": "BG",
+    "phonePrefix": 359,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Burkina Faso": {
+    "code": "BF",
+    "phonePrefix": 226,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Burundi": {
+    "code": "BI",
+    "phonePrefix": 257,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Cambodia": {
+    "code": "KH",
+    "phonePrefix": 855,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Cameroon": {
+    "code": "CM",
+    "phonePrefix": 237,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Canada": {
+    "code": "CA",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Province",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Alberta",
+        "code": "AB"
+      },
+      {
+        "name": "British Columbia",
+        "code": "BC"
+      },
+      {
+        "name": "Manitoba",
+        "code": "MB"
+      },
+      {
+        "name": "New Brunswick",
+        "code": "NB"
+      },
+      {
+        "name": "Newfoundland and Labrador",
+        "code": "NL"
+      },
+      {
+        "name": "Northwest Territories",
+        "code": "NT"
+      },
+      {
+        "name": "Nova Scotia",
+        "code": "NS"
+      },
+      {
+        "name": "Nunavut",
+        "code": "NU"
+      },
+      {
+        "name": "Ontario",
+        "code": "ON"
+      },
+      {
+        "name": "Prince Edward Island",
+        "code": "PE"
+      },
+      {
+        "name": "Quebec",
+        "code": "QC"
+      },
+      {
+        "name": "Saskatchewan",
+        "code": "SK"
+      },
+      {
+        "name": "Yukon",
+        "code": "YT"
+      }
+    ]
+  },
+  "Cape Verde": {
+    "code": "CV",
+    "phonePrefix": 238,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Caribbean Netherlands": {
+    "code": "BQ",
+    "phonePrefix": 599,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Cayman Islands": {
+    "code": "KY",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Central African Republic": {
+    "code": "CF",
+    "phonePrefix": 236,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Chad": {
+    "code": "TD",
+    "phonePrefix": 235,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Chile": {
+    "code": "CL",
+    "phonePrefix": 56,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ],
+      [
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Arica y Parinacota",
+        "code": "AP"
+      },
+      {
+        "name": "Tarapacá",
+        "code": "TA"
+      },
+      {
+        "name": "Antofagasta",
+        "code": "AN"
+      },
+      {
+        "name": "Atacama",
+        "code": "AT"
+      },
+      {
+        "name": "Coquimbo",
+        "code": "CO"
+      },
+      {
+        "name": "Valparaíso",
+        "code": "VS"
+      },
+      {
+        "name": "Santiago Metropolitan",
+        "code": "RM"
+      },
+      {
+        "name": "Libertador General Bernardo O’Higgins",
+        "code": "LI"
+      },
+      {
+        "name": "Maule",
+        "code": "ML"
+      },
+      {
+        "name": "Ñuble",
+        "code": "NB"
+      },
+      {
+        "name": "Bío Bío",
+        "code": "BI"
+      },
+      {
+        "name": "Araucanía",
+        "code": "AR"
+      },
+      {
+        "name": "Los Ríos",
+        "code": "LR"
+      },
+      {
+        "name": "Los Lagos",
+        "code": "LL"
+      },
+      {
+        "name": "Aysén",
+        "code": "AI"
+      },
+      {
+        "name": "Magallanes Region",
+        "code": "MA"
+      }
+    ]
+  },
+  "Christmas Island": {
+    "code": "CX",
+    "phonePrefix": 61,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Cocos (Keeling) Islands": {
+    "code": "CC",
+    "phonePrefix": 891,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Colombia": {
+    "code": "CO",
+    "phonePrefix": 57,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": "District",
+      "city": "City",
+      "province": "Province",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Capital District",
+        "code": "DC"
+      },
+      {
+        "name": "Amazonas",
+        "code": "AMA"
+      },
+      {
+        "name": "Antioquia",
+        "code": "ANT"
+      },
+      {
+        "name": "Arauca",
+        "code": "ARA"
+      },
+      {
+        "name": "Atlántico",
+        "code": "ATL"
+      },
+      {
+        "name": "Bolívar",
+        "code": "BOL"
+      },
+      {
+        "name": "Boyacá",
+        "code": "BOY"
+      },
+      {
+        "name": "Caldas",
+        "code": "CAL"
+      },
+      {
+        "name": "Caquetá",
+        "code": "CAQ"
+      },
+      {
+        "name": "Casanare",
+        "code": "CAS"
+      },
+      {
+        "name": "Cauca",
+        "code": "CAU"
+      },
+      {
+        "name": "Cesar",
+        "code": "CES"
+      },
+      {
+        "name": "Chocó",
+        "code": "CHO"
+      },
+      {
+        "name": "Córdoba",
+        "code": "COR"
+      },
+      {
+        "name": "Cundinamarca",
+        "code": "CUN"
+      },
+      {
+        "name": "Guainía",
+        "code": "GUA"
+      },
+      {
+        "name": "Guaviare",
+        "code": "GUV"
+      },
+      {
+        "name": "Huila",
+        "code": "HUI"
+      },
+      {
+        "name": "La Guajira",
+        "code": "LAG"
+      },
+      {
+        "name": "Magdalena",
+        "code": "MAG"
+      },
+      {
+        "name": "Meta",
+        "code": "MET"
+      },
+      {
+        "name": "Nariño",
+        "code": "NAR"
+      },
+      {
+        "name": "Norte de Santander",
+        "code": "NSA"
+      },
+      {
+        "name": "Putumayo",
+        "code": "PUT"
+      },
+      {
+        "name": "Quindío",
+        "code": "QUI"
+      },
+      {
+        "name": "Risaralda",
+        "code": "RIS"
+      },
+      {
+        "name": "San Andrés & Providencia",
+        "code": "SAP"
+      },
+      {
+        "name": "Santander",
+        "code": "SAN"
+      },
+      {
+        "name": "Sucre",
+        "code": "SUC"
+      },
+      {
+        "name": "Tolima",
+        "code": "TOL"
+      },
+      {
+        "name": "Valle del Cauca",
+        "code": "VAC"
+      },
+      {
+        "name": "Vaupés",
+        "code": "VAU"
+      },
+      {
+        "name": "Vichada",
+        "code": "VID"
+      }
+    ]
+  },
+  "Comoros": {
+    "code": "KM",
+    "phonePrefix": 269,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Congo - Brazzaville": {
+    "code": "CG",
+    "phonePrefix": 242,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Congo - Kinshasa": {
+    "code": "CD",
+    "phonePrefix": 243,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Cook Islands": {
+    "code": "CK",
+    "phonePrefix": 682,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Costa Rica": {
+    "code": "CR",
+    "phonePrefix": 506,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "province",
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": "District",
+      "city": "City",
+      "province": "Province",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Alajuela",
+        "code": "CR-A"
+      },
+      {
+        "name": "Cartago",
+        "code": "CR-C"
+      },
+      {
+        "name": "Guanacaste",
+        "code": "CR-G"
+      },
+      {
+        "name": "Heredia",
+        "code": "CR-H"
+      },
+      {
+        "name": "Limón",
+        "code": "CR-L"
+      },
+      {
+        "name": "Puntarenas",
+        "code": "CR-P"
+      },
+      {
+        "name": "San José",
+        "code": "CR-SJ"
+      }
+    ]
+  },
+  "Côte d’Ivoire": {
+    "code": "CI",
+    "phonePrefix": 225,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Croatia": {
+    "code": "HR",
+    "phonePrefix": 385,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Curaçao": {
+    "code": "CW",
+    "phonePrefix": 599,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Cyprus": {
+    "code": "CY",
+    "phonePrefix": 357,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Czechia": {
+    "code": "CZ",
+    "phonePrefix": 420,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Denmark": {
+    "code": "DK",
+    "phonePrefix": 45,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Street and house number",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Djibouti": {
+    "code": "DJ",
+    "phonePrefix": 253,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Dominica": {
+    "code": "DM",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Dominican Republic": {
+    "code": "DO",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Ecuador": {
+    "code": "EC",
+    "phonePrefix": 593,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Egypt": {
+    "code": "EG",
+    "phonePrefix": 20,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Governorate",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "6th of October",
+        "code": "SU"
+      },
+      {
+        "name": "Al Sharqia",
+        "code": "SHR"
+      },
+      {
+        "name": "Alexandria",
+        "code": "ALX"
+      },
+      {
+        "name": "Aswan",
+        "code": "ASN"
+      },
+      {
+        "name": "Asyut",
+        "code": "AST"
+      },
+      {
+        "name": "Beheira",
+        "code": "BH"
+      },
+      {
+        "name": "Beni Suef",
+        "code": "BNS"
+      },
+      {
+        "name": "Cairo",
+        "code": "C"
+      },
+      {
+        "name": "Dakahlia",
+        "code": "DK"
+      },
+      {
+        "name": "Damietta",
+        "code": "DT"
+      },
+      {
+        "name": "Faiyum",
+        "code": "FYM"
+      },
+      {
+        "name": "Gharbia",
+        "code": "GH"
+      },
+      {
+        "name": "Giza",
+        "code": "GZ"
+      },
+      {
+        "name": "Helwan",
+        "code": "HU"
+      },
+      {
+        "name": "Ismailia",
+        "code": "IS"
+      },
+      {
+        "name": "Kafr el-Sheikh",
+        "code": "KFS"
+      },
+      {
+        "name": "Luxor",
+        "code": "LX"
+      },
+      {
+        "name": "Matrouh",
+        "code": "MT"
+      },
+      {
+        "name": "Minya",
+        "code": "MN"
+      },
+      {
+        "name": "Monufia",
+        "code": "MNF"
+      },
+      {
+        "name": "New Valley",
+        "code": "WAD"
+      },
+      {
+        "name": "North Sinai",
+        "code": "SIN"
+      },
+      {
+        "name": "Port Said",
+        "code": "PTS"
+      },
+      {
+        "name": "Qalyubia",
+        "code": "KB"
+      },
+      {
+        "name": "Qena",
+        "code": "KN"
+      },
+      {
+        "name": "Red Sea",
+        "code": "BA"
+      },
+      {
+        "name": "Sohag",
+        "code": "SHG"
+      },
+      {
+        "name": "South Sinai",
+        "code": "JS"
+      },
+      {
+        "name": "Suez",
+        "code": "SUZ"
+      }
+    ]
+  },
+  "El Salvador": {
+    "code": "SV",
+    "phonePrefix": 503,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip",
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Department",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Ahuachapán",
+        "code": "SV-AH"
+      },
+      {
+        "name": "Cabañas",
+        "code": "SV-CA"
+      },
+      {
+        "name": "Chalatenango",
+        "code": "SV-CH"
+      },
+      {
+        "name": "Cuscatlán",
+        "code": "SV-CU"
+      },
+      {
+        "name": "La Libertad",
+        "code": "SV-LI"
+      },
+      {
+        "name": "La Paz",
+        "code": "SV-PA"
+      },
+      {
+        "name": "La Unión",
+        "code": "SV-UN"
+      },
+      {
+        "name": "Morazán",
+        "code": "SV-MO"
+      },
+      {
+        "name": "San Miguel",
+        "code": "SV-SM"
+      },
+      {
+        "name": "San Salvador",
+        "code": "SV-SS"
+      },
+      {
+        "name": "San Vicente",
+        "code": "SV-SV"
+      },
+      {
+        "name": "Santa Ana",
+        "code": "SV-SA"
+      },
+      {
+        "name": "Sonsonate",
+        "code": "SV-SO"
+      },
+      {
+        "name": "Usulután",
+        "code": "SV-US"
+      }
+    ]
+  },
+  "Equatorial Guinea": {
+    "code": "GQ",
+    "phonePrefix": 240,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Eritrea": {
+    "code": "ER",
+    "phonePrefix": 291,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Estonia": {
+    "code": "EE",
+    "phonePrefix": 372,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Eswatini": {
+    "code": "SZ",
+    "phonePrefix": 268,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Ethiopia": {
+    "code": "ET",
+    "phonePrefix": 251,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Falkland Islands": {
+    "code": "FK",
+    "phonePrefix": 500,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Faroe Islands": {
+    "code": "FO",
+    "phonePrefix": 298,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Fiji": {
+    "code": "FJ",
+    "phonePrefix": 679,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Finland": {
+    "code": "FI",
+    "phonePrefix": 358,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "France": {
+    "code": "FR",
+    "phonePrefix": 33,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "French Guiana": {
+    "code": "GF",
+    "phonePrefix": 594,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "French Polynesia": {
+    "code": "PF",
+    "phonePrefix": 689,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "French Southern Territories": {
+    "code": "TF",
+    "phonePrefix": 262,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Gabon": {
+    "code": "GA",
+    "phonePrefix": 241,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Gambia": {
+    "code": "GM",
+    "phonePrefix": 220,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Georgia": {
+    "code": "GE",
+    "phonePrefix": 995,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Germany": {
+    "code": "DE",
+    "phonePrefix": 49,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Street and house number",
+      "address2": "Additional address",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Ghana": {
+    "code": "GH",
+    "phonePrefix": 233,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Gibraltar": {
+    "code": "GI",
+    "phonePrefix": 350,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Greece": {
+    "code": "GR",
+    "phonePrefix": 30,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Greenland": {
+    "code": "GL",
+    "phonePrefix": 299,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Grenada": {
+    "code": "GD",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Guadeloupe": {
+    "code": "GP",
+    "phonePrefix": 590,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Guatemala": {
+    "code": "GT",
+    "phonePrefix": 502,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Alta Verapaz",
+        "code": "AVE"
+      },
+      {
+        "name": "Baja Verapaz",
+        "code": "BVE"
+      },
+      {
+        "name": "Chimaltenango",
+        "code": "CMT"
+      },
+      {
+        "name": "Chiquimula",
+        "code": "CQM"
+      },
+      {
+        "name": "El Progreso",
+        "code": "EPR"
+      },
+      {
+        "name": "Escuintla",
+        "code": "ESC"
+      },
+      {
+        "name": "Guatemala",
+        "code": "GUA"
+      },
+      {
+        "name": "Huehuetenango",
+        "code": "HUE"
+      },
+      {
+        "name": "Izabal",
+        "code": "IZA"
+      },
+      {
+        "name": "Jalapa",
+        "code": "JAL"
+      },
+      {
+        "name": "Jutiapa",
+        "code": "JUT"
+      },
+      {
+        "name": "Petén",
+        "code": "PET"
+      },
+      {
+        "name": "Quetzaltenango",
+        "code": "QUE"
+      },
+      {
+        "name": "Quiché",
+        "code": "QUI"
+      },
+      {
+        "name": "Retalhuleu",
+        "code": "RET"
+      },
+      {
+        "name": "Sacatepéquez",
+        "code": "SAC"
+      },
+      {
+        "name": "San Marcos",
+        "code": "SMA"
+      },
+      {
+        "name": "Santa Rosa",
+        "code": "SRO"
+      },
+      {
+        "name": "Sololá",
+        "code": "SOL"
+      },
+      {
+        "name": "Suchitepéquez",
+        "code": "SUC"
+      },
+      {
+        "name": "Totonicapán",
+        "code": "TOT"
+      },
+      {
+        "name": "Zacapa",
+        "code": "ZAC"
+      }
+    ]
+  },
+  "Guernsey": {
+    "code": "GG",
+    "phonePrefix": 44,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Guinea": {
+    "code": "GN",
+    "phonePrefix": 224,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Guinea-Bissau": {
+    "code": "GW",
+    "phonePrefix": 245,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Guyana": {
+    "code": "GY",
+    "phonePrefix": 592,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Haiti": {
+    "code": "HT",
+    "phonePrefix": 509,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Honduras": {
+    "code": "HN",
+    "phonePrefix": 504,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Hungary": {
+    "code": "HU",
+    "phonePrefix": 36,
+    "rows": [
+      [
+        "zip",
+        "city"
+      ],
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Iceland": {
+    "code": "IS",
+    "phonePrefix": 354,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "India": {
+    "code": "IN",
+    "phonePrefix": 91,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "State",
+      "zip": "PIN code"
+    },
+    "zones": [
+      {
+        "name": "Andaman and Nicobar Islands",
+        "code": "AN"
+      },
+      {
+        "name": "Andhra Pradesh",
+        "code": "AP"
+      },
+      {
+        "name": "Arunachal Pradesh",
+        "code": "AR"
+      },
+      {
+        "name": "Assam",
+        "code": "AS"
+      },
+      {
+        "name": "Bihar",
+        "code": "BR"
+      },
+      {
+        "name": "Chandigarh",
+        "code": "CH"
+      },
+      {
+        "name": "Chhattisgarh",
+        "code": "CG"
+      },
+      {
+        "name": "Dadra and Nagar Haveli",
+        "code": "DN"
+      },
+      {
+        "name": "Daman and Diu",
+        "code": "DD"
+      },
+      {
+        "name": "Delhi",
+        "code": "DL"
+      },
+      {
+        "name": "Goa",
+        "code": "GA"
+      },
+      {
+        "name": "Gujarat",
+        "code": "GJ"
+      },
+      {
+        "name": "Haryana",
+        "code": "HR"
+      },
+      {
+        "name": "Himachal Pradesh",
+        "code": "HP"
+      },
+      {
+        "name": "Jammu and Kashmir",
+        "code": "JK"
+      },
+      {
+        "name": "Jharkhand",
+        "code": "JH"
+      },
+      {
+        "name": "Karnataka",
+        "code": "KA"
+      },
+      {
+        "name": "Kerala",
+        "code": "KL"
+      },
+      {
+        "name": "Ladakh",
+        "code": "LA"
+      },
+      {
+        "name": "Lakshadweep",
+        "code": "LD"
+      },
+      {
+        "name": "Madhya Pradesh",
+        "code": "MP"
+      },
+      {
+        "name": "Maharashtra",
+        "code": "MH"
+      },
+      {
+        "name": "Manipur",
+        "code": "MN"
+      },
+      {
+        "name": "Meghalaya",
+        "code": "ML"
+      },
+      {
+        "name": "Mizoram",
+        "code": "MZ"
+      },
+      {
+        "name": "Nagaland",
+        "code": "NL"
+      },
+      {
+        "name": "Odisha",
+        "code": "OR"
+      },
+      {
+        "name": "Puducherry",
+        "code": "PY"
+      },
+      {
+        "name": "Punjab",
+        "code": "PB"
+      },
+      {
+        "name": "Rajasthan",
+        "code": "RJ"
+      },
+      {
+        "name": "Sikkim",
+        "code": "SK"
+      },
+      {
+        "name": "Tamil Nadu",
+        "code": "TN"
+      },
+      {
+        "name": "Telangana",
+        "code": "TS"
+      },
+      {
+        "name": "Tripura",
+        "code": "TR"
+      },
+      {
+        "name": "Uttar Pradesh",
+        "code": "UP"
+      },
+      {
+        "name": "Uttarakhand",
+        "code": "UK"
+      },
+      {
+        "name": "West Bengal",
+        "code": "WB"
+      }
+    ]
+  },
+  "Iraq": {
+    "code": "IQ",
+    "phonePrefix": 964,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Ireland": {
+    "code": "IE",
+    "phonePrefix": 353,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "County",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Carlow",
+        "code": "CW"
+      },
+      {
+        "name": "Cavan",
+        "code": "CN"
+      },
+      {
+        "name": "Clare",
+        "code": "CE"
+      },
+      {
+        "name": "Cork",
+        "code": "CO"
+      },
+      {
+        "name": "Donegal",
+        "code": "DL"
+      },
+      {
+        "name": "Dublin",
+        "code": "D"
+      },
+      {
+        "name": "Galway",
+        "code": "G"
+      },
+      {
+        "name": "Kerry",
+        "code": "KY"
+      },
+      {
+        "name": "Kildare",
+        "code": "KE"
+      },
+      {
+        "name": "Kilkenny",
+        "code": "KK"
+      },
+      {
+        "name": "Laois",
+        "code": "LS"
+      },
+      {
+        "name": "Leitrim",
+        "code": "LM"
+      },
+      {
+        "name": "Limerick",
+        "code": "LK"
+      },
+      {
+        "name": "Longford",
+        "code": "LD"
+      },
+      {
+        "name": "Louth",
+        "code": "LH"
+      },
+      {
+        "name": "Mayo",
+        "code": "MO"
+      },
+      {
+        "name": "Meath",
+        "code": "MH"
+      },
+      {
+        "name": "Monaghan",
+        "code": "MN"
+      },
+      {
+        "name": "Offaly",
+        "code": "OY"
+      },
+      {
+        "name": "Roscommon",
+        "code": "RN"
+      },
+      {
+        "name": "Sligo",
+        "code": "SO"
+      },
+      {
+        "name": "Tipperary",
+        "code": "TA"
+      },
+      {
+        "name": "Waterford",
+        "code": "WD"
+      },
+      {
+        "name": "Westmeath",
+        "code": "WH"
+      },
+      {
+        "name": "Wexford",
+        "code": "WX"
+      },
+      {
+        "name": "Wicklow",
+        "code": "WW"
+      }
+    ]
+  },
+  "Isle of Man": {
+    "code": "IM",
+    "phonePrefix": 44,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Israel": {
+    "code": "IL",
+    "phonePrefix": 972,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Italy": {
+    "code": "IT",
+    "phonePrefix": 39,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city",
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Street and house number",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Province",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Agrigento",
+        "code": "AG"
+      },
+      {
+        "name": "Alessandria",
+        "code": "AL"
+      },
+      {
+        "name": "Ancona",
+        "code": "AN"
+      },
+      {
+        "name": "Aosta Valley",
+        "code": "AO"
+      },
+      {
+        "name": "Arezzo",
+        "code": "AR"
+      },
+      {
+        "name": "Ascoli Piceno",
+        "code": "AP"
+      },
+      {
+        "name": "Asti",
+        "code": "AT"
+      },
+      {
+        "name": "Avellino",
+        "code": "AV"
+      },
+      {
+        "name": "Bari",
+        "code": "BA"
+      },
+      {
+        "name": "Barletta-Andria-Trani",
+        "code": "BT"
+      },
+      {
+        "name": "Belluno",
+        "code": "BL"
+      },
+      {
+        "name": "Benevento",
+        "code": "BN"
+      },
+      {
+        "name": "Bergamo",
+        "code": "BG"
+      },
+      {
+        "name": "Biella",
+        "code": "BI"
+      },
+      {
+        "name": "Bologna",
+        "code": "BO"
+      },
+      {
+        "name": "South Tyrol",
+        "code": "BZ"
+      },
+      {
+        "name": "Brescia",
+        "code": "BS"
+      },
+      {
+        "name": "Brindisi",
+        "code": "BR"
+      },
+      {
+        "name": "Cagliari",
+        "code": "CA"
+      },
+      {
+        "name": "Caltanissetta",
+        "code": "CL"
+      },
+      {
+        "name": "Campobasso",
+        "code": "CB"
+      },
+      {
+        "name": "Caserta",
+        "code": "CE"
+      },
+      {
+        "name": "Catania",
+        "code": "CT"
+      },
+      {
+        "name": "Catanzaro",
+        "code": "CZ"
+      },
+      {
+        "name": "Chieti",
+        "code": "CH"
+      },
+      {
+        "name": "Como",
+        "code": "CO"
+      },
+      {
+        "name": "Cosenza",
+        "code": "CS"
+      },
+      {
+        "name": "Cremona",
+        "code": "CR"
+      },
+      {
+        "name": "Crotone",
+        "code": "KR"
+      },
+      {
+        "name": "Cuneo",
+        "code": "CN"
+      },
+      {
+        "name": "Enna",
+        "code": "EN"
+      },
+      {
+        "name": "Fermo",
+        "code": "FM"
+      },
+      {
+        "name": "Ferrara",
+        "code": "FE"
+      },
+      {
+        "name": "Florence",
+        "code": "FI"
+      },
+      {
+        "name": "Foggia",
+        "code": "FG"
+      },
+      {
+        "name": "Forlì-Cesena",
+        "code": "FC"
+      },
+      {
+        "name": "Frosinone",
+        "code": "FR"
+      },
+      {
+        "name": "Gallura Nord-Est Sardegna",
+        "code": "OT"
+      },
+      {
+        "name": "Genoa",
+        "code": "GE"
+      },
+      {
+        "name": "Gorizia",
+        "code": "GO"
+      },
+      {
+        "name": "Grosseto",
+        "code": "GR"
+      },
+      {
+        "name": "Imperia",
+        "code": "IM"
+      },
+      {
+        "name": "Isernia",
+        "code": "IS"
+      },
+      {
+        "name": "L’Aquila",
+        "code": "AQ"
+      },
+      {
+        "name": "La Spezia",
+        "code": "SP"
+      },
+      {
+        "name": "Latina",
+        "code": "LT"
+      },
+      {
+        "name": "Lecce",
+        "code": "LE"
+      },
+      {
+        "name": "Lecco",
+        "code": "LC"
+      },
+      {
+        "name": "Livorno",
+        "code": "LI"
+      },
+      {
+        "name": "Lodi",
+        "code": "LO"
+      },
+      {
+        "name": "Lucca",
+        "code": "LU"
+      },
+      {
+        "name": "Macerata",
+        "code": "MC"
+      },
+      {
+        "name": "Mantua",
+        "code": "MN"
+      },
+      {
+        "name": "Massa and Carrara",
+        "code": "MS"
+      },
+      {
+        "name": "Matera",
+        "code": "MT"
+      },
+      {
+        "name": "Medio Campidano",
+        "code": "VS"
+      },
+      {
+        "name": "Messina",
+        "code": "ME"
+      },
+      {
+        "name": "Milan",
+        "code": "MI"
+      },
+      {
+        "name": "Modena",
+        "code": "MO"
+      },
+      {
+        "name": "Monza and Brianza",
+        "code": "MB"
+      },
+      {
+        "name": "Naples",
+        "code": "NA"
+      },
+      {
+        "name": "Novara",
+        "code": "NO"
+      },
+      {
+        "name": "Nuoro",
+        "code": "NU"
+      },
+      {
+        "name": "Ogliastra",
+        "code": "OG"
+      },
+      {
+        "name": "Oristano",
+        "code": "OR"
+      },
+      {
+        "name": "Padua",
+        "code": "PD"
+      },
+      {
+        "name": "Palermo",
+        "code": "PA"
+      },
+      {
+        "name": "Parma",
+        "code": "PR"
+      },
+      {
+        "name": "Pavia",
+        "code": "PV"
+      },
+      {
+        "name": "Perugia",
+        "code": "PG"
+      },
+      {
+        "name": "Pesaro and Urbino",
+        "code": "PU"
+      },
+      {
+        "name": "Pescara",
+        "code": "PE"
+      },
+      {
+        "name": "Piacenza",
+        "code": "PC"
+      },
+      {
+        "name": "Pisa",
+        "code": "PI"
+      },
+      {
+        "name": "Pistoia",
+        "code": "PT"
+      },
+      {
+        "name": "Pordenone",
+        "code": "PN"
+      },
+      {
+        "name": "Potenza",
+        "code": "PZ"
+      },
+      {
+        "name": "Prato",
+        "code": "PO"
+      },
+      {
+        "name": "Ragusa",
+        "code": "RG"
+      },
+      {
+        "name": "Ravenna",
+        "code": "RA"
+      },
+      {
+        "name": "Reggio Calabria",
+        "code": "RC"
+      },
+      {
+        "name": "Reggio Emilia",
+        "code": "RE"
+      },
+      {
+        "name": "Rieti",
+        "code": "RI"
+      },
+      {
+        "name": "Rimini",
+        "code": "RN"
+      },
+      {
+        "name": "Rome",
+        "code": "RM"
+      },
+      {
+        "name": "Rovigo",
+        "code": "RO"
+      },
+      {
+        "name": "Salerno",
+        "code": "SA"
+      },
+      {
+        "name": "Sassari",
+        "code": "SS"
+      },
+      {
+        "name": "Savona",
+        "code": "SV"
+      },
+      {
+        "name": "Siena",
+        "code": "SI"
+      },
+      {
+        "name": "Syracuse",
+        "code": "SR"
+      },
+      {
+        "name": "Sondrio",
+        "code": "SO"
+      },
+      {
+        "name": "Sulcis Iglesiente",
+        "code": "CI"
+      },
+      {
+        "name": "Taranto",
+        "code": "TA"
+      },
+      {
+        "name": "Teramo",
+        "code": "TE"
+      },
+      {
+        "name": "Terni",
+        "code": "TR"
+      },
+      {
+        "name": "Turin",
+        "code": "TO"
+      },
+      {
+        "name": "Trapani",
+        "code": "TP"
+      },
+      {
+        "name": "Trentino",
+        "code": "TN"
+      },
+      {
+        "name": "Treviso",
+        "code": "TV"
+      },
+      {
+        "name": "Trieste",
+        "code": "TS"
+      },
+      {
+        "name": "Udine",
+        "code": "UD"
+      },
+      {
+        "name": "Varese",
+        "code": "VA"
+      },
+      {
+        "name": "Venice",
+        "code": "VE"
+      },
+      {
+        "name": "Verbano-Cusio-Ossola",
+        "code": "VB"
+      },
+      {
+        "name": "Vercelli",
+        "code": "VC"
+      },
+      {
+        "name": "Verona",
+        "code": "VR"
+      },
+      {
+        "name": "Vibo Valentia",
+        "code": "VV"
+      },
+      {
+        "name": "Vicenza",
+        "code": "VI"
+      },
+      {
+        "name": "Viterbo",
+        "code": "VT"
+      }
+    ]
+  },
+  "Jamaica": {
+    "code": "JM",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Japan": {
+    "code": "JP",
+    "phonePrefix": 81,
+    "rows": [
+      [
+        "zip",
+        "province"
+      ],
+      [
+        "city"
+      ],
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City/ward/town/village",
+      "province": "Prefecture",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Hokkaido",
+        "code": "JP-01"
+      },
+      {
+        "name": "Aomori",
+        "code": "JP-02"
+      },
+      {
+        "name": "Iwate",
+        "code": "JP-03"
+      },
+      {
+        "name": "Miyagi",
+        "code": "JP-04"
+      },
+      {
+        "name": "Akita",
+        "code": "JP-05"
+      },
+      {
+        "name": "Yamagata",
+        "code": "JP-06"
+      },
+      {
+        "name": "Fukushima",
+        "code": "JP-07"
+      },
+      {
+        "name": "Ibaraki",
+        "code": "JP-08"
+      },
+      {
+        "name": "Tochigi",
+        "code": "JP-09"
+      },
+      {
+        "name": "Gunma",
+        "code": "JP-10"
+      },
+      {
+        "name": "Saitama",
+        "code": "JP-11"
+      },
+      {
+        "name": "Chiba",
+        "code": "JP-12"
+      },
+      {
+        "name": "Tokyo",
+        "code": "JP-13"
+      },
+      {
+        "name": "Kanagawa",
+        "code": "JP-14"
+      },
+      {
+        "name": "Niigata",
+        "code": "JP-15"
+      },
+      {
+        "name": "Toyama",
+        "code": "JP-16"
+      },
+      {
+        "name": "Ishikawa",
+        "code": "JP-17"
+      },
+      {
+        "name": "Fukui",
+        "code": "JP-18"
+      },
+      {
+        "name": "Yamanashi",
+        "code": "JP-19"
+      },
+      {
+        "name": "Nagano",
+        "code": "JP-20"
+      },
+      {
+        "name": "Gifu",
+        "code": "JP-21"
+      },
+      {
+        "name": "Shizuoka",
+        "code": "JP-22"
+      },
+      {
+        "name": "Aichi",
+        "code": "JP-23"
+      },
+      {
+        "name": "Mie",
+        "code": "JP-24"
+      },
+      {
+        "name": "Shiga",
+        "code": "JP-25"
+      },
+      {
+        "name": "Kyoto",
+        "code": "JP-26"
+      },
+      {
+        "name": "Osaka",
+        "code": "JP-27"
+      },
+      {
+        "name": "Hyogo",
+        "code": "JP-28"
+      },
+      {
+        "name": "Nara",
+        "code": "JP-29"
+      },
+      {
+        "name": "Wakayama",
+        "code": "JP-30"
+      },
+      {
+        "name": "Tottori",
+        "code": "JP-31"
+      },
+      {
+        "name": "Shimane",
+        "code": "JP-32"
+      },
+      {
+        "name": "Okayama",
+        "code": "JP-33"
+      },
+      {
+        "name": "Hiroshima",
+        "code": "JP-34"
+      },
+      {
+        "name": "Yamaguchi",
+        "code": "JP-35"
+      },
+      {
+        "name": "Tokushima",
+        "code": "JP-36"
+      },
+      {
+        "name": "Kagawa",
+        "code": "JP-37"
+      },
+      {
+        "name": "Ehime",
+        "code": "JP-38"
+      },
+      {
+        "name": "Kochi",
+        "code": "JP-39"
+      },
+      {
+        "name": "Fukuoka",
+        "code": "JP-40"
+      },
+      {
+        "name": "Saga",
+        "code": "JP-41"
+      },
+      {
+        "name": "Nagasaki",
+        "code": "JP-42"
+      },
+      {
+        "name": "Kumamoto",
+        "code": "JP-43"
+      },
+      {
+        "name": "Oita",
+        "code": "JP-44"
+      },
+      {
+        "name": "Miyazaki",
+        "code": "JP-45"
+      },
+      {
+        "name": "Kagoshima",
+        "code": "JP-46"
+      },
+      {
+        "name": "Okinawa",
+        "code": "JP-47"
+      }
+    ]
+  },
+  "Jersey": {
+    "code": "JE",
+    "phonePrefix": 44,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Jordan": {
+    "code": "JO",
+    "phonePrefix": 962,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Kazakhstan": {
+    "code": "KZ",
+    "phonePrefix": 7,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Kenya": {
+    "code": "KE",
+    "phonePrefix": 254,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Kiribati": {
+    "code": "KI",
+    "phonePrefix": 686,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Kosovo": {
+    "code": "XK",
+    "phonePrefix": 383,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Kuwait": {
+    "code": "KW",
+    "phonePrefix": 965,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ],
+      [
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": "Block",
+      "city": "City",
+      "province": "Governorate",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Al Ahmadi",
+        "code": "KW-AH"
+      },
+      {
+        "name": "Al Asimah",
+        "code": "KW-KU"
+      },
+      {
+        "name": "Al Farwaniyah",
+        "code": "KW-FA"
+      },
+      {
+        "name": "Al Jahra",
+        "code": "KW-JA"
+      },
+      {
+        "name": "Hawalli",
+        "code": "KW-HA"
+      },
+      {
+        "name": "Mubarak Al-Kabeer",
+        "code": "KW-MU"
+      }
+    ]
+  },
+  "Kyrgyzstan": {
+    "code": "KG",
+    "phonePrefix": 996,
+    "rows": [
+      [
+        "zip",
+        "city"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "address1"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Laos": {
+    "code": "LA",
+    "phonePrefix": 856,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Latvia": {
+    "code": "LV",
+    "phonePrefix": 371,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Lebanon": {
+    "code": "LB",
+    "phonePrefix": 961,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Lesotho": {
+    "code": "LS",
+    "phonePrefix": 266,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Liberia": {
+    "code": "LR",
+    "phonePrefix": 231,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Libya": {
+    "code": "LY",
+    "phonePrefix": 218,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Liechtenstein": {
+    "code": "LI",
+    "phonePrefix": 423,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Lithuania": {
+    "code": "LT",
+    "phonePrefix": 370,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Luxembourg": {
+    "code": "LU",
+    "phonePrefix": 352,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Macao SAR": {
+    "code": "MO",
+    "phonePrefix": 853,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "Area",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Madagascar": {
+    "code": "MG",
+    "phonePrefix": 261,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Malawi": {
+    "code": "MW",
+    "phonePrefix": 265,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Maldives": {
+    "code": "MV",
+    "phonePrefix": 960,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Mali": {
+    "code": "ML",
+    "phonePrefix": 223,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Malta": {
+    "code": "MT",
+    "phonePrefix": 356,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Martinique": {
+    "code": "MQ",
+    "phonePrefix": 596,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Mauritania": {
+    "code": "MR",
+    "phonePrefix": 222,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Mauritius": {
+    "code": "MU",
+    "phonePrefix": 230,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Mayotte": {
+    "code": "YT",
+    "phonePrefix": 262,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Mexico": {
+    "code": "MX",
+    "phonePrefix": 52,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city",
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Street and house number",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "State",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Aguascalientes",
+        "code": "AGS"
+      },
+      {
+        "name": "Baja California",
+        "code": "BC"
+      },
+      {
+        "name": "Baja California Sur",
+        "code": "BCS"
+      },
+      {
+        "name": "Campeche",
+        "code": "CAMP"
+      },
+      {
+        "name": "Chiapas",
+        "code": "CHIS"
+      },
+      {
+        "name": "Chihuahua",
+        "code": "CHIH"
+      },
+      {
+        "name": "Ciudad de Mexico",
+        "code": "DF"
+      },
+      {
+        "name": "Coahuila",
+        "code": "COAH"
+      },
+      {
+        "name": "Colima",
+        "code": "COL"
+      },
+      {
+        "name": "Durango",
+        "code": "DGO"
+      },
+      {
+        "name": "Guanajuato",
+        "code": "GTO"
+      },
+      {
+        "name": "Guerrero",
+        "code": "GRO"
+      },
+      {
+        "name": "Hidalgo",
+        "code": "HGO"
+      },
+      {
+        "name": "Jalisco",
+        "code": "JAL"
+      },
+      {
+        "name": "Mexico State",
+        "code": "MEX"
+      },
+      {
+        "name": "Michoacán",
+        "code": "MICH"
+      },
+      {
+        "name": "Morelos",
+        "code": "MOR"
+      },
+      {
+        "name": "Nayarit",
+        "code": "NAY"
+      },
+      {
+        "name": "Nuevo León",
+        "code": "NL"
+      },
+      {
+        "name": "Oaxaca",
+        "code": "OAX"
+      },
+      {
+        "name": "Puebla",
+        "code": "PUE"
+      },
+      {
+        "name": "Querétaro",
+        "code": "QRO"
+      },
+      {
+        "name": "Quintana Roo",
+        "code": "Q ROO"
+      },
+      {
+        "name": "San Luis Potosí",
+        "code": "SLP"
+      },
+      {
+        "name": "Sinaloa",
+        "code": "SIN"
+      },
+      {
+        "name": "Sonora",
+        "code": "SON"
+      },
+      {
+        "name": "Tabasco",
+        "code": "TAB"
+      },
+      {
+        "name": "Tamaulipas",
+        "code": "TAMPS"
+      },
+      {
+        "name": "Tlaxcala",
+        "code": "TLAX"
+      },
+      {
+        "name": "Veracruz",
+        "code": "VER"
+      },
+      {
+        "name": "Yucatán",
+        "code": "YUC"
+      },
+      {
+        "name": "Zacatecas",
+        "code": "ZAC"
+      }
+    ]
+  },
+  "Moldova": {
+    "code": "MD",
+    "phonePrefix": 373,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Monaco": {
+    "code": "MC",
+    "phonePrefix": 377,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "Ward",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Mongolia": {
+    "code": "MN",
+    "phonePrefix": 976,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Montenegro": {
+    "code": "ME",
+    "phonePrefix": 382,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Montserrat": {
+    "code": "MS",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Morocco": {
+    "code": "MA",
+    "phonePrefix": 212,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Mozambique": {
+    "code": "MZ",
+    "phonePrefix": 258,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Myanmar (Burma)": {
+    "code": "MM",
+    "phonePrefix": 95,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Namibia": {
+    "code": "NA",
+    "phonePrefix": 264,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Nauru": {
+    "code": "NR",
+    "phonePrefix": 674,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Nepal": {
+    "code": "NP",
+    "phonePrefix": 977,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Netherlands": {
+    "code": "NL",
+    "phonePrefix": 31,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Street and house number",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "New Caledonia": {
+    "code": "NC",
+    "phonePrefix": 687,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "New Zealand": {
+    "code": "NZ",
+    "phonePrefix": 64,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Suburb",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Auckland",
+        "code": "AUK"
+      },
+      {
+        "name": "Bay of Plenty",
+        "code": "BOP"
+      },
+      {
+        "name": "Canterbury",
+        "code": "CAN"
+      },
+      {
+        "name": "Chatham Islands",
+        "code": "CIT"
+      },
+      {
+        "name": "Gisborne",
+        "code": "GIS"
+      },
+      {
+        "name": "Hawke’s Bay",
+        "code": "HKB"
+      },
+      {
+        "name": "Manawatū-Whanganui",
+        "code": "MWT"
+      },
+      {
+        "name": "Marlborough",
+        "code": "MBH"
+      },
+      {
+        "name": "Nelson",
+        "code": "NSN"
+      },
+      {
+        "name": "Northland",
+        "code": "NTL"
+      },
+      {
+        "name": "Otago",
+        "code": "OTA"
+      },
+      {
+        "name": "Southland",
+        "code": "STL"
+      },
+      {
+        "name": "Taranaki",
+        "code": "TKI"
+      },
+      {
+        "name": "Tasman",
+        "code": "TAS"
+      },
+      {
+        "name": "Waikato",
+        "code": "WKO"
+      },
+      {
+        "name": "Wellington",
+        "code": "WGN"
+      },
+      {
+        "name": "West Coast",
+        "code": "WTC"
+      }
+    ]
+  },
+  "Nicaragua": {
+    "code": "NI",
+    "phonePrefix": 505,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Niger": {
+    "code": "NE",
+    "phonePrefix": 227,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Nigeria": {
+    "code": "NG",
+    "phonePrefix": 234,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "State",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Abia",
+        "code": "AB"
+      },
+      {
+        "name": "Federal Capital Territory",
+        "code": "FC"
+      },
+      {
+        "name": "Adamawa",
+        "code": "AD"
+      },
+      {
+        "name": "Akwa Ibom",
+        "code": "AK"
+      },
+      {
+        "name": "Anambra",
+        "code": "AN"
+      },
+      {
+        "name": "Bauchi",
+        "code": "BA"
+      },
+      {
+        "name": "Bayelsa",
+        "code": "BY"
+      },
+      {
+        "name": "Benue",
+        "code": "BE"
+      },
+      {
+        "name": "Borno",
+        "code": "BO"
+      },
+      {
+        "name": "Cross River",
+        "code": "CR"
+      },
+      {
+        "name": "Delta",
+        "code": "DE"
+      },
+      {
+        "name": "Ebonyi",
+        "code": "EB"
+      },
+      {
+        "name": "Edo",
+        "code": "ED"
+      },
+      {
+        "name": "Ekiti",
+        "code": "EK"
+      },
+      {
+        "name": "Enugu",
+        "code": "EN"
+      },
+      {
+        "name": "Gombe",
+        "code": "GO"
+      },
+      {
+        "name": "Imo",
+        "code": "IM"
+      },
+      {
+        "name": "Jigawa",
+        "code": "JI"
+      },
+      {
+        "name": "Kaduna",
+        "code": "KD"
+      },
+      {
+        "name": "Kano",
+        "code": "KN"
+      },
+      {
+        "name": "Katsina",
+        "code": "KT"
+      },
+      {
+        "name": "Kebbi",
+        "code": "KE"
+      },
+      {
+        "name": "Kogi",
+        "code": "KO"
+      },
+      {
+        "name": "Kwara",
+        "code": "KW"
+      },
+      {
+        "name": "Lagos",
+        "code": "LA"
+      },
+      {
+        "name": "Nasarawa",
+        "code": "NA"
+      },
+      {
+        "name": "Niger",
+        "code": "NI"
+      },
+      {
+        "name": "Ogun",
+        "code": "OG"
+      },
+      {
+        "name": "Ondo",
+        "code": "ON"
+      },
+      {
+        "name": "Osun",
+        "code": "OS"
+      },
+      {
+        "name": "Oyo",
+        "code": "OY"
+      },
+      {
+        "name": "Plateau",
+        "code": "PL"
+      },
+      {
+        "name": "Rivers",
+        "code": "RI"
+      },
+      {
+        "name": "Sokoto",
+        "code": "SO"
+      },
+      {
+        "name": "Taraba",
+        "code": "TA"
+      },
+      {
+        "name": "Yobe",
+        "code": "YO"
+      },
+      {
+        "name": "Zamfara",
+        "code": "ZA"
+      }
+    ]
+  },
+  "Niue": {
+    "code": "NU",
+    "phonePrefix": 683,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Norfolk Island": {
+    "code": "NF",
+    "phonePrefix": 672,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "North Macedonia": {
+    "code": "MK",
+    "phonePrefix": 389,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Norway": {
+    "code": "NO",
+    "phonePrefix": 47,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Street and house number",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Oman": {
+    "code": "OM",
+    "phonePrefix": 968,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Pakistan": {
+    "code": "PK",
+    "phonePrefix": 92,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Palestinian Territories": {
+    "code": "PS",
+    "phonePrefix": 970,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Panama": {
+    "code": "PA",
+    "phonePrefix": 507,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city",
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": "District",
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Bocas del Toro",
+        "code": "PA-1"
+      },
+      {
+        "name": "Chiriquí",
+        "code": "PA-4"
+      },
+      {
+        "name": "Coclé",
+        "code": "PA-2"
+      },
+      {
+        "name": "Colón",
+        "code": "PA-3"
+      },
+      {
+        "name": "Darién",
+        "code": "PA-5"
+      },
+      {
+        "name": "Emberá",
+        "code": "PA-EM"
+      },
+      {
+        "name": "Herrera",
+        "code": "PA-6"
+      },
+      {
+        "name": "Guna Yala",
+        "code": "PA-KY"
+      },
+      {
+        "name": "Los Santos",
+        "code": "PA-7"
+      },
+      {
+        "name": "Ngöbe-Buglé",
+        "code": "PA-NB"
+      },
+      {
+        "name": "Panamá",
+        "code": "PA-8"
+      },
+      {
+        "name": "West Panamá",
+        "code": "PA-10"
+      },
+      {
+        "name": "Veraguas",
+        "code": "PA-9"
+      }
+    ]
+  },
+  "Papua New Guinea": {
+    "code": "PG",
+    "phonePrefix": 675,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Paraguay": {
+    "code": "PY",
+    "phonePrefix": 595,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Peru": {
+    "code": "PE",
+    "phonePrefix": 51,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": "District",
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Amazonas",
+        "code": "PE-AMA"
+      },
+      {
+        "name": "Ancash",
+        "code": "PE-ANC"
+      },
+      {
+        "name": "Apurímac",
+        "code": "PE-APU"
+      },
+      {
+        "name": "Arequipa",
+        "code": "PE-ARE"
+      },
+      {
+        "name": "Ayacucho",
+        "code": "PE-AYA"
+      },
+      {
+        "name": "Cajamarca",
+        "code": "PE-CAJ"
+      },
+      {
+        "name": "El Callao",
+        "code": "PE-CAL"
+      },
+      {
+        "name": "Cusco",
+        "code": "PE-CUS"
+      },
+      {
+        "name": "Huancavelica",
+        "code": "PE-HUV"
+      },
+      {
+        "name": "Huánuco",
+        "code": "PE-HUC"
+      },
+      {
+        "name": "Ica",
+        "code": "PE-ICA"
+      },
+      {
+        "name": "Junín",
+        "code": "PE-JUN"
+      },
+      {
+        "name": "La Libertad",
+        "code": "PE-LAL"
+      },
+      {
+        "name": "Lambayeque",
+        "code": "PE-LAM"
+      },
+      {
+        "name": "Lima (Department)",
+        "code": "PE-LIM"
+      },
+      {
+        "name": "Lima (Metropolitan)",
+        "code": "PE-LMA"
+      },
+      {
+        "name": "Loreto",
+        "code": "PE-LOR"
+      },
+      {
+        "name": "Madre de Dios",
+        "code": "PE-MDD"
+      },
+      {
+        "name": "Moquegua",
+        "code": "PE-MOQ"
+      },
+      {
+        "name": "Pasco",
+        "code": "PE-PAS"
+      },
+      {
+        "name": "Piura",
+        "code": "PE-PIU"
+      },
+      {
+        "name": "Puno",
+        "code": "PE-PUN"
+      },
+      {
+        "name": "San Martín",
+        "code": "PE-SAM"
+      },
+      {
+        "name": "Tacna",
+        "code": "PE-TAC"
+      },
+      {
+        "name": "Tumbes",
+        "code": "PE-TUM"
+      },
+      {
+        "name": "Ucayali",
+        "code": "PE-UCA"
+      }
+    ]
+  },
+  "Pitcairn Islands": {
+    "code": "PN",
+    "phonePrefix": 64,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Poland": {
+    "code": "PL",
+    "phonePrefix": 48,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Portugal": {
+    "code": "PT",
+    "phonePrefix": 351,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city",
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Azores",
+        "code": "PT-20"
+      },
+      {
+        "name": "Aveiro",
+        "code": "PT-01"
+      },
+      {
+        "name": "Beja",
+        "code": "PT-02"
+      },
+      {
+        "name": "Braga",
+        "code": "PT-03"
+      },
+      {
+        "name": "Bragança",
+        "code": "PT-04"
+      },
+      {
+        "name": "Castelo Branco",
+        "code": "PT-05"
+      },
+      {
+        "name": "Coimbra",
+        "code": "PT-06"
+      },
+      {
+        "name": "Évora",
+        "code": "PT-07"
+      },
+      {
+        "name": "Faro",
+        "code": "PT-08"
+      },
+      {
+        "name": "Guarda",
+        "code": "PT-09"
+      },
+      {
+        "name": "Leiria",
+        "code": "PT-10"
+      },
+      {
+        "name": "Lisbon",
+        "code": "PT-11"
+      },
+      {
+        "name": "Madeira",
+        "code": "PT-30"
+      },
+      {
+        "name": "Portalegre",
+        "code": "PT-12"
+      },
+      {
+        "name": "Porto",
+        "code": "PT-13"
+      },
+      {
+        "name": "Santarém",
+        "code": "PT-14"
+      },
+      {
+        "name": "Setúbal",
+        "code": "PT-15"
+      },
+      {
+        "name": "Viana do Castelo",
+        "code": "PT-16"
+      },
+      {
+        "name": "Vila Real",
+        "code": "PT-17"
+      },
+      {
+        "name": "Viseu",
+        "code": "PT-18"
+      }
+    ]
+  },
+  "Qatar": {
+    "code": "QA",
+    "phonePrefix": 974,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Réunion": {
+    "code": "RE",
+    "phonePrefix": 262,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Romania": {
+    "code": "RO",
+    "phonePrefix": 40,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city",
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "County",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Alba",
+        "code": "AB"
+      },
+      {
+        "name": "Arad",
+        "code": "AR"
+      },
+      {
+        "name": "Argeș",
+        "code": "AG"
+      },
+      {
+        "name": "Bacău",
+        "code": "BC"
+      },
+      {
+        "name": "Bihor",
+        "code": "BH"
+      },
+      {
+        "name": "Bistriţa-Năsăud",
+        "code": "BN"
+      },
+      {
+        "name": "Botoşani",
+        "code": "BT"
+      },
+      {
+        "name": "Brăila",
+        "code": "BR"
+      },
+      {
+        "name": "Braşov",
+        "code": "BV"
+      },
+      {
+        "name": "Bucharest",
+        "code": "B"
+      },
+      {
+        "name": "Buzău",
+        "code": "BZ"
+      },
+      {
+        "name": "Caraș-Severin",
+        "code": "CS"
+      },
+      {
+        "name": "Cluj",
+        "code": "CJ"
+      },
+      {
+        "name": "Constanța",
+        "code": "CT"
+      },
+      {
+        "name": "Covasna",
+        "code": "CV"
+      },
+      {
+        "name": "Călărași",
+        "code": "CL"
+      },
+      {
+        "name": "Dolj",
+        "code": "DJ"
+      },
+      {
+        "name": "Dâmbovița",
+        "code": "DB"
+      },
+      {
+        "name": "Galați",
+        "code": "GL"
+      },
+      {
+        "name": "Giurgiu",
+        "code": "GR"
+      },
+      {
+        "name": "Gorj",
+        "code": "GJ"
+      },
+      {
+        "name": "Harghita",
+        "code": "HR"
+      },
+      {
+        "name": "Hunedoara",
+        "code": "HD"
+      },
+      {
+        "name": "Ialomița",
+        "code": "IL"
+      },
+      {
+        "name": "Iași",
+        "code": "IS"
+      },
+      {
+        "name": "Ilfov",
+        "code": "IF"
+      },
+      {
+        "name": "Maramureş",
+        "code": "MM"
+      },
+      {
+        "name": "Mehedinți",
+        "code": "MH"
+      },
+      {
+        "name": "Mureş",
+        "code": "MS"
+      },
+      {
+        "name": "Neamţ",
+        "code": "NT"
+      },
+      {
+        "name": "Olt",
+        "code": "OT"
+      },
+      {
+        "name": "Prahova",
+        "code": "PH"
+      },
+      {
+        "name": "Sălaj",
+        "code": "SJ"
+      },
+      {
+        "name": "Satu Mare",
+        "code": "SM"
+      },
+      {
+        "name": "Sibiu",
+        "code": "SB"
+      },
+      {
+        "name": "Suceava",
+        "code": "SV"
+      },
+      {
+        "name": "Teleorman",
+        "code": "TR"
+      },
+      {
+        "name": "Timiș",
+        "code": "TM"
+      },
+      {
+        "name": "Tulcea",
+        "code": "TL"
+      },
+      {
+        "name": "Vâlcea",
+        "code": "VL"
+      },
+      {
+        "name": "Vaslui",
+        "code": "VS"
+      },
+      {
+        "name": "Vrancea",
+        "code": "VN"
+      }
+    ]
+  },
+  "Russia": {
+    "code": "RU",
+    "phonePrefix": 7,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Altai Krai",
+        "code": "ALT"
+      },
+      {
+        "name": "Altai",
+        "code": "AL"
+      },
+      {
+        "name": "Amur",
+        "code": "AMU"
+      },
+      {
+        "name": "Arkhangelsk",
+        "code": "ARK"
+      },
+      {
+        "name": "Astrakhan",
+        "code": "AST"
+      },
+      {
+        "name": "Belgorod",
+        "code": "BEL"
+      },
+      {
+        "name": "Bryansk",
+        "code": "BRY"
+      },
+      {
+        "name": "Chechen",
+        "code": "CE"
+      },
+      {
+        "name": "Chelyabinsk",
+        "code": "CHE"
+      },
+      {
+        "name": "Chukotka Okrug",
+        "code": "CHU"
+      },
+      {
+        "name": "Chuvash",
+        "code": "CU"
+      },
+      {
+        "name": "Irkutsk",
+        "code": "IRK"
+      },
+      {
+        "name": "Ivanovo",
+        "code": "IVA"
+      },
+      {
+        "name": "Jewish",
+        "code": "YEV"
+      },
+      {
+        "name": "Kabardino-Balkar",
+        "code": "KB"
+      },
+      {
+        "name": "Kaliningrad",
+        "code": "KGD"
+      },
+      {
+        "name": "Kaluga",
+        "code": "KLU"
+      },
+      {
+        "name": "Kamchatka Krai",
+        "code": "KAM"
+      },
+      {
+        "name": "Karachay-Cherkess",
+        "code": "KC"
+      },
+      {
+        "name": "Kemerovo",
+        "code": "KEM"
+      },
+      {
+        "name": "Khabarovsk Krai",
+        "code": "KHA"
+      },
+      {
+        "name": "Khanty-Mansi",
+        "code": "KHM"
+      },
+      {
+        "name": "Kirov",
+        "code": "KIR"
+      },
+      {
+        "name": "Komi",
+        "code": "KO"
+      },
+      {
+        "name": "Kostroma",
+        "code": "KOS"
+      },
+      {
+        "name": "Krasnodar Krai",
+        "code": "KDA"
+      },
+      {
+        "name": "Krasnoyarsk Krai",
+        "code": "KYA"
+      },
+      {
+        "name": "Kurgan",
+        "code": "KGN"
+      },
+      {
+        "name": "Kursk",
+        "code": "KRS"
+      },
+      {
+        "name": "Leningrad",
+        "code": "LEN"
+      },
+      {
+        "name": "Lipetsk",
+        "code": "LIP"
+      },
+      {
+        "name": "Magadan",
+        "code": "MAG"
+      },
+      {
+        "name": "Mari El",
+        "code": "ME"
+      },
+      {
+        "name": "Moscow",
+        "code": "MOW"
+      },
+      {
+        "name": "Moscow Province",
+        "code": "MOS"
+      },
+      {
+        "name": "Murmansk",
+        "code": "MUR"
+      },
+      {
+        "name": "Nizhny Novgorod",
+        "code": "NIZ"
+      },
+      {
+        "name": "Novgorod",
+        "code": "NGR"
+      },
+      {
+        "name": "Novosibirsk",
+        "code": "NVS"
+      },
+      {
+        "name": "Omsk",
+        "code": "OMS"
+      },
+      {
+        "name": "Orenburg",
+        "code": "ORE"
+      },
+      {
+        "name": "Oryol",
+        "code": "ORL"
+      },
+      {
+        "name": "Penza",
+        "code": "PNZ"
+      },
+      {
+        "name": "Perm Krai",
+        "code": "PER"
+      },
+      {
+        "name": "Primorsky Krai",
+        "code": "PRI"
+      },
+      {
+        "name": "Pskov",
+        "code": "PSK"
+      },
+      {
+        "name": "Adygea",
+        "code": "AD"
+      },
+      {
+        "name": "Bashkortostan",
+        "code": "BA"
+      },
+      {
+        "name": "Buryat",
+        "code": "BU"
+      },
+      {
+        "name": "Dagestan",
+        "code": "DA"
+      },
+      {
+        "name": "Ingushetia",
+        "code": "IN"
+      },
+      {
+        "name": "Kalmykia",
+        "code": "KL"
+      },
+      {
+        "name": "Karelia",
+        "code": "KR"
+      },
+      {
+        "name": "Khakassia",
+        "code": "KK"
+      },
+      {
+        "name": "Mordovia",
+        "code": "MO"
+      },
+      {
+        "name": "North Ossetia-Alania",
+        "code": "SE"
+      },
+      {
+        "name": "Tatarstan",
+        "code": "TA"
+      },
+      {
+        "name": "Rostov",
+        "code": "ROS"
+      },
+      {
+        "name": "Ryazan",
+        "code": "RYA"
+      },
+      {
+        "name": "Saint Petersburg",
+        "code": "SPE"
+      },
+      {
+        "name": "Sakha",
+        "code": "SA"
+      },
+      {
+        "name": "Sakhalin",
+        "code": "SAK"
+      },
+      {
+        "name": "Samara",
+        "code": "SAM"
+      },
+      {
+        "name": "Saratov",
+        "code": "SAR"
+      },
+      {
+        "name": "Smolensk",
+        "code": "SMO"
+      },
+      {
+        "name": "Stavropol Krai",
+        "code": "STA"
+      },
+      {
+        "name": "Sverdlovsk",
+        "code": "SVE"
+      },
+      {
+        "name": "Tambov",
+        "code": "TAM"
+      },
+      {
+        "name": "Tomsk",
+        "code": "TOM"
+      },
+      {
+        "name": "Tula",
+        "code": "TUL"
+      },
+      {
+        "name": "Tver",
+        "code": "TVE"
+      },
+      {
+        "name": "Tyumen",
+        "code": "TYU"
+      },
+      {
+        "name": "Tuva",
+        "code": "TY"
+      },
+      {
+        "name": "Udmurt",
+        "code": "UD"
+      },
+      {
+        "name": "Ulyanovsk",
+        "code": "ULY"
+      },
+      {
+        "name": "Vladimir",
+        "code": "VLA"
+      },
+      {
+        "name": "Volgograd",
+        "code": "VGG"
+      },
+      {
+        "name": "Vologda",
+        "code": "VLG"
+      },
+      {
+        "name": "Voronezh",
+        "code": "VOR"
+      },
+      {
+        "name": "Yamalo-Nenets Okrug",
+        "code": "YAN"
+      },
+      {
+        "name": "Yaroslavl",
+        "code": "YAR"
+      },
+      {
+        "name": "Zabaykalsky Krai",
+        "code": "ZAB"
+      }
+    ]
+  },
+  "Rwanda": {
+    "code": "RW",
+    "phonePrefix": 250,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Samoa": {
+    "code": "WS",
+    "phonePrefix": 685,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "San Marino": {
+    "code": "SM",
+    "phonePrefix": 378,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "São Tomé & Príncipe": {
+    "code": "ST",
+    "phonePrefix": 239,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Saudi Arabia": {
+    "code": "SA",
+    "phonePrefix": 966,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Senegal": {
+    "code": "SN",
+    "phonePrefix": 221,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Serbia": {
+    "code": "RS",
+    "phonePrefix": 381,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Seychelles": {
+    "code": "SC",
+    "phonePrefix": 248,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Sierra Leone": {
+    "code": "SL",
+    "phonePrefix": 232,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Sint Maarten": {
+    "code": "SX",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Slovakia": {
+    "code": "SK",
+    "phonePrefix": 421,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Slovenia": {
+    "code": "SI",
+    "phonePrefix": 386,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Solomon Islands": {
+    "code": "SB",
+    "phonePrefix": 677,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Somalia": {
+    "code": "SO",
+    "phonePrefix": 252,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "South Africa": {
+    "code": "ZA",
+    "phonePrefix": 27,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Suburb",
+      "barangay": null,
+      "city": "City",
+      "province": "Province",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Eastern Cape",
+        "code": "EC"
+      },
+      {
+        "name": "Free State",
+        "code": "FS"
+      },
+      {
+        "name": "Gauteng",
+        "code": "GP"
+      },
+      {
+        "name": "KwaZulu-Natal",
+        "code": "NL"
+      },
+      {
+        "name": "Limpopo",
+        "code": "LP"
+      },
+      {
+        "name": "Mpumalanga",
+        "code": "MP"
+      },
+      {
+        "name": "North West",
+        "code": "NW"
+      },
+      {
+        "name": "Northern Cape",
+        "code": "NC"
+      },
+      {
+        "name": "Western Cape",
+        "code": "WC"
+      }
+    ]
+  },
+  "South Georgia & South Sandwich Islands": {
+    "code": "GS",
+    "phonePrefix": 500,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "South Korea": {
+    "code": "KR",
+    "phonePrefix": 82,
+    "rows": [
+      [
+        "zip"
+      ],
+      [
+        "province",
+        "city"
+      ],
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Province",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Busan",
+        "code": "KR-26"
+      },
+      {
+        "name": "North Chungcheong",
+        "code": "KR-43"
+      },
+      {
+        "name": "South Chungcheong",
+        "code": "KR-44"
+      },
+      {
+        "name": "Daegu",
+        "code": "KR-27"
+      },
+      {
+        "name": "Daejeon",
+        "code": "KR-30"
+      },
+      {
+        "name": "Gangwon",
+        "code": "KR-42"
+      },
+      {
+        "name": "Gwangju City",
+        "code": "KR-29"
+      },
+      {
+        "name": "North Gyeongsang",
+        "code": "KR-47"
+      },
+      {
+        "name": "Gyeonggi",
+        "code": "KR-41"
+      },
+      {
+        "name": "South Gyeongsang",
+        "code": "KR-48"
+      },
+      {
+        "name": "Incheon",
+        "code": "KR-28"
+      },
+      {
+        "name": "Jeju",
+        "code": "KR-49"
+      },
+      {
+        "name": "North Jeolla",
+        "code": "KR-45"
+      },
+      {
+        "name": "South Jeolla",
+        "code": "KR-46"
+      },
+      {
+        "name": "Sejong",
+        "code": "KR-50"
+      },
+      {
+        "name": "Seoul",
+        "code": "KR-11"
+      },
+      {
+        "name": "Ulsan",
+        "code": "KR-31"
+      }
+    ]
+  },
+  "South Sudan": {
+    "code": "SS",
+    "phonePrefix": 211,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Spain": {
+    "code": "ES",
+    "phonePrefix": 34,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city",
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Street and house number",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Province",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "A Coruña",
+        "code": "C"
+      },
+      {
+        "name": "Álava",
+        "code": "VI"
+      },
+      {
+        "name": "Albacete",
+        "code": "AB"
+      },
+      {
+        "name": "Alicante",
+        "code": "A"
+      },
+      {
+        "name": "Almería",
+        "code": "AL"
+      },
+      {
+        "name": "Asturias Province",
+        "code": "O"
+      },
+      {
+        "name": "Ávila",
+        "code": "AV"
+      },
+      {
+        "name": "Badajoz",
+        "code": "BA"
+      },
+      {
+        "name": "Balears Province",
+        "code": "PM"
+      },
+      {
+        "name": "Barcelona",
+        "code": "B"
+      },
+      {
+        "name": "Burgos",
+        "code": "BU"
+      },
+      {
+        "name": "Cáceres",
+        "code": "CC"
+      },
+      {
+        "name": "Cádiz",
+        "code": "CA"
+      },
+      {
+        "name": "Cantabria Province",
+        "code": "S"
+      },
+      {
+        "name": "Castellón",
+        "code": "CS"
+      },
+      {
+        "name": "Ceuta",
+        "code": "CE"
+      },
+      {
+        "name": "Ciudad Real",
+        "code": "CR"
+      },
+      {
+        "name": "Córdoba",
+        "code": "CO"
+      },
+      {
+        "name": "Cuenca",
+        "code": "CU"
+      },
+      {
+        "name": "Girona",
+        "code": "GI"
+      },
+      {
+        "name": "Granada",
+        "code": "GR"
+      },
+      {
+        "name": "Guadalajara",
+        "code": "GU"
+      },
+      {
+        "name": "Gipuzkoa",
+        "code": "SS"
+      },
+      {
+        "name": "Huelva",
+        "code": "H"
+      },
+      {
+        "name": "Huesca",
+        "code": "HU"
+      },
+      {
+        "name": "Jaén",
+        "code": "J"
+      },
+      {
+        "name": "La Rioja Province",
+        "code": "LO"
+      },
+      {
+        "name": "Las Palmas",
+        "code": "GC"
+      },
+      {
+        "name": "León",
+        "code": "LE"
+      },
+      {
+        "name": "Lleida",
+        "code": "L"
+      },
+      {
+        "name": "Lugo",
+        "code": "LU"
+      },
+      {
+        "name": "Madrid Province",
+        "code": "M"
+      },
+      {
+        "name": "Málaga",
+        "code": "MA"
+      },
+      {
+        "name": "Melilla",
+        "code": "ML"
+      },
+      {
+        "name": "Murcia",
+        "code": "MU"
+      },
+      {
+        "name": "Navarra",
+        "code": "NA"
+      },
+      {
+        "name": "Ourense",
+        "code": "OR"
+      },
+      {
+        "name": "Palencia",
+        "code": "P"
+      },
+      {
+        "name": "Pontevedra",
+        "code": "PO"
+      },
+      {
+        "name": "Salamanca",
+        "code": "SA"
+      },
+      {
+        "name": "Santa Cruz de Tenerife",
+        "code": "TF"
+      },
+      {
+        "name": "Segovia",
+        "code": "SG"
+      },
+      {
+        "name": "Seville",
+        "code": "SE"
+      },
+      {
+        "name": "Soria",
+        "code": "SO"
+      },
+      {
+        "name": "Tarragona",
+        "code": "T"
+      },
+      {
+        "name": "Teruel",
+        "code": "TE"
+      },
+      {
+        "name": "Toledo",
+        "code": "TO"
+      },
+      {
+        "name": "Valencia",
+        "code": "V"
+      },
+      {
+        "name": "Valladolid",
+        "code": "VA"
+      },
+      {
+        "name": "Biscay",
+        "code": "BI"
+      },
+      {
+        "name": "Zamora",
+        "code": "ZA"
+      },
+      {
+        "name": "Zaragoza",
+        "code": "Z"
+      }
+    ]
+  },
+  "Sri Lanka": {
+    "code": "LK",
+    "phonePrefix": 94,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "St. Barthélemy": {
+    "code": "BL",
+    "phonePrefix": 590,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "St. Helena": {
+    "code": "SH",
+    "phonePrefix": 290,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "St. Kitts & Nevis": {
+    "code": "KN",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "St. Lucia": {
+    "code": "LC",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "St. Martin": {
+    "code": "MF",
+    "phonePrefix": 590,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "St. Pierre & Miquelon": {
+    "code": "PM",
+    "phonePrefix": 508,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "St. Vincent & Grenadines": {
+    "code": "VC",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Sudan": {
+    "code": "SD",
+    "phonePrefix": 249,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Suriname": {
+    "code": "SR",
+    "phonePrefix": 597,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Svalbard & Jan Mayen": {
+    "code": "SJ",
+    "phonePrefix": 47,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Sweden": {
+    "code": "SE",
+    "phonePrefix": 46,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Street and house number",
+      "address2": "Apartment, suite, etc.",
+      "barangay": null,
+      "city": "City/town",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Switzerland": {
+    "code": "CH",
+    "phonePrefix": 41,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Street and house number",
+      "address2": "Additional address",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Taiwan": {
+    "code": "TW",
+    "phonePrefix": 886,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": "District",
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Tajikistan": {
+    "code": "TJ",
+    "phonePrefix": 992,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Tanzania": {
+    "code": "TZ",
+    "phonePrefix": 255,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Timor-Leste": {
+    "code": "TL",
+    "phonePrefix": 670,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Togo": {
+    "code": "TG",
+    "phonePrefix": 228,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Tokelau": {
+    "code": "TK",
+    "phonePrefix": 690,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Tonga": {
+    "code": "TO",
+    "phonePrefix": 676,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Trinidad & Tobago": {
+    "code": "TT",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Tristan da Cunha": {
+    "code": "TA",
+    "phonePrefix": 2908,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Tunisia": {
+    "code": "TN",
+    "phonePrefix": 216,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Türkiye": {
+    "code": "TR",
+    "phonePrefix": 90,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Adana",
+        "code": "TR-01"
+      },
+      {
+        "name": "Adıyaman",
+        "code": "TR-02"
+      },
+      {
+        "name": "Afyonkarahisar",
+        "code": "TR-03"
+      },
+      {
+        "name": "Ağrı",
+        "code": "TR-04"
+      },
+      {
+        "name": "Aksaray",
+        "code": "TR-68"
+      },
+      {
+        "name": "Amasya",
+        "code": "TR-05"
+      },
+      {
+        "name": "Ankara",
+        "code": "TR-06"
+      },
+      {
+        "name": "Antalya",
+        "code": "TR-07"
+      },
+      {
+        "name": "Ardahan",
+        "code": "TR-75"
+      },
+      {
+        "name": "Artvin",
+        "code": "TR-08"
+      },
+      {
+        "name": "Aydın",
+        "code": "TR-09"
+      },
+      {
+        "name": "Balıkesir",
+        "code": "TR-10"
+      },
+      {
+        "name": "Bartın",
+        "code": "TR-74"
+      },
+      {
+        "name": "Batman",
+        "code": "TR-72"
+      },
+      {
+        "name": "Bayburt",
+        "code": "TR-69"
+      },
+      {
+        "name": "Bilecik",
+        "code": "TR-11"
+      },
+      {
+        "name": "Bingöl",
+        "code": "TR-12"
+      },
+      {
+        "name": "Bitlis",
+        "code": "TR-13"
+      },
+      {
+        "name": "Bolu",
+        "code": "TR-14"
+      },
+      {
+        "name": "Burdur",
+        "code": "TR-15"
+      },
+      {
+        "name": "Bursa",
+        "code": "TR-16"
+      },
+      {
+        "name": "Çanakkale",
+        "code": "TR-17"
+      },
+      {
+        "name": "Çankırı",
+        "code": "TR-18"
+      },
+      {
+        "name": "Çorum",
+        "code": "TR-19"
+      },
+      {
+        "name": "Denizli",
+        "code": "TR-20"
+      },
+      {
+        "name": "Diyarbakır",
+        "code": "TR-21"
+      },
+      {
+        "name": "Düzce",
+        "code": "TR-81"
+      },
+      {
+        "name": "Edirne",
+        "code": "TR-22"
+      },
+      {
+        "name": "Elazığ",
+        "code": "TR-23"
+      },
+      {
+        "name": "Erzincan",
+        "code": "TR-24"
+      },
+      {
+        "name": "Erzurum",
+        "code": "TR-25"
+      },
+      {
+        "name": "Eskişehir",
+        "code": "TR-26"
+      },
+      {
+        "name": "Gaziantep",
+        "code": "TR-27"
+      },
+      {
+        "name": "Giresun",
+        "code": "TR-28"
+      },
+      {
+        "name": "Gümüşhane",
+        "code": "TR-29"
+      },
+      {
+        "name": "Hakkâri",
+        "code": "TR-30"
+      },
+      {
+        "name": "Hatay",
+        "code": "TR-31"
+      },
+      {
+        "name": "Iğdır",
+        "code": "TR-76"
+      },
+      {
+        "name": "Isparta",
+        "code": "TR-32"
+      },
+      {
+        "name": "Istanbul",
+        "code": "TR-34"
+      },
+      {
+        "name": "Izmir",
+        "code": "TR-35"
+      },
+      {
+        "name": "Kahramanmaraş",
+        "code": "TR-46"
+      },
+      {
+        "name": "Karabük",
+        "code": "TR-78"
+      },
+      {
+        "name": "Karaman",
+        "code": "TR-70"
+      },
+      {
+        "name": "Kars",
+        "code": "TR-36"
+      },
+      {
+        "name": "Kastamonu",
+        "code": "TR-37"
+      },
+      {
+        "name": "Kayseri",
+        "code": "TR-38"
+      },
+      {
+        "name": "Kilis",
+        "code": "TR-79"
+      },
+      {
+        "name": "Kırıkkale",
+        "code": "TR-71"
+      },
+      {
+        "name": "Kırklareli",
+        "code": "TR-39"
+      },
+      {
+        "name": "Kırşehir",
+        "code": "TR-40"
+      },
+      {
+        "name": "Kocaeli",
+        "code": "TR-41"
+      },
+      {
+        "name": "Konya",
+        "code": "TR-42"
+      },
+      {
+        "name": "Kütahya",
+        "code": "TR-43"
+      },
+      {
+        "name": "Malatya",
+        "code": "TR-44"
+      },
+      {
+        "name": "Manisa",
+        "code": "TR-45"
+      },
+      {
+        "name": "Mardin",
+        "code": "TR-47"
+      },
+      {
+        "name": "Mersin",
+        "code": "TR-33"
+      },
+      {
+        "name": "Muğla",
+        "code": "TR-48"
+      },
+      {
+        "name": "Muş",
+        "code": "TR-49"
+      },
+      {
+        "name": "Nevşehir",
+        "code": "TR-50"
+      },
+      {
+        "name": "Niğde",
+        "code": "TR-51"
+      },
+      {
+        "name": "Ordu",
+        "code": "TR-52"
+      },
+      {
+        "name": "Osmaniye",
+        "code": "TR-80"
+      },
+      {
+        "name": "Rize",
+        "code": "TR-53"
+      },
+      {
+        "name": "Sakarya",
+        "code": "TR-54"
+      },
+      {
+        "name": "Samsun",
+        "code": "TR-55"
+      },
+      {
+        "name": "Şanlıurfa",
+        "code": "TR-63"
+      },
+      {
+        "name": "Siirt",
+        "code": "TR-56"
+      },
+      {
+        "name": "Sinop",
+        "code": "TR-57"
+      },
+      {
+        "name": "Şırnak",
+        "code": "TR-73"
+      },
+      {
+        "name": "Sivas",
+        "code": "TR-58"
+      },
+      {
+        "name": "Tekirdağ",
+        "code": "TR-59"
+      },
+      {
+        "name": "Tokat",
+        "code": "TR-60"
+      },
+      {
+        "name": "Trabzon",
+        "code": "TR-61"
+      },
+      {
+        "name": "Tunceli",
+        "code": "TR-62"
+      },
+      {
+        "name": "Uşak",
+        "code": "TR-64"
+      },
+      {
+        "name": "Van",
+        "code": "TR-65"
+      },
+      {
+        "name": "Yalova",
+        "code": "TR-77"
+      },
+      {
+        "name": "Yozgat",
+        "code": "TR-66"
+      },
+      {
+        "name": "Zonguldak",
+        "code": "TR-67"
+      }
+    ]
+  },
+  "Turkmenistan": {
+    "code": "TM",
+    "phonePrefix": 993,
+    "rows": [
+      [
+        "zip",
+        "city"
+      ],
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Turks & Caicos Islands": {
+    "code": "TC",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Tuvalu": {
+    "code": "TV",
+    "phonePrefix": 688,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "U.S. Outlying Islands": {
+    "code": "UM",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Uganda": {
+    "code": "UG",
+    "phonePrefix": 256,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Ukraine": {
+    "code": "UA",
+    "phonePrefix": 380,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "United Arab Emirates": {
+    "code": "AE",
+    "phonePrefix": 971,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Emirate",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Abu Dhabi",
+        "code": "AZ"
+      },
+      {
+        "name": "Ajman",
+        "code": "AJ"
+      },
+      {
+        "name": "Dubai",
+        "code": "DU"
+      },
+      {
+        "name": "Fujairah",
+        "code": "FU"
+      },
+      {
+        "name": "Ras al-Khaimah",
+        "code": "RK"
+      },
+      {
+        "name": "Sharjah",
+        "code": "SH"
+      },
+      {
+        "name": "Umm al-Quwain",
+        "code": "UQ"
+      }
+    ]
+  },
+  "United Kingdom": {
+    "code": "GB",
+    "phonePrefix": 44,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postcode"
+    },
+    "zones": [
+      {
+        "name": "British Forces",
+        "code": "BFP"
+      },
+      {
+        "name": "England",
+        "code": "ENG"
+      },
+      {
+        "name": "Northern Ireland",
+        "code": "NIR"
+      },
+      {
+        "name": "Scotland",
+        "code": "SCT"
+      },
+      {
+        "name": "Wales",
+        "code": "WLS"
+      }
+    ]
+  },
+  "United States": {
+    "code": "US",
+    "phonePrefix": 1,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "province",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "State",
+      "zip": "ZIP code"
+    },
+    "zones": [
+      {
+        "name": "Alabama",
+        "code": "AL"
+      },
+      {
+        "name": "Alaska",
+        "code": "AK"
+      },
+      {
+        "name": "American Samoa",
+        "code": "AS"
+      },
+      {
+        "name": "Arizona",
+        "code": "AZ"
+      },
+      {
+        "name": "Arkansas",
+        "code": "AR"
+      },
+      {
+        "name": "California",
+        "code": "CA"
+      },
+      {
+        "name": "Colorado",
+        "code": "CO"
+      },
+      {
+        "name": "Connecticut",
+        "code": "CT"
+      },
+      {
+        "name": "Delaware",
+        "code": "DE"
+      },
+      {
+        "name": "Washington DC",
+        "code": "DC"
+      },
+      {
+        "name": "Micronesia",
+        "code": "FM"
+      },
+      {
+        "name": "Florida",
+        "code": "FL"
+      },
+      {
+        "name": "Georgia",
+        "code": "GA"
+      },
+      {
+        "name": "Guam",
+        "code": "GU"
+      },
+      {
+        "name": "Hawaii",
+        "code": "HI"
+      },
+      {
+        "name": "Idaho",
+        "code": "ID"
+      },
+      {
+        "name": "Illinois",
+        "code": "IL"
+      },
+      {
+        "name": "Indiana",
+        "code": "IN"
+      },
+      {
+        "name": "Iowa",
+        "code": "IA"
+      },
+      {
+        "name": "Kansas",
+        "code": "KS"
+      },
+      {
+        "name": "Kentucky",
+        "code": "KY"
+      },
+      {
+        "name": "Louisiana",
+        "code": "LA"
+      },
+      {
+        "name": "Maine",
+        "code": "ME"
+      },
+      {
+        "name": "Marshall Islands",
+        "code": "MH"
+      },
+      {
+        "name": "Maryland",
+        "code": "MD"
+      },
+      {
+        "name": "Massachusetts",
+        "code": "MA"
+      },
+      {
+        "name": "Michigan",
+        "code": "MI"
+      },
+      {
+        "name": "Minnesota",
+        "code": "MN"
+      },
+      {
+        "name": "Mississippi",
+        "code": "MS"
+      },
+      {
+        "name": "Missouri",
+        "code": "MO"
+      },
+      {
+        "name": "Montana",
+        "code": "MT"
+      },
+      {
+        "name": "Nebraska",
+        "code": "NE"
+      },
+      {
+        "name": "Nevada",
+        "code": "NV"
+      },
+      {
+        "name": "New Hampshire",
+        "code": "NH"
+      },
+      {
+        "name": "New Jersey",
+        "code": "NJ"
+      },
+      {
+        "name": "New Mexico",
+        "code": "NM"
+      },
+      {
+        "name": "New York",
+        "code": "NY"
+      },
+      {
+        "name": "North Carolina",
+        "code": "NC"
+      },
+      {
+        "name": "North Dakota",
+        "code": "ND"
+      },
+      {
+        "name": "Northern Mariana Islands",
+        "code": "MP"
+      },
+      {
+        "name": "Ohio",
+        "code": "OH"
+      },
+      {
+        "name": "Oklahoma",
+        "code": "OK"
+      },
+      {
+        "name": "Oregon",
+        "code": "OR"
+      },
+      {
+        "name": "Palau",
+        "code": "PW"
+      },
+      {
+        "name": "Pennsylvania",
+        "code": "PA"
+      },
+      {
+        "name": "Puerto Rico",
+        "code": "PR"
+      },
+      {
+        "name": "Rhode Island",
+        "code": "RI"
+      },
+      {
+        "name": "South Carolina",
+        "code": "SC"
+      },
+      {
+        "name": "South Dakota",
+        "code": "SD"
+      },
+      {
+        "name": "Tennessee",
+        "code": "TN"
+      },
+      {
+        "name": "Texas",
+        "code": "TX"
+      },
+      {
+        "name": "Utah",
+        "code": "UT"
+      },
+      {
+        "name": "Vermont",
+        "code": "VT"
+      },
+      {
+        "name": "U.S. Virgin Islands",
+        "code": "VI"
+      },
+      {
+        "name": "Virginia",
+        "code": "VA"
+      },
+      {
+        "name": "Washington",
+        "code": "WA"
+      },
+      {
+        "name": "West Virginia",
+        "code": "WV"
+      },
+      {
+        "name": "Wisconsin",
+        "code": "WI"
+      },
+      {
+        "name": "Wyoming",
+        "code": "WY"
+      },
+      {
+        "name": "Armed Forces Americas",
+        "code": "AA"
+      },
+      {
+        "name": "Armed Forces Europe",
+        "code": "AE"
+      },
+      {
+        "name": "Armed Forces Pacific",
+        "code": "AP"
+      }
+    ]
+  },
+  "Uruguay": {
+    "code": "UY",
+    "phonePrefix": 598,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city",
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Department",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Artigas",
+        "code": "UY-AR"
+      },
+      {
+        "name": "Canelones",
+        "code": "UY-CA"
+      },
+      {
+        "name": "Cerro Largo",
+        "code": "UY-CL"
+      },
+      {
+        "name": "Colonia",
+        "code": "UY-CO"
+      },
+      {
+        "name": "Durazno",
+        "code": "UY-DU"
+      },
+      {
+        "name": "Flores",
+        "code": "UY-FS"
+      },
+      {
+        "name": "Florida",
+        "code": "UY-FD"
+      },
+      {
+        "name": "Lavalleja",
+        "code": "UY-LA"
+      },
+      {
+        "name": "Maldonado",
+        "code": "UY-MA"
+      },
+      {
+        "name": "Montevideo",
+        "code": "UY-MO"
+      },
+      {
+        "name": "Paysandú",
+        "code": "UY-PA"
+      },
+      {
+        "name": "Río Negro",
+        "code": "UY-RN"
+      },
+      {
+        "name": "Rivera",
+        "code": "UY-RV"
+      },
+      {
+        "name": "Rocha",
+        "code": "UY-RO"
+      },
+      {
+        "name": "Salto",
+        "code": "UY-SA"
+      },
+      {
+        "name": "San José",
+        "code": "UY-SJ"
+      },
+      {
+        "name": "Soriano",
+        "code": "UY-SO"
+      },
+      {
+        "name": "Tacuarembó",
+        "code": "UY-TA"
+      },
+      {
+        "name": "Treinta y Tres",
+        "code": "UY-TT"
+      }
+    ]
+  },
+  "Uzbekistan": {
+    "code": "UZ",
+    "phonePrefix": 998,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Vanuatu": {
+    "code": "VU",
+    "phonePrefix": 678,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Vatican City": {
+    "code": "VA",
+    "phonePrefix": 39,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Venezuela": {
+    "code": "VE",
+    "phonePrefix": 58,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip",
+        "province"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": [
+      {
+        "name": "Amazonas",
+        "code": "VE-Z"
+      },
+      {
+        "name": "Anzoátegui",
+        "code": "VE-B"
+      },
+      {
+        "name": "Apure",
+        "code": "VE-C"
+      },
+      {
+        "name": "Aragua",
+        "code": "VE-D"
+      },
+      {
+        "name": "Barinas",
+        "code": "VE-E"
+      },
+      {
+        "name": "Bolívar",
+        "code": "VE-F"
+      },
+      {
+        "name": "Carabobo",
+        "code": "VE-G"
+      },
+      {
+        "name": "Cojedes",
+        "code": "VE-H"
+      },
+      {
+        "name": "Delta Amacuro",
+        "code": "VE-Y"
+      },
+      {
+        "name": "Federal Dependencies",
+        "code": "VE-W"
+      },
+      {
+        "name": "Capital",
+        "code": "VE-A"
+      },
+      {
+        "name": "Falcón",
+        "code": "VE-I"
+      },
+      {
+        "name": "Guárico",
+        "code": "VE-J"
+      },
+      {
+        "name": "Vargas",
+        "code": "VE-X"
+      },
+      {
+        "name": "Lara",
+        "code": "VE-K"
+      },
+      {
+        "name": "Mérida",
+        "code": "VE-L"
+      },
+      {
+        "name": "Miranda",
+        "code": "VE-M"
+      },
+      {
+        "name": "Monagas",
+        "code": "VE-N"
+      },
+      {
+        "name": "Nueva Esparta",
+        "code": "VE-O"
+      },
+      {
+        "name": "Portuguesa",
+        "code": "VE-P"
+      },
+      {
+        "name": "Sucre",
+        "code": "VE-R"
+      },
+      {
+        "name": "Táchira",
+        "code": "VE-S"
+      },
+      {
+        "name": "Trujillo",
+        "code": "VE-T"
+      },
+      {
+        "name": "Yaracuy",
+        "code": "VE-U"
+      },
+      {
+        "name": "Zulia",
+        "code": "VE-V"
+      }
+    ]
+  },
+  "Wallis & Futuna": {
+    "code": "WF",
+    "phonePrefix": 681,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Western Sahara": {
+    "code": "EH",
+    "phonePrefix": 212,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city",
+        "zip"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Yemen": {
+    "code": "YE",
+    "phonePrefix": 967,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Zambia": {
+    "code": "ZM",
+    "phonePrefix": 260,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "zip",
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
+  },
+  "Zimbabwe": {
+    "code": "ZW",
+    "phonePrefix": 263,
+    "rows": [
+      [
+        "address1"
+      ],
+      [
+        "address2"
+      ],
+      [
+        "city"
+      ]
+    ],
+    "labels": {
+      "address1": "Address",
+      "address2": "Apartment, suite, etc",
+      "barangay": null,
+      "city": "City",
+      "province": "Region",
+      "zip": "Postal code"
+    },
+    "zones": []
   }
 };

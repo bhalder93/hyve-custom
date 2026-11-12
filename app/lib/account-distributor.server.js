@@ -1,16 +1,8 @@
 import { esc } from "./account-shell.server";
 import { ADDRESS_FORMATS } from "./address-formats.data";
 
-const DISTRIBUTOR_COUNTRIES = [
-  { name: "Singapore", code: "SG" },
-  { name: "Malaysia", code: "MY" },
-  { name: "Hong Kong", code: "HK" },
-  { name: "Philippines", code: "PH" },
-  { name: "Thailand", code: "TH" },
-  { name: "Indonesia", code: "ID" },
-  { name: "Vietnam", code: "VN" },
-  { name: "China", code: "CN" },
-];
+// Every country Shopify ships to, Hyve's own markets first (HYV-221).
+const COUNTRY_NAMES = Object.keys(ADDRESS_FORMATS);
 
 export function distributorPage({
   customer = null,
@@ -265,68 +257,9 @@ export function distributorPage({
                 required
               >
 
-                <option
-                  value="Singapore"
-                  ${chosen("countryBased", "Singapore", true)}
-                >
-                  Singapore
-                </option>
-
-                <option
-                  value="Malaysia"
-                  ${chosen("countryBased", "Malaysia", false)}
-                >
-                  Malaysia
-                </option>
-
-                <option
-                  value="Hong Kong"
-                  ${chosen("countryBased", "Hong Kong", false)}
-                >
-                  Hong Kong
-                </option>
-
-                <option
-                  value="Philippines"
-                  ${chosen("countryBased", "Philippines", false)}
-                >
-                  Philippines
-                </option>
-
-                <option
-                  value="Thailand"
-                  ${chosen("countryBased", "Thailand", false)}
-                >
-                  Thailand
-                </option>
-
-                <option
-                  value="Indonesia"
-                  ${chosen("countryBased", "Indonesia", false)}
-                >
-                  Indonesia
-                </option>
-
-                <option
-                  value="Vietnam"
-                  ${chosen("countryBased", "Vietnam", false)}
-                >
-                  Vietnam
-                </option>
-
-                <option
-                  value="China"
-                  ${chosen("countryBased", "China", false)}
-                >
-                  China
-                </option>
-
-                <option
-                  value="Other"
-                  ${chosen("countryBased", "Other", false)}
-                >
-                  Other
-                </option>
+                ${COUNTRY_NAMES.map(
+                  (name) => `<option value="${esc(name)}"${chosen("countryBased", name, name === "Singapore")}>${esc(name)}</option>`,
+                ).join("")}
 
               </select>
 
@@ -980,14 +913,14 @@ export function distributorPage({
                         Select country…
                       </option>
 
-                      ${DISTRIBUTOR_COUNTRIES.map(
-        (country) =>
+                      ${COUNTRY_NAMES.map(
+        (name) =>
           `<option
-                            value="${esc(country.name)}"
-                            data-country-code="${esc(country.code)}"
-                            ${addressSelected("country", country.name) || (!registeredAddress?.country && country.name === (values?.countryBased || "Singapore")) ? " selected" : ""}
+                            value="${esc(name)}"
+                            data-country-code="${esc(ADDRESS_FORMATS[name].code)}"
+                            ${addressSelected("country", name) || (!registeredAddress?.country && name === (values?.countryBased || "Singapore")) ? " selected" : ""}
                           >
-                            ${esc(country.name)}
+                            ${esc(name)}
                           </option>`,
       ).join("")}
 

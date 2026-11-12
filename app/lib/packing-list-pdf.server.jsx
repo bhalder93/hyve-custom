@@ -124,11 +124,18 @@ function PackingListDoc({ doc, collection }) {
               <View style={[styles.cell, { flex: 1 }]}>
                 <Text style={styles.itemTitle}>{row.title}</Text>
                 {row.decoration ? <Text style={styles.itemDeco}>({row.decoration})</Text> : null}
-                {(row.details || []).map((line, j) => (
-                  <Text key={j} style={styles.itemDetail}>
-                    {line}
-                  </Text>
-                ))}
+                {(row.details || [])
+                  .filter(
+                    (line) =>
+                      !/^(design\s*brief|artwork\s*design\s*brief|artwork\s*brief|artwork)\b/i.test(
+                        String(line).trim(),
+                      ),
+                  )
+                  .map((line, j) => (
+                    <Text key={j} style={styles.itemDetail}>
+                      {line}
+                    </Text>
+                  ))}
               </View>
               <View style={[styles.cell, styles.cellLast, { width: COL.qty }]}>
                 <Text style={styles.center}>{row.qty}</Text>

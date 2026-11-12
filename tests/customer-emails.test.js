@@ -204,3 +204,110 @@ test("all customer status emails include greeting, order details, links and view
     if (prevPass) process.env.SMTP_PASS = prevPass; else delete process.env.SMTP_PASS;
   }
 });
+
+test("declineCreditReview does not send any email to the customer", async () => {
+  const { declineCreditReview } = await import("../app/lib/credit-review.server.js");
+
+  let emailSent = false;
+  const originalCreateTransport = nodemailer.default.createTransport;
+  nodemailer.default.createTransport = () => ({
+    sendMail: async () => {
+      emailSent = true;
+      return { accepted: ["customer@example.com"], messageId: "msg" };
+    },
+  });
+
+  const mockAdmin = {
+    graphql: async (query) => ({
+      json: async () => {
+        if (query.includes("CreditReviewDraft")) {
+          return {
+            data: {
+              draftOrder: {
+                id: "gid://shopify/DraftOrder/1001",
+                name: "D1001",
+                status: "OPEN",
+                tags: ["credit-review"],
+                email: "buyer@example.com",
+                totalPrice: "500.00",
+                currencyCode: "USD",
+                createdAt: "2026-11-12T10:00:00Z",
+                purchasingEntity: null,
+                customer: { displayName: "Jane Doe", email: "buyer@example.com" },
+                createdEvent: {
+                  nodes: [{ author: "Customer", attributeToUser: false, attributeToApp: false }],
+                },
+                lineItems: { nodes: [] },
+              },
+            },
+          };
+        }
+        if (query.includes("CreditReviewDecline")) {
+          return {
+            data: {
+              tagsAdd: { userErrors: [] },
+              metafieldsSet: { userErrors: [] },
+            },
+          };
+        }
+        return { data: {} };
+      },
+    }),
+  };
+
+  try {
+    const result = await declineCreditReview(mockAdmin, "gid://shopify/DraftOrder/1001", "Over credit limit");
+    assert.equal(result.ok, true);
+    assert.equal(result.emailed, false);
+    assert.equal(emailSent, false, "No decline email should be sent to customer for draft order");
+
+    // Test declining a held placed order
+    const mockOrderAdmin = {
+      graphql: async (query) => ({
+        json: async () => {
+          if (query.includes("CreditReviewOrder")) {
+            return {
+              data: {
+                order: {
+                  id: "gid://shopify/Order/2001",
+                  name: "#2001",
+                  tags: ["credit-review-hold"],
+                  email: "buyer@example.com",
+                  totalPriceSet: { shopMoney: { amount: "1000.00", currencyCode: "USD" } },
+                  createdAt: "2026-11-12T10:00:00Z",
+                  cancelledAt: null,
+                  customAttributes: [],
+                  metafields: { nodes: [] },
+                  purchasingEntity: null,
+                  customer: { displayName: "Jane Doe", email: "buyer@example.com" },
+                  lineItems: { nodes: [] },
+                },
+              },
+            };
+          }
+          if (query.includes("CreditReviewCancel")) {
+            return {
+              data: {
+                orderCancel: {
+                  job: { id: "job-1" },
+                  orderCancelUserErrors: [],
+                },
+              },
+            };
+          }
+          if (query.includes("tagsAdd") || query.includes("tagsRemove") || query.includes("metafieldsSet")) {
+            return { data: { tagsAdd: { userErrors: [] }, tagsRemove: { userErrors: [] }, metafieldsSet: { userErrors: [] } } };
+          }
+          return { data: {} };
+        },
+      }),
+    };
+
+    const orderResult = await declineCreditReview(mockOrderAdmin, "gid://shopify/Order/2001", "Over credit limit");
+    assert.equal(orderResult.ok, true);
+    assert.equal(orderResult.emailed, false);
+    assert.equal(emailSent, false, "No decline email should be sent to customer for placed order");
+  } finally {
+    nodemailer.default.createTransport = originalCreateTransport;
+  }
+});

@@ -8,10 +8,14 @@ import {
 } from "./email.server";
 import { proofDecisionLinks } from "../lib/proof.server";
 import { productionStatusOf, recordStatusHistory, SOURCES } from "../lib/order-status.server";
-import { emailLineItems } from "../lib/portal.server";
+import { emailLineItems, formatMoney } from "../lib/portal.server";
 import { customerArrangesFreight, STATUS_OPTIONS } from "../lib/production-statuses";
 import { RECIPIENT_ROLES } from "./metaobjects/notification-recipients.server";
-import { adminOrderUrl } from "../lib/admin-links.server";
+import { adminOrderUrl, shopifyOrderUrl } from "../lib/admin-links.server";
+// orders/create's rule: what decides whether an order goes to Production Orders.
+import { isBlankOrder as isBlankAtCreation } from "../lib/blank-order";
+import { CREDIT_HOLD_TAG } from "../lib/credit-review.server";
+import { addCalendarDays, singaporeDateKey } from "./date.js";
 
 /* -------------------------------------------------------------------------- */
 /*                                  Constants                                 */
@@ -2388,6 +2392,8 @@ export async function sendBreachDigest(admin, { now = new Date() } = {}) {
   const orderCount = [...groups.values()].reduce((n, rows) => n + rows.length, 0);
   if (!recipients.length) return { sent: false, orders: orderCount, breaches, reason: "No Daily Digest recipients" };
 
+  const yesterday = await yesterdaysOrders(admin, now);
+
   const to = [...new Set(recipients.map((recipient) => recipient.email))];
   const statusOrder = STATUS_OPTIONS.map((option) => option.label);
   await sendBreachDigestEmail({
@@ -2397,6 +2403,91 @@ export async function sendBreachDigest(admin, { now = new Date() } = {}) {
     groups: [...groups.entries()]
       .sort(([a], [b]) => statusOrder.indexOf(a) - statusOrder.indexOf(b))
       .map(([status, rows]) => ({ status, orders: rows })),
+    yesterday,
   });
-  return { sent: true, orders: orderCount, breaches, to };
+  return { sent: true, orders: orderCount, breaches, newOrders: yesterday.orders.length, toCheck: yesterday.toCheck, to };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                 Yesterday's orders in the digest (Michael, Nov 9)          */
+/* -------------------------------------------------------------------------- */
+
+const YESTERDAY_ORDERS_QUERY = `#graphql
+  query DigestYesterdayOrders($query: String!, $after: String) {
+    orders(first: 100, after: $after, query: $query, sortKey: CREATED_AT) {
+      nodes {
+        id
+        name
+        createdAt
+        cancelledAt
+        tags
+        displayFinancialStatus
+        totalPriceSet { presentmentMoney { amount currencyCode } }
+        customer { displayName }
+        purchasingEntity { ... on PurchasingCompany { company { name } } }
+        productionStatus: metafield(namespace: "$app", key: "production_status") { value }
+        lineItems(first: 100) { nodes { customAttributes { key value } } }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }`;
+
+/** "PARTIALLY_PAID" as staff read it: "Partially paid". */
+const paymentLabel = (value) => {
+  const text = String(value || "").toLowerCase().replace(/_/g, " ");
+  return text ? text[0].toUpperCase() + text.slice(1) : "—";
+};
+
+/**
+ * Every order placed yesterday, Singapore time, so staff can check each one
+ * came through (Michael, Nov 9): where it is in Production Orders, or that
+ * it's a blank order, which isn't there by design. A decorated order with no
+ * production status is the one to check.
+ * @returns {Promise<{day: string, orders: object[], toCheck: number}>}
+ */
+export async function yesterdaysOrders(admin, now = new Date()) {
+  const today = singaporeDateKey(now);
+  const day = singaporeDateKey(addCalendarDays(`${today}T00:00:00+08:00`, -1));
+  // Midnight to midnight in Singapore, given to Shopify in UTC.
+  const utc = (key) => new Date(`${key}T00:00:00+08:00`).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const query = `created_at:>='${utc(day)}' AND created_at:<'${utc(today)}'`;
+
+  const nodes = [];
+  let after = null;
+  for (let page = 0; page < 10; page += 1) {
+    const response = await admin.graphql(YESTERDAY_ORDERS_QUERY, { variables: { query, after } });
+    const data = await parseGraphQLResponse(response, "DigestYesterdayOrders");
+    const connection = data.data?.orders;
+    nodes.push(...(connection?.nodes || []));
+    if (!connection?.pageInfo?.hasNextPage) break;
+    after = connection.pageInfo.endCursor;
+  }
+
+  const orders = [];
+  for (const order of nodes) {
+    const status = String(order.productionStatus?.value || "").trim();
+    const blank = isBlankAtCreation(order.lineItems?.nodes || []);
+    const creditHold = (order.tags || []).includes(CREDIT_HOLD_TAG);
+    let production;
+    let check = false;
+    if (order.cancelledAt) production = "Cancelled";
+    else if (status) production = `${statusLabel(status)}${creditHold ? " (credit review)" : ""}`;
+    else if (blank) production = "Blank order, not in Production Orders";
+    else {
+      production = "Check: decorated, but not in Production Orders";
+      check = true;
+    }
+    const money = order.totalPriceSet?.presentmentMoney;
+    orders.push({
+      orderName: order.name,
+      customerName: order.purchasingEntity?.company?.name || order.customer?.displayName || "",
+      total: money ? formatMoney(money.amount, money.currencyCode) : "",
+      payment: paymentLabel(order.displayFinancialStatus),
+      production,
+      check,
+      // Its Production Orders page when it's there, else Shopify's order page.
+      adminUrl: status ? await adminOrderUrl(admin, order.id) : await shopifyOrderUrl(admin, order.id),
+    });
+  }
+  return { day, orders, toCheck: orders.filter((order) => order.check).length };
 }

@@ -39,3 +39,10 @@ export async function adminOrderUrl(admin, orderId) {
   const base = await adminAppBase(admin);
   return base && numericId ? `${base}/app/production-orders/${numericId}` : "";
 }
+
+/** The order's own page in Shopify's admin, or "" when it can't be built. */
+export async function shopifyOrderUrl(admin, orderId) {
+  const numericId = String(orderId || "").split("/").pop();
+  const store = (await adminAppBase(admin)).match(/\/store\/([^/]+)/)?.[1];
+  return store && numericId ? `https://admin.shopify.com/store/${store}/orders/${numericId}` : "";
+}

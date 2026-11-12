@@ -116,7 +116,7 @@ export async function completeB2BOnboarding(
           const { ensureCreditDefinitions, refreshLocationCredit } = await import("./credit-check.server");
           await ensureCreditDefinitions(admin);
           const credit = await refreshLocationCredit(admin, locationId);
-          record("credit", credit.ok, `${credit.detail} Set the credit limit on the company location in Shopify admin.`);
+          record("credit", credit.ok, `${credit.detail} A Credit limit (USD) set on the company location in Shopify admin overrides the standard one.`);
         } catch (creditError) {
           record("credit", false, creditError?.message || String(creditError));
         }

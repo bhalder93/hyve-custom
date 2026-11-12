@@ -205,7 +205,7 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
 
   const lines = currentOrderLines(order);
   const rows = [
-    ...lines.filter((li) => !isChargeLine(li) && !isDutyLine(li)).map((li) => itemRow(li, cents, { artwork: false })),
+    ...lines.filter((li) => !isChargeLine(li) && !isDutyLine(li)).map((li) => itemRow(li, cents, { artwork: false, brief: false })),
     ...lines.filter(isChargeLine).map((li) => ({
       kind: "charge",
       code: li.sku || "",
@@ -219,7 +219,7 @@ export async function loadInvoiceDocument(admin, orderGid, { customerGid, locati
     })),
     ...lines
       .filter(isDutyLine)
-      .map((li) => ({ ...itemRow(li, cents, { artwork: false }), kind: "charge", code: "", sku: "", image: "" })),
+      .map((li) => ({ ...itemRow(li, cents, { artwork: false, brief: false }), kind: "charge", code: "", sku: "", image: "" })),
   ];
 
   const packaging = calculateOrderPackaging(order.lineItems?.nodes);

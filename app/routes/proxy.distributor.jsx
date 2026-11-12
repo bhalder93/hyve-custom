@@ -338,8 +338,10 @@ export const action = async ({ request }) => {
         "Singapore",
       ).trim();
 
+      // Every country is on the form now (HYV-221), so there's no Singapore
+      // stand-in: an old "Other" just has no code.
       const countryCode =
-        addressFormatFor(countryBased)?.code || "SG";
+        addressFormatFor(countryBased)?.code || "";
 
       // Allow dashes and spaces on input, but refine the phone when processing
       const refinedRawPhone =

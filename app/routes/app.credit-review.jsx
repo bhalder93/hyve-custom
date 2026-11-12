@@ -52,9 +52,7 @@ export const action = async ({ request }) => {
         ? {
             ok: true,
             id,
-            message: `Declined${result.emailed ? " and the buyer emailed" : ", but the buyer email didn't send"}.${
-              result.warning ? ` ${result.warning}` : ""
-            }`,
+            message: `Declined.${result.warning ? ` ${result.warning}` : ""}`,
           }
         : { ok: false, id, error: result.error };
     }
@@ -137,7 +135,7 @@ function ReviewOrder({ order, shop, fetcher }) {
                 loading={busy && intent === "decline"}
                 onClick={() => submit({ intent: "decline", reason })}
               >
-                {order.kind === "order" ? "Decline, cancel the order and tell the buyer" : "Decline and tell the buyer"}
+                {order.kind === "order" ? "Decline and cancel the order" : "Decline"}
               </s-button>
               <s-button disabled={busy} onClick={() => setDeclining(false)}>
                 Cancel
@@ -195,7 +193,7 @@ export default function CreditReviewPage() {
         <s-paragraph>
           Orders on payment terms that need a credit check: over the location's credit limit, placed with an overdue
           balance, or submitted as a draft for review. The buyer sees them as Credit Under Review. Decline needs a
-          reason, which the buyer is emailed and sees in their Orders. A draft: Approve creates the order (payment
+          reason, which the buyer sees in their Orders. A draft: Approve creates the order (payment
           pending on its terms) and it starts at Order Received. An order already placed waits On Hold: Approve
           releases it, Decline cancels it.
         </s-paragraph>

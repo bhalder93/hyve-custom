@@ -1803,12 +1803,44 @@ export async function sendInternalSlaAlert({
 /* Daily breach digest (Customer Service), HYV-132                            */
 /* -------------------------------------------------------------------------- */
 
-export async function sendBreachDigestEmail({ to, since, now, groups = [] }) {
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * The digest: yesterday's orders first (Michael, Nov 9), so staff can check
+ * each one came through, then the orders that missed a target.
+ */
+export async function sendBreachDigestEmail({ to, since, now, groups = [], yesterday = { day: "", orders: [], toCheck: 0 } }) {
   const recipients = Array.isArray(to) ? to.join(",") : to;
   const day = (value) =>
     new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Singapore" }).format(value);
   const count = groups.reduce((n, group) => n + group.orders.length, 0);
-  const subject = `[Hyve] Daily breach digest - ${day(now)} - ${count} order${count === 1 ? "" : "s"}`;
+  const placed = yesterday.orders.length;
+  const subject = `[Hyve] Daily digest - ${day(now)} - ${plural(placed, "new order")}${
+    yesterday.toCheck ? `, ${yesterday.toCheck} to check` : ""
+  } - ${plural(count, "order")} missed a target`;
+  const placedDay = formatDay(yesterday.day);
+  const cell = `padding:6px 8px 6px 0; border-bottom:1px solid ${BRAND.border}; vertical-align:top;`;
+
+  const yesterdaySection = `
+      <h3 style="margin:0 0 8px; font-size:15px; color:${BRAND.primaryText};">Yesterday's orders, ${escapeHtml(placedDay)} (${placed})</h3>
+      ${placed
+        ? `<p style="margin:0 0 8px; line-height:1.6; font-size:14px; color:${BRAND.secondaryText};">Every decorated order should be in Production Orders. Blank orders aren't, by design.</p>
+      <table style="width:100%; border-collapse:collapse; font-size:14px; color:${BRAND.primaryText};">
+        ${yesterday.orders
+          .map(
+            (order) => `
+          <tr>
+            <td style="${cell} width:34%;">
+              ${order.adminUrl ? `<a href="${escapeHtml(order.adminUrl)}" style="color:${BRAND.primaryText}; font-weight:700;">${escapeHtml(order.orderName)}</a>` : `<strong>${escapeHtml(order.orderName)}</strong>`}
+              <div style="color:${BRAND.secondaryText}; font-size:13px;">${escapeHtml(order.customerName || "—")}</div>
+            </td>
+            <td style="${cell} width:26%;">${escapeHtml(order.total || "—")}<div style="color:${BRAND.secondaryText}; font-size:13px;">${escapeHtml(order.payment)}</div></td>
+            <td style="${cell}${order.check ? " color:#b91c1c; font-weight:700;" : ""}">${escapeHtml(order.production)}</td>
+          </tr>`,
+          )
+          .join("")}
+      </table>`
+        : `<p style="margin:0; line-height:1.6; font-size:14px;">No orders were placed.</p>`}`;
 
   const sections = groups
     .map(
@@ -1833,8 +1865,10 @@ export async function sendBreachDigestEmail({ to, since, now, groups = [] }) {
 
   const html = brandedEmail({
     internal: true,
-    title: "Daily Breach Digest",
+    title: "Daily Digest",
     body: `
+      ${yesterdaySection}
+      <h3 style="margin:28px 0 8px; font-size:15px; color:${BRAND.primaryText};">Missed targets</h3>
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
         ${count
           ? `Orders that missed a target between ${escapeHtml(day(since))} and ${escapeHtml(day(now))}, grouped by the status they are in now.`
@@ -1846,6 +1880,15 @@ export async function sendBreachDigestEmail({ to, since, now, groups = [] }) {
   const text = [
     subject,
     "",
+    `Yesterday's orders, ${placedDay} (${placed})`,
+    ...(placed
+      ? yesterday.orders.map(
+          (order) =>
+            `- ${order.orderName}${order.customerName ? ` (${order.customerName})` : ""}: ${order.total || "—"}, ${order.payment}. ${order.production}${order.adminUrl ? ` ${order.adminUrl}` : ""}`,
+        )
+      : ["No orders were placed."]),
+    "",
+    "Missed targets",
     ...(count
       ? groups.flatMap((group) => [
           `${group.status} (${group.orders.length})`,
