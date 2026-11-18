@@ -733,6 +733,7 @@ async function getOrder(admin, orderId) {
     variant {
       inventoryItem {
         requiresShipping
+        measurement { weight { value unit } }
       }
       id
       image {
@@ -4054,15 +4055,15 @@ ${collectionAudit}`
   }
 }
 
+// A thumbnail only for a file the browser can draw. Artwork sent as AI, EPS
+// or PDF is a link: shown as a thumbnail it was an empty box (HYV-233). A
+// Shopify file address with no extension at all is still taken as an image.
 function isImageUrl(url) {
   if (!url || typeof url !== "string") return false;
   const clean = url.split("?")[0].toLowerCase();
   if (/\.(png|jpe?g|webp|gif|svg|avif)$/i.test(clean)) return true;
-  if (/cdn\.shopify\.com\/(s\/files|shopifycloud)/i.test(url)) {
-    if (/\.pdf$/i.test(clean)) return false;
-    return true;
-  }
-  return false;
+  const hasExtension = /\.[a-z0-9]{2,5}$/i.test(clean.split("/").pop() || "");
+  return !hasExtension && /cdn\.shopify\.com\/(s\/files|shopifycloud)/i.test(url);
 }
 
 function renderNoteText(text) {

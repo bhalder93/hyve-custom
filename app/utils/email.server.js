@@ -75,6 +75,15 @@ function getArtworkState(item) {
   return getAttributeValue(item, "Artwork");
 }
 
+/**
+ * The buyer's Design It For Me brief. Hyve keeps it internal, so it shows
+ * only on the proof emails, where the buyer checks the proof against it, and
+ * not on the invoice, packing list or other emails (HYV-233, James, Nov 11).
+ */
+function getDesignBrief(item) {
+  return getAttributeValue(item, "Design Brief");
+}
+
 function getProductImage(item) {
   return (
     item?.image?.url ||
@@ -107,7 +116,7 @@ function getQty(item) {
   return Number(item.quantity || 1);
 }
 
-function lineItemsSection(lineItems = []) {
+function lineItemsSection(lineItems = [], { brief = false } = {}) {
   if (!lineItems.length) {
     return "";
   }
@@ -118,6 +127,7 @@ function lineItemsSection(lineItems = []) {
       const variantDetails = getVariantDetails(item);
       const decoration = getDecoration(item);
       const artworkState = getArtworkState(item);
+      const designBrief = brief ? getDesignBrief(item) : "";
       const qty = getQty(item);
 
       return `
@@ -252,6 +262,23 @@ function lineItemsSection(lineItems = []) {
                             `
           : ""
         }
+
+                        ${designBrief
+          ? `
+                              <div
+                                style="
+                                  margin-top:4px;
+                                  font-size:13px;
+                                  line-height:1.5;
+                                  color:${BRAND.primaryText};
+                                "
+                              >
+                                <strong>Design Brief:</strong>
+                                ${escapeHtml(designBrief).replace(/\n/g, "<br />")}
+                              </div>
+                            `
+          : ""
+        }
                       </td>
                     </tr>
                   </table>
@@ -322,13 +349,14 @@ function customerLayout({
   body,
   lineItems = [],
   orderUrl = CUSTOMER_ORDERS_URL,
+  brief = false,
 }) {
   return brandedEmail({
     title,
     greeting: `Hi ${escapeHtml(customerName || "Customer")},`,
     body: `${body}
 
-                    ${lineItemsSection(lineItems)}`,
+                    ${lineItemsSection(lineItems, { brief })}`,
     details: [
       ["Order", escapeHtml(orderName)],
       ["Order date", escapeHtml(formatDate(orderDate))],
@@ -340,7 +368,7 @@ function customerLayout({
 /**
  * Plain-text counterpart to customerLayout's line items and order details block.
  */
-function plainTextOrderDetails({ lineItems = [], orderName, orderDate }) {
+function plainTextOrderDetails({ lineItems = [], orderName, orderDate, brief = false }) {
   const lines = [];
   if (Array.isArray(lineItems) && lineItems.length) {
     lines.push(
@@ -352,7 +380,8 @@ function plainTextOrderDetails({ lineItems = [], orderName, orderDate }) {
             ? ` (${item.variantTitle})`
             : "";
         const qty = item.quantity != null ? item.quantity : 1;
-        return `- ${title}${variant} x ${qty}`;
+        const designBrief = brief ? getDesignBrief(item) : "";
+        return `- ${title}${variant} x ${qty}${designBrief ? `\n  Design Brief: ${designBrief}` : ""}`;
       }),
       "",
     );
@@ -736,6 +765,7 @@ export async function sendProofSentEmail({
     orderDate,
     lineItems,
     orderUrl,
+    brief: true,
     body: `
       <div
         style="
@@ -803,7 +833,7 @@ export async function sendProofSentEmail({
     "",
     `Artwork Proof version: ${proofVersion || "1"}`,
     "",
-    ...plainTextOrderDetails({ lineItems, orderName, orderDate }),
+    ...plainTextOrderDetails({ lineItems, orderName, orderDate, brief: true }),
     "",
     `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
   ]
@@ -848,6 +878,7 @@ export async function sendProofReminderEmail({
     orderDate,
     lineItems,
     orderUrl,
+    brief: true,
     body: `
       <p style="margin:0 0 14px; line-height:1.7; font-size:15px;">
         This is a reminder that Artwork Proof version
@@ -901,7 +932,7 @@ export async function sendProofReminderEmail({
     `Request Changes: ${changesUrl}`,
     ...(reminderDay ? ["", `Reminder day: ${reminderDay}`] : []),
     "",
-    ...plainTextOrderDetails({ lineItems, orderName, orderDate }),
+    ...plainTextOrderDetails({ lineItems, orderName, orderDate, brief: true }),
     "",
     `View your order: ${orderUrl || CUSTOMER_ORDERS_URL}`,
   ]

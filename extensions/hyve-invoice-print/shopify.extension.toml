@@ -7,6 +7,7 @@ api_version = "2026-10"
 [[extensions]]
 name = "t:name"
 handle = "hyve-invoice-print"
+uid = "b0fa6da4-4566-fad6-e4ae-9fd2e5f565b1e4c989b2"
 type = "ui_extension"
 
   [[extensions.targeting]]

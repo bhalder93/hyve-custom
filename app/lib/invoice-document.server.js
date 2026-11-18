@@ -91,6 +91,7 @@ const DOCUMENT_QUERY = `#graphql
           image { url }
           customAttributes { key value }
           product {
+            id
             cartonSize: metafield(namespace: "custom", key: "carton_size") { value }
             piecesPerCarton: metafield(namespace: "custom", key: "pieces_per_carton") { value }
             grossWeight: metafield(namespace: "custom", key: "gross_weight") { value }
@@ -103,6 +104,7 @@ const DOCUMENT_QUERY = `#graphql
               requiresShipping
               harmonizedSystemCode
               countryCodeOfOrigin
+              measurement { weight { value unit } }
             }
           }
           originalUnitPriceSet { presentmentMoney { amount currencyCode } }

@@ -790,7 +790,11 @@ export const MODAL_STYLES = `
 
   .hyve-art__line { margin-top: 14px; }
   .hyve-art__line-title { display: block; font-size: 12px; font-weight: 700; color: var(--hyve-900); margin-bottom: 8px; }
-  .hyve-art__zone { margin-top: 12px; }
+  /* Relative so the hidden file input sits inside its own position. Placed
+     against the window instead, it lay below the visible area, and focusing
+     it (browse, or a file chosen) scrolled the whole window up, leaving the
+     footer halfway and blank white under it (HYV-233). */
+  .hyve-art__zone { margin-top: 12px; position: relative; }
   .hyve-art__zone-label { display: block; font-size: 12px; font-weight: 700; color: var(--hyve-900); margin-bottom: 6px; }
 
   /* Matches the drop zone on the product page. */
